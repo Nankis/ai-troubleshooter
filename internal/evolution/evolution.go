@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
+	"github.com/ginseng/ai-troubleshooter/internal/masking"
 )
 
 type Service struct {
@@ -135,10 +136,10 @@ func (s *Service) evolveKnowledge(ctx context.Context, c caseflow.Case, rootCaus
 			Title:                buildTitle(c, rootCause),
 			IssueDomain:          c.IssueDomain,
 			IssueType:            c.IssueType,
-			TypicalDescription:   c.OriginalText,
+			TypicalDescription:   masking.MaskString(c.OriginalText),
 			RequiredFieldsJSON:   mustJSON(requiredFields(c.IssueDomain)),
-			RecommendedStepsJSON: mustJSON(recommendedSteps(c.IssueDomain, rootCause)),
-			CommonCausesJSON:     mustJSON([]string{rootCause.RootCauseCategory + ": " + rootCause.HumanConfirmedReason}),
+			RecommendedStepsJSON: mustJSON(maskStrings(recommendedSteps(c.IssueDomain, rootCause))),
+			CommonCausesJSON:     mustJSON([]string{commonCauseText(rootCause)}),
 			UsefulToolsJSON:      mustJSON(usefulTools(c.IssueDomain)),
 			SuccessCaseIDsJSON:   mustJSON([]int64{}),
 			FailureCaseIDsJSON:   mustJSON([]int64{}),
@@ -148,15 +149,15 @@ func (s *Service) evolveKnowledge(ctx context.Context, c caseflow.Case, rootCaus
 	}
 
 	successIDs := appendUniqueInt64(jsonInt64Slice(existing.SuccessCaseIDsJSON), c.ID)
-	commonCauses := appendUniqueString(jsonStringSlice(existing.CommonCausesJSON), rootCause.RootCauseCategory+": "+rootCause.HumanConfirmedReason)
-	steps := appendUniqueString(jsonStringSlice(existing.RecommendedStepsJSON), recommendedSteps(c.IssueDomain, rootCause)...)
+	commonCauses := appendUniqueString(jsonStringSlice(existing.CommonCausesJSON), commonCauseText(rootCause))
+	steps := appendUniqueString(jsonStringSlice(existing.RecommendedStepsJSON), maskStrings(recommendedSteps(c.IssueDomain, rootCause))...)
 	tools := appendUniqueString(jsonStringSlice(existing.UsefulToolsJSON), usefulTools(c.IssueDomain)...)
 
 	existing.Title = buildTitle(c, rootCause)
 	existing.IssueDomain = c.IssueDomain
 	existing.IssueType = c.IssueType
 	if existing.TypicalDescription == "" {
-		existing.TypicalDescription = c.OriginalText
+		existing.TypicalDescription = masking.MaskString(c.OriginalText)
 	}
 	existing.RequiredFieldsJSON = mustJSON(requiredFields(c.IssueDomain))
 	existing.RecommendedStepsJSON = mustJSON(steps)
@@ -165,7 +166,7 @@ func (s *Service) evolveKnowledge(ctx context.Context, c caseflow.Case, rootCaus
 	existing.SuccessCaseIDsJSON = mustJSON(successIDs)
 	existing.ObservedCaseCount = len(successIDs)
 	existing.LastRootCauseCategory = rootCause.RootCauseCategory
-	existing.LastConfirmedReason = rootCause.HumanConfirmedReason
+	existing.LastConfirmedReason = masking.MaskString(rootCause.HumanConfirmedReason)
 	existing.LastEvolvedAt = time.Now()
 	existing.Confidence = confidenceFromCases(len(successIDs))
 	existing.Status = "active"
@@ -255,10 +256,10 @@ func confidenceFromCases(count int) float64 {
 }
 
 func snapshotJSON(c *caseflow.Case, rootCause caseflow.RootCause) string {
-	return mustJSON(map[string]any{
+	return mustJSON(masking.MaskValue(map[string]any{
 		"case":       c,
 		"root_cause": rootCause,
-	})
+	}))
 }
 
 func mustJSON(value any) string {
@@ -267,6 +268,18 @@ func mustJSON(value any) string {
 		return "null"
 	}
 	return string(b)
+}
+
+func commonCauseText(rootCause caseflow.RootCause) string {
+	return masking.MaskString(rootCause.RootCauseCategory + ": " + rootCause.HumanConfirmedReason)
+}
+
+func maskStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, masking.MaskString(value))
+	}
+	return out
 }
 
 func jsonStringSlice(raw string) []string {

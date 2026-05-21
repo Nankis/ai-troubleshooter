@@ -1,4 +1,4 @@
-CREATE TABLE ai_decision_logs (
+CREATE TABLE IF NOT EXISTS ai_decision_logs (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   case_id BIGINT NOT NULL,
   investigation_id BIGINT NULL,

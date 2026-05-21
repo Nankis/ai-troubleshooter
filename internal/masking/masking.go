@@ -1,6 +1,8 @@
 package masking
 
 import (
+	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -47,6 +49,9 @@ func MaskString(input string) string {
 }
 
 func MaskValue(value any) any {
+	if value == nil {
+		return nil
+	}
 	switch v := value.(type) {
 	case string:
 		return MaskString(v)
@@ -67,6 +72,45 @@ func MaskValue(value any) any {
 		}
 		return out
 	default:
+		rv := reflect.ValueOf(value)
+		switch rv.Kind() {
+		case reflect.Pointer, reflect.Interface:
+			if rv.IsNil() {
+				return nil
+			}
+			return MaskValue(rv.Elem().Interface())
+		case reflect.Slice, reflect.Array:
+			out := make([]any, rv.Len())
+			for i := 0; i < rv.Len(); i++ {
+				out[i] = MaskValue(rv.Index(i).Interface())
+			}
+			return out
+		case reflect.Map:
+			if rv.Type().Key().Kind() != reflect.String {
+				return value
+			}
+			out := make(map[string]any, rv.Len())
+			iter := rv.MapRange()
+			for iter.Next() {
+				key := iter.Key().String()
+				if sensitiveKeys[strings.ToLower(key)] {
+					out[key] = "[REDACTED]"
+					continue
+				}
+				out[key] = MaskValue(iter.Value().Interface())
+			}
+			return out
+		case reflect.Struct:
+			b, err := json.Marshal(value)
+			if err != nil {
+				return value
+			}
+			var decoded any
+			if err := json.Unmarshal(b, &decoded); err != nil {
+				return value
+			}
+			return MaskValue(decoded)
+		}
 		return value
 	}
 }
