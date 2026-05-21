@@ -102,6 +102,26 @@ func TestHandlerAcceptsEncryptedLarkMessage(t *testing.T) {
 	}
 }
 
+func TestHandlerAcceptsFeishuEventPath(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	q := &recordingQueue{}
+	handler := NewHandler(store, q, nil)
+	body := `{"chat_id":"oc_1","message_id":"msg_feishu_1","user_id":"ou_1","text":"@bot BTCUSDT 1m K线价格不一致"}`
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/feishu/events", strings.NewReader(body)))
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.FindCaseByMessageID(context.Background(), "feishu", "msg_feishu_1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FindCaseByMessageID(context.Background(), "lark", "msg_feishu_1"); err == nil {
+		t.Fatal("expected feishu event to use feishu source, but found lark source")
+	}
+}
+
 func TestHandlerRejectsEncryptedPayloadWithoutKey(t *testing.T) {
 	body := encryptedTestEnvelope(t, "encrypt_key_1", []byte(`{"token":"token_1","challenge":"challenge_1"}`))
 	handler := NewHandler(caseflow.NewInMemoryStore(), queue.NewMemoryQueue(1), nil)

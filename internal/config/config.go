@@ -4,6 +4,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/Nankis/ai-troubleshooter/internal/chatplatform"
 )
 
 type Config struct {
@@ -26,6 +28,7 @@ type ServerConfig struct {
 }
 
 type LarkConfig struct {
+	Platform          string
 	AppID             string
 	AppSecret         string
 	APIBaseURL        string
@@ -104,15 +107,21 @@ type LimitsConfig struct {
 }
 
 func LoadFromEnv() Config {
+	larkPlatform := chatplatform.Normalize(env("LARK_PLATFORM", chatplatform.PlatformLark))
+	larkAPIBaseURL := env("LARK_API_BASE_URL", "")
+	if larkAPIBaseURL == "" {
+		larkAPIBaseURL = chatplatform.DefaultOpenAPIBaseURL(larkPlatform)
+	}
 	return Config{
 		Server: ServerConfig{
 			Env:      env("APP_ENV", "dev"),
 			HTTPPort: envInt("HTTP_PORT", 8080),
 		},
 		Lark: LarkConfig{
+			Platform:          larkPlatform,
 			AppID:             env("LARK_APP_ID", ""),
 			AppSecret:         env("LARK_APP_SECRET", ""),
-			APIBaseURL:        env("LARK_API_BASE_URL", "https://open.feishu.cn"),
+			APIBaseURL:        larkAPIBaseURL,
 			VerificationToken: env("LARK_VERIFICATION_TOKEN", ""),
 			EncryptKey:        env("LARK_ENCRYPT_KEY", ""),
 			AllowedChatIDs:    envCSV("LARK_ALLOWED_CHAT_IDS"),

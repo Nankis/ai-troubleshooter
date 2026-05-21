@@ -61,9 +61,9 @@ Gateway 侧仍有独立保护：
 
 ## 幂等和重复处理保护
 
-Lark 平台可能因为网络抖动或业务接口超时重复投递同一条消息。系统按 `source + message_id` 建 case 幂等键：
+Lark/飞书平台可能因为网络抖动或业务接口超时重复投递同一条消息。系统按 `source + message_id` 建 case 幂等键：
 
-- Lark handler 在创建 case 前先查询同一 `message_id` 是否已被接收。
+- Lark/飞书 handler 在创建 case 前先查询同一 `source + message_id` 是否已被接收。
 - 已接收的事件返回 `202`，响应包含 `duplicate=true` 和已有 `case_no`，不再重复入队。
 - MySQL 通过 `migrations/004_case_idempotency.sql` 增加唯一索引，防并发重复创建。
 

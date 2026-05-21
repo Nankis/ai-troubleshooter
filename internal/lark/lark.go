@@ -71,7 +71,8 @@ func (h *Handler) SetOptions(options Options) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || r.URL.Path != "/lark/events" {
+	source, ok := sourceFromEventPath(r.URL.Path)
+	if r.Method != http.MethodPost || !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
@@ -112,7 +113,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	event.OCRText = h.enrichOCRWithImages(r.Context(), event)
 	if event.MessageID != "" {
-		existing, err := h.store.FindCaseByMessageID(r.Context(), "lark", event.MessageID)
+		existing, err := h.store.FindCaseByMessageID(r.Context(), source, event.MessageID)
 		if err == nil {
 			writeJSON(w, http.StatusAccepted, map[string]any{
 				"case_id":   existing.ID,
@@ -130,7 +131,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c, err := h.store.CreateCase(r.Context(), caseflow.CreateCaseInput{
-		Source:         "lark",
+		Source:         source,
 		ChatID:         event.ChatID,
 		ThreadID:       event.ThreadID,
 		MessageID:      event.MessageID,
@@ -162,6 +163,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status":  c.Status,
 		"reply":   reply,
 	})
+}
+
+func sourceFromEventPath(path string) (string, bool) {
+	switch path {
+	case "/lark/events":
+		return "lark", true
+	case "/feishu/events":
+		return "feishu", true
+	default:
+		return "", false
+	}
 }
 
 func ParseEvent(body []byte) (Event, error) {

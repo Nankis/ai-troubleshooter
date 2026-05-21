@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+func TestLoadFromEnvDefaultsToLarkPlatform(t *testing.T) {
+	t.Setenv("LARK_PLATFORM", "")
+	t.Setenv("LARK_API_BASE_URL", "")
+
+	cfg := LoadFromEnv()
+	if cfg.Lark.Platform != "lark" {
+		t.Fatalf("expected lark platform by default, got %q", cfg.Lark.Platform)
+	}
+	if cfg.Lark.APIBaseURL != "https://open.larksuite.com" {
+		t.Fatalf("expected lark OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
+	}
+}
+
+func TestLoadFromEnvSupportsFeishuPlatform(t *testing.T) {
+	t.Setenv("LARK_PLATFORM", "feishu")
+	t.Setenv("LARK_API_BASE_URL", "")
+
+	cfg := LoadFromEnv()
+	if cfg.Lark.Platform != "feishu" {
+		t.Fatalf("expected feishu platform, got %q", cfg.Lark.Platform)
+	}
+	if cfg.Lark.APIBaseURL != "https://open.feishu.cn" {
+		t.Fatalf("expected feishu OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
+	}
+}
+
+func TestLoadFromEnvAllowsExplicitLarkAPIBaseURL(t *testing.T) {
+	t.Setenv("LARK_PLATFORM", "lark")
+	t.Setenv("LARK_API_BASE_URL", "https://proxy.example.internal/lark")
+
+	cfg := LoadFromEnv()
+	if cfg.Lark.APIBaseURL != "https://proxy.example.internal/lark" {
+		t.Fatalf("expected explicit OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
+	}
+}
+
 func TestValidateForGatewayFailsClosedInProd(t *testing.T) {
 	cfg := Config{Server: ServerConfig{Env: "prod"}}
 	err := cfg.ValidateForGateway()
@@ -39,5 +75,13 @@ func TestValidateForLarkBotFailsClosedInProd(t *testing.T) {
 	err := cfg.ValidateForLarkBot()
 	if err == nil || !strings.Contains(err.Error(), "LARK_VERIFICATION_TOKEN") || !strings.Contains(err.Error(), "LARK_ALLOWED_CHAT_IDS") {
 		t.Fatalf("expected lark prod errors, got %v", err)
+	}
+}
+
+func TestValidateForLarkBotRejectsUnknownPlatform(t *testing.T) {
+	cfg := Config{Lark: LarkConfig{Platform: "unknown"}}
+	err := cfg.ValidateForLarkBot()
+	if err == nil || !strings.Contains(err.Error(), "LARK_PLATFORM") {
+		t.Fatalf("expected platform validation error, got %v", err)
 	}
 }

@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Nankis/ai-troubleshooter/internal/chatplatform"
 )
 
 func (cfg Config) IsProd() bool {
@@ -33,6 +35,9 @@ func (cfg Config) ValidateForControlAPI() error {
 
 func (cfg Config) ValidateForLarkBot() error {
 	errs := []string{}
+	if strings.TrimSpace(cfg.Lark.Platform) != "" && !chatplatform.Supported(cfg.Lark.Platform) {
+		errs = append(errs, "LARK_PLATFORM must be lark or feishu")
+	}
 	if cfg.IsProd() && strings.TrimSpace(cfg.Lark.VerificationToken) == "" {
 		errs = append(errs, "LARK_VERIFICATION_TOKEN is required in prod")
 	}

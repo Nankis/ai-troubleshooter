@@ -8,7 +8,9 @@ HTTP_PORT=8080
 
 LARK_APP_ID=cli_xxx
 LARK_APP_SECRET=xxx
-LARK_API_BASE_URL=https://open.feishu.cn
+LARK_PLATFORM=lark
+# Optional override. Lark default: https://open.larksuite.com; Feishu default: https://open.feishu.cn
+LARK_API_BASE_URL=
 LARK_VERIFICATION_TOKEN=xxx
 LARK_ENCRYPT_KEY=xxx
 LARK_ALLOWED_CHAT_IDS=oc_xxx,oc_yyy
@@ -50,13 +52,15 @@ MAX_INVESTIGATION_SECONDS=120
 
 ## 接入前检查
 
-- Lark 机器人只加入允许的群。
+- Lark 优先接入：默认 `LARK_PLATFORM=lark`，系统使用 `https://open.larksuite.com` 调用开放平台。
+- 飞书中国站接入：设置 `LARK_PLATFORM=feishu`，系统使用 `https://open.feishu.cn`；如公司有代理网关，可用 `LARK_API_BASE_URL` 覆盖。
+- Lark/飞书机器人只加入允许的群。
 - `LARK_ALLOWED_CHAT_IDS` 已配置，避免任意群触发。
-- 飞书中国站使用 `LARK_API_BASE_URL=https://open.feishu.cn`；Lark 国际版使用对应 Lark Open Platform base URL，事件 payload 和业务处理逻辑保持一致。
+- Lark 事件订阅使用 `POST /lark/events`；飞书中国站可以使用 `POST /feishu/events`，两者复用同一套 payload、加密和消息处理逻辑。
 - 内部联调如需机器人在群里真实回复，已配置 `LARK_APP_ID` 和 `LARK_APP_SECRET`，并确保应用开启机器人能力。
-- 飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
-- 配置 `LARK_ENCRYPT_KEY` 后，Lark 入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
-- 如果需要识别截图，飞书应用必须具备读取消息资源/图片资源的权限，并配置 `LARK_APP_ID`、`LARK_APP_SECRET` 供系统下载图片。
+- Lark/飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
+- 配置 `LARK_ENCRYPT_KEY` 后，Lark/飞书入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
+- 如果需要识别截图，Lark/飞书应用必须具备读取消息资源/图片资源的权限，并配置 `LARK_APP_ID`、`LARK_APP_SECRET` 供系统下载图片。
 - 视觉模型建议独立配置：`VISION_PROVIDER=qwen_openai_compatible` 使用千问视觉识别图片，后续 `LLM_*` 仍可接 GPT/Claude 做文字推理。
 - 原图默认只在内存中短暂处理，不写入 MySQL；如需留存原图，必须接公司对象存储、保留周期和数据分级审批。
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
@@ -72,7 +76,7 @@ MAX_INVESTIGATION_SECONDS=120
 - 数据库已依次执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql`、`migrations/003_ai_decision_logs.sql` 和 `migrations/004_case_idempotency.sql`，DSN 必须包含 `parseTime=true`。
 - `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tool_call_audits`，orchestrator 会把 AI 决策写入 `ai_decision_logs`。
 - `MAX_TOOL_CALLS_PER_CASE`、`MAX_TOOL_FAILURES_PER_CASE`、`MAX_INVESTIGATION_SECONDS` 已按业务下游承载能力设置。
-- Lark 重复投递已验证：同一个 `message_id` 重放只返回已有 `case_no`，不重复入队、不重复查下游。
+- Lark/飞书重复投递已验证：同一个 `source + message_id` 重放只返回已有 `case_no`，不重复入队、不重复查下游。
 - `ai_decision_logs` 快照已验证脱敏：手机号、邮箱、token、secret、api key 不出现明文。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
@@ -126,7 +130,21 @@ curl -s localhost:19091/lark/events \
   }'
 ```
 
-真实飞书联调时，图片下载需要 `LARK_APP_ID` / `LARK_APP_SECRET`；本地 mock 模式下如未配置真实 Bot，响应中会提示图片未下载，不影响文字工单链路。
+飞书中国站入口兼容检查：
+
+```bash
+curl -s localhost:19091/feishu/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id":"oc_dev",
+    "thread_id":"thread_dev",
+    "message_id":"msg_feishu_1",
+    "user_id":"ou_dev",
+    "text":"@排障机器人 用户反馈 BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00"
+  }'
+```
+
+真实 Lark/飞书联调时，图片下载需要 `LARK_APP_ID` / `LARK_APP_SECRET`；本地 mock 模式下如未配置真实 Bot，响应中会提示图片未下载，不影响文字工单链路。
 
 重复投递检查：
 

@@ -81,6 +81,7 @@ func main() {
 	})
 	mux := http.NewServeMux()
 	mux.Handle("/lark/events", larkHandler)
+	mux.Handle("/feishu/events", larkHandler)
 	mux.Handle("/tools", gw)
 	mux.Handle("/tools/", gw)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

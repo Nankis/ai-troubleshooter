@@ -10,7 +10,7 @@
 
 ## 一期范围
 
-- Lark 群消息创建排障 case。
+- Lark 群消息创建排障 case，默认优先支持 Lark 国际版，同时兼容飞书中国站。
 - Agent 先做分类、实体抽取和必要字段检查，信息不足时追问。
 - 信息足够后通过 Tool Server / Query Gateway 调用只读工具。
 - 工具调用默认 deny，只有注册 agent、授权 scope、启用工具才可执行。
@@ -144,13 +144,13 @@ docs/                      TRD 摘要与一期说明
 
 - 独立 Go 仓库和一期目录结构。
 - 本地一体化 `dev-server`。
-- Lark 事件入口：`POST /lark/events`，支持本地模拟 payload 和 Lark v2 消息 payload。
+- Lark / 飞书事件入口：`POST /lark/events` 和 `POST /feishu/events`，支持本地模拟 payload 和 Lark/Feishu v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
 - Lark encrypted callback：配置 `LARK_ENCRYPT_KEY` 后只接受密文回调，先解密 `encrypt` 回调体，再验 token 和处理 challenge / message。
-- Lark `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
-- 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过飞书开放平台发送文本回复；未配置时本地只写日志。
-- `LARK_API_BASE_URL` 可配置开放平台域名：飞书中国站默认 `https://open.feishu.cn`，Lark 国际版切到对应 Lark Open Platform base URL 即可复用同一套事件、加密和消息资源逻辑。
-- Lark 图片消息下载：从消息 `content` 中提取 `image_key`，通过飞书消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
+- Lark/Feishu `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
+- 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过对应开放平台发送文本回复；未配置时本地只写日志。
+- `LARK_PLATFORM` 默认 `lark`，自动使用 `https://open.larksuite.com`；设为 `feishu` 时自动使用 `https://open.feishu.cn`；`LARK_API_BASE_URL` 可显式覆盖，适合公司代理网关。
+- Lark/Feishu 图片消息下载：从消息 `content` 中提取 `image_key`，通过消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
 - 多模型链路：`VISION_*` 独立配置视觉识别模型，适合用 Qwen-VL 先识别截图；`LLM_*` 独立配置后续文本推理模型，后续可换 GPT/Claude。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
@@ -204,6 +204,20 @@ curl -s localhost:8080/lark/events \
   }'
 ```
 
+飞书中国站事件可使用兼容入口：
+
+```bash
+curl -s localhost:8080/feishu/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id":"oc_dev",
+    "thread_id":"thread_dev",
+    "message_id":"msg_feishu_1",
+    "user_id":"ou_dev",
+    "text":"@排障机器人 用户反馈 BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00"
+  }'
+```
+
 查看工具：
 
 ```bash
@@ -247,7 +261,7 @@ VISION_MAX_IMAGES_PER_MESSAGE=3
 VISION_MAX_IMAGE_BYTES=10485760
 ```
 
-配置后，飞书图片消息会被下载、传给视觉模型识别，识别出的截图文字和客观现象会进入 `OCRText`，后续分类、实体抽取和工具编排会同时使用用户文本与图片识别结果。
+配置后，Lark/飞书图片消息会被下载、传给视觉模型识别，识别出的截图文字和客观现象会进入 `OCRText`，后续分类、实体抽取和工具编排会同时使用用户文本与图片识别结果。
 
 配置文本推理模型：
 
@@ -331,7 +345,7 @@ Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Orchestrator 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
-- 飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
+- Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 
 ## 下一步
 

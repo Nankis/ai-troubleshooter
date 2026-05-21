@@ -52,6 +52,16 @@ func TestBotMessengerRepliesThenFallsBackToChat(t *testing.T) {
 	}
 }
 
+func TestBotMessengerDefaultsToLarkOpenAPIBaseURL(t *testing.T) {
+	messenger := NewBotMessenger(BotMessengerOptions{
+		AppID:     "app_1",
+		AppSecret: "secret_1",
+	})
+	if messenger.baseURL != "https://open.larksuite.com" {
+		t.Fatalf("expected lark base URL by default, got %s", messenger.baseURL)
+	}
+}
+
 func TestBotMessengerDownloadsMessageImageResource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

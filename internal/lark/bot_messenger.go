@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Nankis/ai-troubleshooter/internal/chatplatform"
 )
 
-const defaultAPIBaseURL = "https://open.feishu.cn"
+const defaultAPIBaseURL = chatplatform.LarkOpenAPIBaseURL
 
 type BotMessengerOptions struct {
 	AppID     string
