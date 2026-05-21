@@ -34,6 +34,10 @@ GATEWAY_TOOL_QPS=20
 
 CONTROL_API_AUTH_ENABLED=true
 CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
+
+MAX_TOOL_CALLS_PER_CASE=10
+MAX_TOOL_FAILURES_PER_CASE=3
+MAX_INVESTIGATION_SECONDS=120
 ```
 
 ## 接入前检查
@@ -50,8 +54,9 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 - 控制面 API 已开启内部 Bearer 鉴权：`CONTROL_API_AUTH_ENABLED=true`。
 - root cause、feedback、knowledge、orchestrator case/process API 仅允许内部系统或已授权 owner 调用。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
-- 数据库已执行 `migrations/001_initial.sql` 和 `migrations/002_knowledge_evolution.sql`，DSN 必须包含 `parseTime=true`。
-- `DB_DSN` 已提供给需要持久化 case、knowledge 和 tool audit 的服务；Gateway 会把工具审计写入 `tool_call_audits`。
+- 数据库已执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql` 和 `migrations/003_ai_decision_logs.sql`，DSN 必须包含 `parseTime=true`。
+- `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tool_call_audits`，orchestrator 会把 AI 决策写入 `ai_decision_logs`。
+- `MAX_TOOL_CALLS_PER_CASE`、`MAX_TOOL_FAILURES_PER_CASE`、`MAX_INVESTIGATION_SECONDS` 已按业务下游承载能力设置。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
 ## 本地 smoke test
@@ -109,6 +114,8 @@ curl -s localhost:19091/cases/case_20260521_000001/root-cause \
   }'
 
 curl -s 'localhost:19091/knowledge?issue_domain=kline'
+
+curl -s 'localhost:19091/cases/case_20260521_000001/ai-decisions?limit=100'
 ```
 
 预期：
@@ -116,3 +123,4 @@ curl -s 'localhost:19091/knowledge?issue_domain=kline'
 - case 状态进入 `DONE`。
 - 响应包含 `root_cause`、`knowledge_item`、`evolution_run`。
 - `/knowledge` 能查到新增或更新后的知识条目。
+- `/cases/{case_no}/ai-decisions` 能查到分类、实体抽取、工具计划、工具调用和总结日志。

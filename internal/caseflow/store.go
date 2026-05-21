@@ -35,6 +35,8 @@ type Store interface {
 	ListMessages(ctx context.Context, caseID int64) ([]Message, error)
 	CreateInvestigation(ctx context.Context, inv Investigation) (Investigation, error)
 	FinishInvestigation(ctx context.Context, id int64, status string, summary string, confidence *float64) (Investigation, error)
+	AddAIDecisionLog(ctx context.Context, log AIDecisionLog) (AIDecisionLog, error)
+	ListAIDecisionLogs(ctx context.Context, caseID int64, limit int) ([]AIDecisionLog, error)
 	UpsertRootCause(ctx context.Context, rootCause RootCause) (RootCause, error)
 	GetRootCause(ctx context.Context, caseID int64) (RootCause, error)
 	AddCaseFeedback(ctx context.Context, feedback CaseFeedback) (CaseFeedback, error)
@@ -53,6 +55,7 @@ type InMemoryStore struct {
 	nextEntityID                int64
 	nextMessageID               int64
 	nextInvestigationID         int64
+	nextAIDecisionLogID         int64
 	nextRootCauseID             int64
 	nextFeedbackID              int64
 	nextKnowledgeItemID         int64
@@ -62,6 +65,7 @@ type InMemoryStore struct {
 	entities                    map[int64][]Entity
 	messages                    map[int64][]Message
 	investigations              map[int64]*Investigation
+	aiDecisionLogs              map[int64][]AIDecisionLog
 	rootCauses                  map[int64]*RootCause
 	feedback                    map[int64][]CaseFeedback
 	knowledgeItems              map[int64]*KnowledgeItem
@@ -84,6 +88,7 @@ func NewInMemoryStore() *InMemoryStore {
 		entities:       map[int64][]Entity{},
 		messages:       map[int64][]Message{},
 		investigations: map[int64]*Investigation{},
+		aiDecisionLogs: map[int64][]AIDecisionLog{},
 		rootCauses:     map[int64]*RootCause{},
 		feedback:       map[int64][]CaseFeedback{},
 		knowledgeItems: map[int64]*KnowledgeItem{},
@@ -264,6 +269,39 @@ func (s *InMemoryStore) FinishInvestigation(ctx context.Context, id int64, statu
 	inv.FinishedAt = &now
 	inv.UpdatedAt = now
 	return *cloneInvestigation(inv), nil
+}
+
+func (s *InMemoryStore) AddAIDecisionLog(ctx context.Context, log AIDecisionLog) (AIDecisionLog, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.cases[log.CaseID]; !ok {
+		return AIDecisionLog{}, ErrNotFound
+	}
+	s.nextAIDecisionLogID++
+	log.ID = s.nextAIDecisionLogID
+	if log.CreatedAt.IsZero() {
+		log.CreatedAt = time.Now()
+	}
+	if log.Status == "" {
+		log.Status = "success"
+	}
+	s.aiDecisionLogs[log.CaseID] = append(s.aiDecisionLogs[log.CaseID], log)
+	return log, nil
+}
+
+func (s *InMemoryStore) ListAIDecisionLogs(ctx context.Context, caseID int64, limit int) ([]AIDecisionLog, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	items := s.aiDecisionLogs[caseID]
+	if len(items) > limit {
+		items = items[len(items)-limit:]
+	}
+	return append([]AIDecisionLog(nil), items...), nil
 }
 
 func (s *InMemoryStore) UpsertRootCause(ctx context.Context, rootCause RootCause) (RootCause, error) {

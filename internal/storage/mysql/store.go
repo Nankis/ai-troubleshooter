@@ -254,6 +254,71 @@ UPDATE investigations SET status = ?, final_summary = ?, confidence = ?, finishe
 	return s.getInvestigation(ctx, id)
 }
 
+func (s *Store) AddAIDecisionLog(ctx context.Context, item caseflow.AIDecisionLog) (caseflow.AIDecisionLog, error) {
+	now := time.Now()
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = now
+	}
+	if item.Status == "" {
+		item.Status = "success"
+	}
+	res, err := s.db.ExecContext(ctx, `
+INSERT INTO ai_decision_logs
+(case_id, investigation_id, agent_id, decision_type, reason, input_snapshot_json, output_snapshot_json, selected_tools_json, status, latency_ms, error_message, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.CaseID,
+		nullableInt64(item.InvestigationID),
+		item.AgentID,
+		item.DecisionType,
+		nullableString(item.Reason),
+		nullableString(item.InputSnapshotJSON),
+		nullableString(item.OutputSnapshotJSON),
+		nullableString(item.SelectedToolsJSON),
+		item.Status,
+		item.LatencyMS,
+		nullableString(item.ErrorMessage),
+		item.CreatedAt,
+	)
+	if err != nil {
+		return caseflow.AIDecisionLog{}, err
+	}
+	id, _ := res.LastInsertId()
+	item.ID = id
+	return item, nil
+}
+
+func (s *Store) ListAIDecisionLogs(ctx context.Context, caseID int64, limit int) ([]caseflow.AIDecisionLog, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, case_id, investigation_id, agent_id, decision_type, reason, input_snapshot_json, output_snapshot_json,
+       selected_tools_json, status, latency_ms, error_message, created_at
+FROM ai_decision_logs
+WHERE case_id = ?
+ORDER BY id DESC
+LIMIT ?`, caseID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []caseflow.AIDecisionLog{}
+	for rows.Next() {
+		item, err := scanAIDecisionLogRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 func (s *Store) UpsertRootCause(ctx context.Context, rootCause caseflow.RootCause) (caseflow.RootCause, error) {
 	now := time.Now()
 	if rootCause.ConfirmedAt.IsZero() {
@@ -568,6 +633,25 @@ func scanFeedbackRows(rows *sql.Rows) (caseflow.CaseFeedback, error) {
 	item.MissingToolsJSON = nullStringValue(missingTools)
 	item.Comment = nullStringValue(comment)
 	item.CreatedBy = nullStringValue(createdBy)
+	return item, nil
+}
+
+func scanAIDecisionLogRows(rows *sql.Rows) (caseflow.AIDecisionLog, error) {
+	var item caseflow.AIDecisionLog
+	var investigationID sql.NullInt64
+	var reason, inputSnapshot, outputSnapshot, selectedTools, errorMessage sql.NullString
+	if err := rows.Scan(&item.ID, &item.CaseID, &investigationID, &item.AgentID, &item.DecisionType, &reason,
+		&inputSnapshot, &outputSnapshot, &selectedTools, &item.Status, &item.LatencyMS, &errorMessage, &item.CreatedAt); err != nil {
+		return caseflow.AIDecisionLog{}, err
+	}
+	if investigationID.Valid {
+		item.InvestigationID = investigationID.Int64
+	}
+	item.Reason = nullStringValue(reason)
+	item.InputSnapshotJSON = nullStringValue(inputSnapshot)
+	item.OutputSnapshotJSON = nullStringValue(outputSnapshot)
+	item.SelectedToolsJSON = nullStringValue(selectedTools)
+	item.ErrorMessage = nullStringValue(errorMessage)
 	return item, nil
 }
 

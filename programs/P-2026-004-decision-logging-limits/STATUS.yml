@@ -1,0 +1,25 @@
+program: P-2026-004-decision-logging-limits
+name: "Decision logging and query limits"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-21"
+updated_at: "2026-05-21"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program"
+    status: done
+  - id: task-2
+    name: "决策日志模型和持久化"
+    status: done
+  - id: task-3
+    name: "Orchestrator 记录决策过程"
+    status: done
+  - id: task-4
+    name: "超时和查询限制"
+    status: done
+  - id: task-5
+    name: "文档和验证"
+    status: done

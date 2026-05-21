@@ -84,6 +84,8 @@ type ToolGatewayConfig struct {
 type LimitsConfig struct {
 	MaxToolCallsPerCase        int
 	MaxLLMCallsPerCase         int
+	MaxToolFailuresPerCase     int
+	MaxInvestigationSeconds    int
 	DefaultLogTimeRangeMinutes int
 	DefaultToolTimeoutSeconds  int
 	WorkerConcurrency          int
@@ -147,6 +149,8 @@ func LoadFromEnv() Config {
 		Limits: LimitsConfig{
 			MaxToolCallsPerCase:        envInt("MAX_TOOL_CALLS_PER_CASE", 10),
 			MaxLLMCallsPerCase:         envInt("MAX_LLM_CALLS_PER_CASE", 8),
+			MaxToolFailuresPerCase:     envInt("MAX_TOOL_FAILURES_PER_CASE", 3),
+			MaxInvestigationSeconds:    envInt("MAX_INVESTIGATION_SECONDS", 120),
 			DefaultLogTimeRangeMinutes: envInt("DEFAULT_LOG_TIME_RANGE_MINUTES", 30),
 			DefaultToolTimeoutSeconds:  envInt("DEFAULT_TOOL_TIMEOUT_SECONDS", 5),
 			WorkerConcurrency:          envInt("WORKER_CONCURRENCY", 4),

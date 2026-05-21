@@ -135,6 +135,7 @@ docs/                      TRD 摘要与一期说明
 
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
 - [Gateway 安全与鉴权边界](docs/gateway-security.md)
+- [AI 决策日志与查询限制](docs/decision-logging-and-limits.md)
 - [部署检查清单](docs/deployment-checklist.md)
 - [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
 - [ai-workflow 开发规范接入](docs/ai-workflow.md)
@@ -148,6 +149,8 @@ docs/                      TRD 摘要与一期说明
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
+- AI 决策日志：分类、实体抽取、字段检查、工具计划、工具调用、总结、失败原因均可审计。
+- Case 级排查超时、工具调用总数上限和工具失败上限，避免查不到问题时持续打下游。
 - Tool Registry 和内部 Tool Invoke API。
 - Query Gateway 默认拒绝策略、scope 校验、参数边界控制。
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
@@ -160,6 +163,7 @@ docs/                      TRD 摘要与一期说明
 - MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
 - MySQL 初始化 migration。
 - 知识沉淀增强 migration。
+- AI 决策日志 migration。
 - OpenAPI 草案。
 - 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope、Lark payload、知识自进化。
 
@@ -244,6 +248,12 @@ curl -s localhost:8080/cases/case_20260521_000001/root-cause \
 curl -s 'localhost:8080/knowledge?issue_domain=kline&issue_type=价格不一致'
 ```
 
+查询某个 case 的 AI 决策轨迹：
+
+```bash
+curl -s 'localhost:8080/cases/case_20260521_000001/ai-decisions?limit=100'
+```
+
 ## 容器部署
 
 构建本地一体化服务：
@@ -273,6 +283,8 @@ go test ./...
 
 root cause、feedback、knowledge、orchestrator case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
+Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `ai_decision_logs`，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。
+
 部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
 
 ## 当前实现边界
@@ -280,13 +292,13 @@ root cause、feedback、knowledge、orchestrator case/process 这类控制面 AP
 - Redis Stream、真实 Lark 发消息 API、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
+- Orchestrator 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 
 ## 下一步
 
-1. 把 `caseflow.Store` 从内存实现替换为 MySQL。
-2. 把 `queue.Queue` 从内存实现替换为 Redis Stream。
-3. 接真实 Lark 验签、消息发送和图片下载。
-4. 接真实 LLM provider，并保留规则型实现作为本地 fallback。
-5. 用真实业务只读 API 替换 mock connector。
-6. 增加人工回填 root cause 接口和知识库沉淀流程。
+1. 把 `queue.Queue` 从内存实现替换为 Redis Stream。
+2. 接真实 Lark 加密验签、消息发送和图片下载。
+3. 接真实 LLM provider，并保留规则型实现作为本地 fallback。
+4. 用真实业务只读 API 替换 mock connector。
+5. 把 MySQL tool audit / decision logs 同步到统一日志或 SIEM。

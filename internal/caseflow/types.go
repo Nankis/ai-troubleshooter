@@ -82,6 +82,22 @@ type Investigation struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
+type AIDecisionLog struct {
+	ID                 int64     `json:"id"`
+	CaseID             int64     `json:"case_id"`
+	InvestigationID    int64     `json:"investigation_id,omitempty"`
+	AgentID            string    `json:"agent_id"`
+	DecisionType       string    `json:"decision_type"`
+	Reason             string    `json:"reason,omitempty"`
+	InputSnapshotJSON  string    `json:"input_snapshot_json,omitempty"`
+	OutputSnapshotJSON string    `json:"output_snapshot_json,omitempty"`
+	SelectedToolsJSON  string    `json:"selected_tools_json,omitempty"`
+	Status             string    `json:"status"`
+	LatencyMS          int64     `json:"latency_ms"`
+	ErrorMessage       string    `json:"error_message,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 type RootCause struct {
 	ID                     int64     `json:"id"`
 	CaseID                 int64     `json:"case_id"`

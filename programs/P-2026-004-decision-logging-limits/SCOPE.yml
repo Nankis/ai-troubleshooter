@@ -1,0 +1,19 @@
+program: P-2026-004-decision-logging-limits
+allowed_paths:
+  - README.md
+  - configs/**
+  - docs/**
+  - cmd/**
+  - internal/caseflow/**
+  - internal/config/**
+  - internal/orchestrator/**
+  - internal/storage/**
+  - migrations/**
+  - api/openapi/**
+  - programs/P-2026-004-decision-logging-limits/**
+forbidden_paths:
+  - .env
+  - "**/*secret*"
+requires_approval:
+  - production deploy
+notes: "用户要求补 AI 决策日志、超时和查询限制；本轮按 Program 机制实现并推 main。"

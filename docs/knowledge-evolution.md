@@ -10,11 +10,13 @@
 - `case_feedbacks`：业务方对 AI 排障结果的反馈。
 - `knowledge_items`：可复用排障经验。
 - `knowledge_evolution_runs`：每次知识演进的运行记录。
+- `ai_decision_logs`：AI 分类、实体抽取、工具选择、工具调用、总结和失败收敛的决策轨迹。
 
 DDL：
 
 - `migrations/001_initial.sql`
 - `migrations/002_knowledge_evolution.sql`
+- `migrations/003_ai_decision_logs.sql`
 
 ## 直接 SQL 示例
 
@@ -79,6 +81,22 @@ WHERE r.case_id = ?
 ORDER BY r.id DESC;
 ```
 
+查询某 case 的 AI 决策轨迹：
+
+```sql
+SELECT
+  decision_type,
+  reason,
+  selected_tools_json,
+  status,
+  latency_ms,
+  error_message,
+  created_at
+FROM ai_decision_logs
+WHERE case_id = ?
+ORDER BY id;
+```
+
 查询可复用知识：
 
 ```sql
@@ -139,7 +157,8 @@ GET /cases/{case_no}
   "entities": [],
   "messages": [],
   "root_cause": {},
-  "evolution_runs": []
+  "evolution_runs": [],
+  "ai_decision_logs": []
 }
 ```
 
@@ -223,6 +242,12 @@ GET /cases/{case_no}/feedback
 
 ```text
 GET /cases/{case_no}/evolution-runs
+```
+
+### 查询 AI 决策日志
+
+```text
+GET /cases/{case_no}/ai-decisions?limit=100
 ```
 
 ### 查询知识库

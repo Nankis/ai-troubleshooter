@@ -47,10 +47,12 @@ func main() {
 	}
 	evolver := evolution.NewService(store)
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
-		AgentID:             "business-troubleshooter-v1",
-		ModelProvider:       cfg.LLM.Provider,
-		ModelName:           cfg.LLM.Model,
-		MaxToolCallsPerCase: cfg.Limits.MaxToolCallsPerCase,
+		AgentID:                 "business-troubleshooter-v1",
+		ModelProvider:           cfg.LLM.Provider,
+		ModelName:               cfg.LLM.Model,
+		MaxToolCallsPerCase:     cfg.Limits.MaxToolCallsPerCase,
+		MaxToolFailuresPerCase:  cfg.Limits.MaxToolFailuresPerCase,
+		MaxInvestigationSeconds: cfg.Limits.MaxInvestigationSeconds,
 	})
 	pool := worker.NewPool(q, orch, cfg.Limits.WorkerConcurrency)
 	pool.Start(ctx)
@@ -90,6 +92,9 @@ func main() {
 		case "evolution-runs":
 			handleEvolutionRuns(w, r, store, c)
 			return
+		case "ai-decisions":
+			handleAIDecisionLogs(w, r, store, c)
+			return
 		default:
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 			return
@@ -98,7 +103,8 @@ func main() {
 		messages, _ := store.ListMessages(r.Context(), c.ID)
 		rootCause, _ := store.GetRootCause(r.Context(), c.ID)
 		runs, _ := store.ListKnowledgeEvolutionRuns(r.Context(), c.ID)
-		writeJSON(w, http.StatusOK, map[string]any{"case": c, "entities": entities, "messages": messages, "root_cause": rootCause, "evolution_runs": runs})
+		decisionLogs, _ := store.ListAIDecisionLogs(r.Context(), c.ID, intQuery(r, "decision_log_limit", 100))
+		writeJSON(w, http.StatusOK, map[string]any{"case": c, "entities": entities, "messages": messages, "root_cause": rootCause, "evolution_runs": runs, "ai_decision_logs": decisionLogs})
 	}))
 	mux.Handle("/knowledge", httpauth.RequireFunc(controlAuth, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -217,6 +223,19 @@ func handleEvolutionRuns(w http.ResponseWriter, r *http.Request, store caseflow.
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": runs})
+}
+
+func handleAIDecisionLogs(w http.ResponseWriter, r *http.Request, store caseflow.Store, c *caseflow.Case) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	items, err := store.ListAIDecisionLogs(r.Context(), c.ID, intQuery(r, "limit", 100))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func intQuery(r *http.Request, key string, def int) int {

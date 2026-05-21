@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,10 +18,12 @@ type ToolClient interface {
 }
 
 type Config struct {
-	AgentID             string
-	ModelProvider       string
-	ModelName           string
-	MaxToolCallsPerCase int
+	AgentID                 string
+	ModelProvider           string
+	ModelName               string
+	MaxToolCallsPerCase     int
+	MaxToolFailuresPerCase  int
+	MaxInvestigationSeconds int
 }
 
 type Orchestrator struct {
@@ -36,22 +40,83 @@ func New(store caseflow.Store, llmClient llm.LLMClient, toolClient ToolClient, c
 	if cfg.MaxToolCallsPerCase <= 0 {
 		cfg.MaxToolCallsPerCase = 10
 	}
+	if cfg.MaxToolFailuresPerCase <= 0 {
+		cfg.MaxToolFailuresPerCase = 3
+	}
+	if cfg.MaxInvestigationSeconds <= 0 {
+		cfg.MaxInvestigationSeconds = 120
+	}
 	return &Orchestrator{store: store, llm: llmClient, tools: toolClient, cfg: cfg}
 }
 
-func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.ProcessResult, error) {
-	c, err := o.store.GetCase(ctx, caseID)
+func (o *Orchestrator) ProcessCase(parent context.Context, caseID int64) (result caseflow.ProcessResult, err error) {
+	ctx := parent
+	cancel := func() {}
+	if _, ok := ctx.Deadline(); !ok && o.cfg.MaxInvestigationSeconds > 0 {
+		ctx, cancel = context.WithTimeout(parent, time.Duration(o.cfg.MaxInvestigationSeconds)*time.Second)
+	}
+	defer cancel()
+
+	var c *caseflow.Case
+	var inv *caseflow.Investigation
+	defer func() {
+		if err == nil {
+			return
+		}
+		reason := err.Error()
+		if ctx.Err() != nil {
+			reason = ctx.Err().Error()
+		}
+		status := "failed"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+			status = "timeout"
+		}
+		o.recordDecision(context.Background(), decisionRecord{
+			Case:          c,
+			Investigation: inv,
+			DecisionType:  "process_failure",
+			Reason:        "orchestrator stopped and finalized the case",
+			Output:        map[string]any{"error": reason},
+			Status:        status,
+			Err:           err,
+		})
+		o.failRunningCase(context.Background(), c, inv, reason)
+	}()
+
+	c, err = o.store.GetCase(ctx, caseID)
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
 	messages, _ := o.store.ListMessages(ctx, c.ID)
 	input := llm.CaseInput{Case: *c, Messages: messages}
 
+	stepStart := time.Now()
 	classification, err := o.llm.ClassifyIssue(ctx, input)
+	o.recordDecision(ctx, decisionRecord{
+		Case:         c,
+		DecisionType: "classify_issue",
+		Reason:       "classify issue domain and issue type from original text and OCR",
+		Input:        map[string]any{"case_no": c.CaseNo, "original_text": c.OriginalText, "ocr_text": c.OCRText},
+		Output:       classification,
+		Status:       statusForErr(err),
+		Latency:      time.Since(stepStart),
+		Err:          err,
+	})
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
+	stepStart = time.Now()
 	extracted, err := o.llm.ExtractEntities(ctx, input)
+	o.recordDecision(ctx, decisionRecord{
+		Case:         c,
+		DecisionType: "extract_entities",
+		Reason:       "extract minimum troubleshooting fields before querying tools",
+		Input:        map[string]any{"case_no": c.CaseNo, "original_text": c.OriginalText, "ocr_text": c.OCRText},
+		Output:       extracted.Entities,
+		Status:       statusForErr(err),
+		Latency:      time.Since(stepStart),
+		Err:          err,
+	})
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
@@ -75,6 +140,20 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 	}
 
 	missing := caseflow.MissingRequiredFields(c.IssueDomain, entityMap)
+	requiredStatus := "success"
+	requiredReason := "all required fields are present; investigation can start"
+	if len(missing) > 0 {
+		requiredStatus = "need_more_info"
+		requiredReason = "required fields are missing; ask the user before querying downstream services"
+	}
+	o.recordDecision(ctx, decisionRecord{
+		Case:         c,
+		DecisionType: "required_fields_check",
+		Reason:       requiredReason,
+		Input:        map[string]any{"issue_domain": c.IssueDomain, "entities": entityMap},
+		Output:       map[string]any{"missing_fields": missing},
+		Status:       requiredStatus,
+	})
 	if len(missing) > 0 {
 		c, err = o.transition(ctx, c, caseflow.StatusNeedMoreInfo)
 		if err != nil {
@@ -108,7 +187,7 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 		return caseflow.ProcessResult{}, err
 	}
 
-	inv, err := o.store.CreateInvestigation(ctx, caseflow.Investigation{
+	invValue, err := o.store.CreateInvestigation(ctx, caseflow.Investigation{
 		CaseID:            c.ID,
 		AgentID:           o.cfg.AgentID,
 		AgentVersion:      "phase1-mvp",
@@ -120,8 +199,23 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
+	inv = &invValue
 
+	stepStart = time.Now()
 	action, err := o.llm.DecideNextAction(ctx, *c, entityMap, nil)
+	selectedTools := boundedToolNames(action.ToolNames, o.cfg.MaxToolCallsPerCase)
+	o.recordDecision(ctx, decisionRecord{
+		Case:          c,
+		Investigation: inv,
+		DecisionType:  "decide_next_action",
+		Reason:        fallback(action.Reason, "choose readonly tools based on issue domain and extracted entities"),
+		Input:         map[string]any{"issue_domain": c.IssueDomain, "issue_type": c.IssueType, "entities": entityMap, "max_tool_calls": o.cfg.MaxToolCallsPerCase},
+		Output:        map[string]any{"requested_tools": action.ToolNames, "selected_tools": selectedTools, "truncated": len(selectedTools) < len(action.ToolNames)},
+		SelectedTools: selectedTools,
+		Status:        statusForErr(err),
+		Latency:       time.Since(stepStart),
+		Err:           err,
+	})
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
@@ -132,17 +226,34 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 
 	observations := []llm.ToolObservation{}
 	toolCallIDs := []string{}
-	for i, name := range action.ToolNames {
-		if i >= o.cfg.MaxToolCallsPerCase {
+	toolFailures := 0
+	for _, name := range selectedTools {
+		if ctx.Err() != nil {
+			return caseflow.ProcessResult{}, ctx.Err()
+		}
+		if toolFailures >= o.cfg.MaxToolFailuresPerCase {
+			reason := fmt.Sprintf("stopped tool queries after %d failures", toolFailures)
+			observations = append(observations, llm.ToolObservation{ToolName: "tool_query_limit", Status: "stopped", Summary: reason})
+			o.recordDecision(ctx, decisionRecord{
+				Case:          c,
+				Investigation: inv,
+				DecisionType:  "tool_query_stopped",
+				Reason:        reason,
+				Input:         map[string]any{"max_tool_failures_per_case": o.cfg.MaxToolFailuresPerCase, "remaining_tool": name},
+				Output:        map[string]any{"tool_failures": toolFailures},
+				Status:        "stopped",
+			})
 			break
 		}
+		args := buildToolArgs(name, c, entityMap)
+		stepStart = time.Now()
 		resp, err := o.tools.Invoke(ctx, tool.InvocationRequest{
 			CaseID:     c.CaseNo,
 			AgentID:    o.cfg.AgentID,
 			LarkUserID: c.ReporterUserID,
 			ChatID:     c.ChatID,
 			ToolName:   name,
-			Arguments:  buildToolArgs(name, c, entityMap),
+			Arguments:  args,
 		})
 		toolCallIDs = append(toolCallIDs, resp.ToolCallID)
 		status := resp.Status
@@ -150,10 +261,47 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 		if err != nil && summary == "" {
 			summary = err.Error()
 		}
+		if status == "" {
+			if err != nil {
+				status = "failed"
+			} else {
+				status = "success"
+			}
+		}
+		if err != nil || status != "success" {
+			toolFailures++
+		}
+		o.recordDecision(ctx, decisionRecord{
+			Case:          c,
+			Investigation: inv,
+			DecisionType:  "tool_invocation",
+			Reason:        "invoke a registered readonly tool through gateway",
+			Input:         map[string]any{"tool_name": name, "arguments": args},
+			Output:        map[string]any{"tool_call_id": resp.ToolCallID, "query_id": resp.QueryID, "status": status, "summary": summary},
+			SelectedTools: []string{name},
+			Status:        status,
+			Latency:       time.Since(stepStart),
+			Err:           err,
+		})
+		if ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return caseflow.ProcessResult{}, firstErr(err, ctx.Err())
+		}
 		observations = append(observations, llm.ToolObservation{ToolName: name, Summary: summary, Status: status})
 	}
 
+	stepStart = time.Now()
 	report, err := o.llm.SummarizeFindings(ctx, *c, observations)
+	o.recordDecision(ctx, decisionRecord{
+		Case:          c,
+		Investigation: inv,
+		DecisionType:  "summarize_findings",
+		Reason:        "summarize bounded tool observations and ask human owner for root cause confirmation",
+		Input:         map[string]any{"observations": observations},
+		Output:        report,
+		Status:        statusForErr(err),
+		Latency:       time.Since(stepStart),
+		Err:           err,
+	})
 	if err != nil {
 		return caseflow.ProcessResult{}, err
 	}
@@ -170,6 +318,74 @@ func (o *Orchestrator) ProcessCase(ctx context.Context, caseID int64) (caseflow.
 		Reply:       "[" + c.CaseNo + "] " + report.Summary,
 		ToolCallIDs: toolCallIDs,
 	}, nil
+}
+
+type decisionRecord struct {
+	Case          *caseflow.Case
+	Investigation *caseflow.Investigation
+	DecisionType  string
+	Reason        string
+	Input         any
+	Output        any
+	SelectedTools []string
+	Status        string
+	Latency       time.Duration
+	Err           error
+}
+
+func (o *Orchestrator) recordDecision(ctx context.Context, record decisionRecord) {
+	if record.Case == nil {
+		return
+	}
+	status := record.Status
+	if status == "" {
+		status = statusForErr(record.Err)
+	}
+	errorMessage := ""
+	if record.Err != nil {
+		errorMessage = record.Err.Error()
+	}
+	investigationID := int64(0)
+	if record.Investigation != nil {
+		investigationID = record.Investigation.ID
+	}
+	_, _ = o.store.AddAIDecisionLog(ctx, caseflow.AIDecisionLog{
+		CaseID:             record.Case.ID,
+		InvestigationID:    investigationID,
+		AgentID:            o.cfg.AgentID,
+		DecisionType:       record.DecisionType,
+		Reason:             record.Reason,
+		InputSnapshotJSON:  jsonSnapshot(record.Input),
+		OutputSnapshotJSON: jsonSnapshot(record.Output),
+		SelectedToolsJSON:  jsonSnapshot(record.SelectedTools),
+		Status:             status,
+		LatencyMS:          record.Latency.Milliseconds(),
+		ErrorMessage:       errorMessage,
+	})
+}
+
+func (o *Orchestrator) failRunningCase(ctx context.Context, c *caseflow.Case, inv *caseflow.Investigation, reason string) {
+	if inv != nil {
+		_, _ = o.store.FinishInvestigation(ctx, inv.ID, "failed", reason, nil)
+	}
+	if c == nil {
+		return
+	}
+	latest, err := o.store.GetCase(ctx, c.ID)
+	if err != nil {
+		return
+	}
+	if !caseflow.CanTransition(latest.Status, caseflow.StatusFailed) {
+		return
+	}
+	failed, err := o.transition(ctx, latest, caseflow.StatusFailed)
+	if err == nil {
+		_, _ = o.store.AddMessage(ctx, caseflow.Message{
+			CaseID:  failed.ID,
+			Role:    "system",
+			Content: "[" + failed.CaseNo + "] 排查已停止：" + reason,
+		})
+	}
 }
 
 func (o *Orchestrator) transition(ctx context.Context, c *caseflow.Case, next caseflow.Status) (*caseflow.Case, error) {
@@ -276,6 +492,59 @@ func timeRange(abnormalTime string) (time.Time, time.Time) {
 	}
 	now := time.Now()
 	return now.Add(-20 * time.Minute), now
+}
+
+func boundedToolNames(names []string, max int) []string {
+	if max <= 0 {
+		max = 10
+	}
+	out := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+func statusForErr(err error) string {
+	if err == nil {
+		return "success"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	return "failed"
+}
+
+func jsonSnapshot(value any) string {
+	if value == nil {
+		return ""
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func firstErr(values ...error) error {
+	for _, err := range values {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func fallback(v string, def string) string {

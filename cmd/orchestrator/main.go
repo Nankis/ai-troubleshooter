@@ -35,10 +35,12 @@ func main() {
 		log.Fatal(err)
 	}
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
-		AgentID:             "business-troubleshooter-v1",
-		ModelProvider:       cfg.LLM.Provider,
-		ModelName:           cfg.LLM.Model,
-		MaxToolCallsPerCase: cfg.Limits.MaxToolCallsPerCase,
+		AgentID:                 "business-troubleshooter-v1",
+		ModelProvider:           cfg.LLM.Provider,
+		ModelName:               cfg.LLM.Model,
+		MaxToolCallsPerCase:     cfg.Limits.MaxToolCallsPerCase,
+		MaxToolFailuresPerCase:  cfg.Limits.MaxToolFailuresPerCase,
+		MaxInvestigationSeconds: cfg.Limits.MaxInvestigationSeconds,
 	})
 
 	mux := http.NewServeMux()
