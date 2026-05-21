@@ -68,8 +68,8 @@ CREATE TABLE investigations (
 CREATE TABLE tool_call_audits (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   tool_call_id VARCHAR(64) NOT NULL UNIQUE,
-  case_id BIGINT NOT NULL,
-  investigation_id BIGINT NULL,
+  case_ref VARCHAR(64) NOT NULL,
+  investigation_ref VARCHAR(64) NULL,
   agent_id VARCHAR(128) NOT NULL,
   lark_user_id VARCHAR(128) NULL,
   tool_name VARCHAR(128) NOT NULL,
@@ -82,7 +82,7 @@ CREATE TABLE tool_call_audits (
   latency_ms INT NULL,
   error_message TEXT NULL,
   created_at DATETIME NOT NULL,
-  KEY idx_case_created (case_id, created_at),
+  KEY idx_case_created (case_ref, created_at),
   KEY idx_tool_created (tool_name, created_at),
   KEY idx_agent_created (agent_id, created_at)
 );

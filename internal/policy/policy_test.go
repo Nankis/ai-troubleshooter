@@ -41,3 +41,27 @@ func TestStaticEngineAllowsRegisteredScope(t *testing.T) {
 		t.Fatalf("expected max limit 10, got %d", decision.MaxLimit)
 	}
 }
+
+func TestStaticEngineRequiresChatIDWhenAgentRestrictsGroups(t *testing.T) {
+	engine := NewStaticEngine([]Agent{
+		{
+			AgentID:           "agent_1",
+			AllowedScopes:     Set("asset:read"),
+			AllowedTools:      Set("get_asset_snapshot"),
+			AllowedLarkGroups: Set("oc_allowed"),
+			Status:            "enabled",
+		},
+	})
+	decision, err := engine.Authorize(context.Background(), Request{
+		AgentID:       "agent_1",
+		ToolName:      "get_asset_snapshot",
+		RequiredScope: "asset:read",
+		RequestedAt:   time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Allowed {
+		t.Fatal("missing chat_id should be denied when agent restricts lark groups")
+	}
+}

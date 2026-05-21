@@ -45,9 +45,15 @@ gateway:
   # GATEWAY_BEARER_TOKENS=business-troubleshooter-v1:replace-with-strong-token
   bearer_tokens: {}
   allow_unauthenticated_list_tools: false
-  agent_qps: 5
-  user_qps: 2
-  tool_qps: 10
+  agent_qps: 20
+  user_qps: 10
+  tool_qps: 20
+
+control_api:
+  auth_enabled: false
+  # Runtime env format:
+  # CONTROL_API_BEARER_TOKENS=replace-with-internal-control-token
+  bearer_tokens: []
 
 tool_gateway:
   endpoint: http://localhost:8080

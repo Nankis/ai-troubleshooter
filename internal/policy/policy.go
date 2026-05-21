@@ -76,8 +76,13 @@ func (e *StaticEngine) Authorize(ctx context.Context, req Request) (Decision, er
 	if len(agent.AllowedTools) > 0 && !agent.AllowedTools[req.ToolName] {
 		return deny("tool %q is not allowed", req.ToolName), nil
 	}
-	if len(agent.AllowedLarkGroups) > 0 && req.ChatID != "" && !agent.AllowedLarkGroups[req.ChatID] {
-		return deny("chat %q is not allowed", req.ChatID), nil
+	if len(agent.AllowedLarkGroups) > 0 {
+		if req.ChatID == "" {
+			return deny("chat_id is required for this agent"), nil
+		}
+		if !agent.AllowedLarkGroups[req.ChatID] {
+			return deny("chat %q is not allowed", req.ChatID), nil
+		}
 	}
 
 	maxLimit := firstPositive(req.MaxLimit, e.defaultMaxLimit)

@@ -18,6 +18,9 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
+	if err := cfg.ValidateForWorker(); err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -28,7 +31,7 @@ func main() {
 	defer openedStore.Close()
 	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
-	gw, err := gateway.NewFromConfig(cfg)
+	gw, err := gateway.NewFromConfigWithAudit(cfg, openedStore.AuditSink)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/evolution"
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
+	"github.com/ginseng/ai-troubleshooter/internal/httpauth"
 	"github.com/ginseng/ai-troubleshooter/internal/lark"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
@@ -27,6 +28,9 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
+	if err := cfg.ValidateForDevServer(); err != nil {
+		log.Fatal(err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -37,7 +41,7 @@ func main() {
 	defer openedStore.Close()
 	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
-	gw, err := gateway.NewFromConfig(cfg)
+	gw, err := gateway.NewFromConfigWithAudit(cfg, openedStore.AuditSink)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,7 +67,8 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "dev-server"})
 	})
-	mux.HandleFunc("/cases/", func(w http.ResponseWriter, r *http.Request) {
+	controlAuth := httpauth.Config{AuthEnabled: cfg.ControlAPI.AuthEnabled, BearerTokens: cfg.ControlAPI.BearerTokens}
+	mux.Handle("/cases/", httpauth.RequireFunc(controlAuth, func(w http.ResponseWriter, r *http.Request) {
 		caseRef, action := splitCasePath(r.URL.Path)
 		c, err := loadCase(r.Context(), store, caseRef)
 		if err != nil {
@@ -94,8 +99,8 @@ func main() {
 		rootCause, _ := store.GetRootCause(r.Context(), c.ID)
 		runs, _ := store.ListKnowledgeEvolutionRuns(r.Context(), c.ID)
 		writeJSON(w, http.StatusOK, map[string]any{"case": c, "entities": entities, "messages": messages, "root_cause": rootCause, "evolution_runs": runs})
-	})
-	mux.HandleFunc("/knowledge", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.Handle("/knowledge", httpauth.RequireFunc(controlAuth, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 			return
@@ -112,7 +117,7 @@ func main() {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
-	})
+	}))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}

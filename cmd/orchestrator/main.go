@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
+	"github.com/ginseng/ai-troubleshooter/internal/httpauth"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
 	"github.com/ginseng/ai-troubleshooter/internal/storage"
@@ -19,13 +21,16 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
+	if err := cfg.ValidateForOrchestrator(); err != nil {
+		log.Fatal(err)
+	}
 	openedStore, err := storage.Open(context.Background(), cfg.Database)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer openedStore.Close()
 	store := openedStore.Store
-	gw, err := gateway.NewFromConfig(cfg)
+	gw, err := gateway.NewFromConfigWithAudit(cfg, openedStore.AuditSink)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -37,7 +42,8 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/cases", func(w http.ResponseWriter, r *http.Request) {
+	controlAuth := httpauth.Config{AuthEnabled: cfg.ControlAPI.AuthEnabled, BearerTokens: cfg.ControlAPI.BearerTokens}
+	mux.Handle("/cases", httpauth.RequireFunc(controlAuth, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 			return
@@ -53,8 +59,8 @@ func main() {
 			return
 		}
 		writeJSON(w, http.StatusCreated, c)
-	})
-	mux.HandleFunc("/cases/", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	mux.Handle("/cases/", httpauth.RequireFunc(controlAuth, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/process") {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 			return
@@ -71,11 +77,12 @@ func main() {
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
-	})
+	}))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	log.Printf("orchestrator listening on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }

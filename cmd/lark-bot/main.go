@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/lark"
@@ -14,6 +15,9 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
+	if err := cfg.ValidateForLarkBot(); err != nil {
+		log.Fatal(err)
+	}
 	openedStore, err := storage.Open(context.Background(), cfg.Database)
 	if err != nil {
 		log.Fatal(err)
@@ -28,7 +32,8 @@ func main() {
 	})
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	log.Printf("lark-bot listening on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, handler); err != nil {
+	server := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }

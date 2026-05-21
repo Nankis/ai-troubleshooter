@@ -20,6 +20,16 @@ func NewDefault(timeout time.Duration) *Gateway {
 }
 
 func NewFromConfig(cfg config.Config) (*Gateway, error) {
+	return NewFromConfigWithAudit(cfg, audit.NewMemorySink())
+}
+
+func NewFromConfigWithAudit(cfg config.Config, auditSink audit.Sink) (*Gateway, error) {
+	if err := cfg.ValidateForGateway(); err != nil {
+		return nil, err
+	}
+	if auditSink == nil {
+		auditSink = audit.NewMemorySink()
+	}
 	timeout := time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -30,7 +40,7 @@ func NewFromConfig(cfg config.Config) (*Gateway, error) {
 		return nil, err
 	}
 	RegisterDefaultTools(registry, kline, asset, ops)
-	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout).WithSecurity(SecurityConfig{
+	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), auditSink, timeout).WithSecurity(SecurityConfig{
 		AuthEnabled:                   cfg.Gateway.AuthEnabled,
 		BearerTokens:                  cfg.Gateway.BearerTokens,
 		AllowUnauthenticatedListTools: cfg.Gateway.AllowUnauthenticatedListTools,

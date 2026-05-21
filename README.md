@@ -151,7 +151,8 @@ docs/                      TRD 摘要与一期说明
 - Tool Registry 和内部 Tool Invoke API。
 - Query Gateway 默认拒绝策略、scope 校验、参数边界控制。
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
-- Audit sink 和脱敏。
+- 控制面 API Bearer 鉴权，生产环境缺少关键安全配置时 fail-closed。
+- Audit sink、MySQL tool audit 持久化和脱敏。
 - 10 个一期只读工具。
 - K线、资产、日志 mock connector。
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
@@ -268,7 +269,9 @@ go test ./...
 
 ## Gateway 安全边界
 
-平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计和返回脱敏。
+平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计持久化和返回脱敏。
+
+root cause、feedback、knowledge、orchestrator case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
 部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
 

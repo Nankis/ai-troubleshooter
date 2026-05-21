@@ -14,6 +14,7 @@ type Config struct {
 	Queue       QueueConfig
 	Connectors  ConnectorConfig
 	Gateway     GatewayConfig
+	ControlAPI  ControlAPIConfig
 	ToolGateway ToolGatewayConfig
 	Limits      LimitsConfig
 }
@@ -67,6 +68,11 @@ type GatewayConfig struct {
 	AgentQPS                      int
 	UserQPS                       int
 	ToolQPS                       int
+}
+
+type ControlAPIConfig struct {
+	AuthEnabled  bool
+	BearerTokens []string
 }
 
 type ToolGatewayConfig struct {
@@ -125,9 +131,13 @@ func LoadFromEnv() Config {
 			AuthEnabled:                   envBool("GATEWAY_AUTH_ENABLED", false),
 			BearerTokens:                  envTokenMap("GATEWAY_BEARER_TOKENS"),
 			AllowUnauthenticatedListTools: envBool("GATEWAY_ALLOW_UNAUTHENTICATED_LIST_TOOLS", false),
-			AgentQPS:                      envInt("GATEWAY_AGENT_QPS", 5),
-			UserQPS:                       envInt("GATEWAY_USER_QPS", 2),
-			ToolQPS:                       envInt("GATEWAY_TOOL_QPS", 10),
+			AgentQPS:                      envInt("GATEWAY_AGENT_QPS", 20),
+			UserQPS:                       envInt("GATEWAY_USER_QPS", 10),
+			ToolQPS:                       envInt("GATEWAY_TOOL_QPS", 20),
+		},
+		ControlAPI: ControlAPIConfig{
+			AuthEnabled:  envBool("CONTROL_API_AUTH_ENABLED", false),
+			BearerTokens: envCSV("CONTROL_API_BEARER_TOKENS"),
 		},
 		ToolGateway: ToolGatewayConfig{
 			Endpoint:     env("TOOL_GATEWAY_ENDPOINT", "http://localhost:8080"),

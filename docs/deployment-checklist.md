@@ -28,9 +28,12 @@ OPS_READONLY_BASE_URL=https://ops-readonly.internal
 
 GATEWAY_AUTH_ENABLED=true
 GATEWAY_BEARER_TOKENS='business-troubleshooter-v1:replace-with-strong-token'
-GATEWAY_AGENT_QPS=5
-GATEWAY_USER_QPS=2
-GATEWAY_TOOL_QPS=10
+GATEWAY_AGENT_QPS=20
+GATEWAY_USER_QPS=10
+GATEWAY_TOOL_QPS=20
+
+CONTROL_API_AUTH_ENABLED=true
+CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 ```
 
 ## 接入前检查
@@ -44,8 +47,11 @@ GATEWAY_TOOL_QPS=10
 - Gateway Bearer token 通过密钥系统注入，不写入 Git 或镜像。
 - 调用 Gateway 的 orchestrator/worker 已使用与 `agent_id` 绑定的 token。
 - Gateway 上游入口已做内网 ACL、Ingress allowlist 或 service mesh 策略。
+- 控制面 API 已开启内部 Bearer 鉴权：`CONTROL_API_AUTH_ENABLED=true`。
+- root cause、feedback、knowledge、orchestrator case/process API 仅允许内部系统或已授权 owner 调用。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
 - 数据库已执行 `migrations/001_initial.sql` 和 `migrations/002_knowledge_evolution.sql`，DSN 必须包含 `parseTime=true`。
+- `DB_DSN` 已提供给需要持久化 case、knowledge 和 tool audit 的服务；Gateway 会把工具审计写入 `tool_call_audits`。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
 ## 本地 smoke test

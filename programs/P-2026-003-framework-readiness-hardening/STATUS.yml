@@ -1,0 +1,28 @@
+program: P-2026-003-framework-readiness-hardening
+name: "Framework readiness hardening"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-21"
+updated_at: "2026-05-21"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program"
+    status: done
+  - id: task-2
+    name: "控制面 API 鉴权"
+    status: done
+  - id: task-3
+    name: "生产配置 fail-closed"
+    status: done
+  - id: task-4
+    name: "Policy 边界修复"
+    status: done
+  - id: task-5
+    name: "文档和验证"
+    status: done
+  - id: task-6
+    name: "Tool audit 持久化"
+    status: done

@@ -2,6 +2,8 @@ package lark
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -203,7 +205,9 @@ func (h *Handler) verifyToken(token string) error {
 	if h.options.VerificationToken == "" {
 		return nil
 	}
-	if token != h.options.VerificationToken {
+	expectedHash := sha256.Sum256([]byte(h.options.VerificationToken))
+	tokenHash := sha256.Sum256([]byte(token))
+	if subtle.ConstantTimeCompare(expectedHash[:], tokenHash[:]) != 1 {
 		return errUnauthorized("invalid lark verification token")
 	}
 	return nil
