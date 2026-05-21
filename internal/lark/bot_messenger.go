@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +67,42 @@ func (m *BotMessenger) SendMessage(ctx context.Context, chatID string, threadID 
 		return fmt.Errorf("chat id is required")
 	}
 	return m.sendChatText(ctx, token, chatID, text)
+}
+
+func (m *BotMessenger) DownloadImage(ctx context.Context, messageID string, imageKey string) (DownloadedImage, error) {
+	if m.appID == "" || m.appSecret == "" {
+		return DownloadedImage{}, fmt.Errorf("lark app id and app secret are required")
+	}
+	if strings.TrimSpace(messageID) == "" || strings.TrimSpace(imageKey) == "" {
+		return DownloadedImage{}, fmt.Errorf("message id and image key are required")
+	}
+	token, err := m.tenantAccessToken(ctx)
+	if err != nil {
+		return DownloadedImage{}, err
+	}
+	path := "/open-apis/im/v1/messages/" + url.PathEscape(messageID) + "/resources/" + url.PathEscape(imageKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.baseURL+path, nil)
+	if err != nil {
+		return DownloadedImage{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return DownloadedImage{}, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
+	if err != nil {
+		return DownloadedImage{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return DownloadedImage{}, fmt.Errorf("lark image download status=%d body=%s", resp.StatusCode, string(data))
+	}
+	mediaType := resp.Header.Get("Content-Type")
+	if mediaType == "" {
+		mediaType = http.DetectContentType(data)
+	}
+	return DownloadedImage{ImageKey: imageKey, MediaType: mediaType, Data: data}, nil
 }
 
 func (m *BotMessenger) tenantAccessToken(ctx context.Context) (string, error) {

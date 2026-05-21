@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
+	orch := orchestrator.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), orchestrator.Config{
 		AgentID:                 "business-troubleshooter-v1",
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,

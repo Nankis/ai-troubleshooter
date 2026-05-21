@@ -18,6 +18,17 @@ llm:
   timeout_seconds: 30
   max_concurrency: 10
 
+vision:
+  # local_mock: local deterministic image text mock for smoke tests.
+  # qwen_openai_compatible: use DashScope/Qwen-VL through OpenAI-compatible chat completions.
+  provider: local_mock
+  base_url: ""
+  api_key: ""
+  model: qwen3-vl-plus
+  timeout_seconds: 30
+  max_images_per_message: 3
+  max_image_bytes: 10485760
+
 database:
   driver: mysql
   # Example: user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local

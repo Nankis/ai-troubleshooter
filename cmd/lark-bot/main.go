@@ -11,6 +11,7 @@ import (
 	"github.com/ginseng/ai-troubleshooter/internal/lark"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
 	"github.com/ginseng/ai-troubleshooter/internal/storage"
+	"github.com/ginseng/ai-troubleshooter/internal/vision"
 )
 
 func main() {
@@ -26,17 +27,24 @@ func main() {
 	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
 	var messenger lark.Messenger
+	var imageDownloader lark.ImageDownloader
 	if cfg.Lark.AppID != "" && cfg.Lark.AppSecret != "" {
-		messenger = lark.NewBotMessenger(lark.BotMessengerOptions{
+		bot := lark.NewBotMessenger(lark.BotMessengerOptions{
 			AppID:     cfg.Lark.AppID,
 			AppSecret: cfg.Lark.AppSecret,
 		})
+		messenger = bot
+		imageDownloader = bot
 	}
 	handler := lark.NewHandler(store, q, messenger)
 	handler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
 		EncryptKey:        cfg.Lark.EncryptKey,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
+	})
+	handler.SetImageProcessor(imageDownloader, vision.NewFromConfig(cfg.Vision), lark.ImageOptions{
+		MaxImages:     cfg.Vision.MaxImagesPerMessage,
+		MaxImageBytes: cfg.Vision.MaxImageBytes,
 	})
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	log.Printf("lark-bot listening on http://localhost%s", addr)

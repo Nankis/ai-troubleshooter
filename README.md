@@ -149,6 +149,8 @@ docs/                      TRD 摘要与一期说明
 - Lark encrypted callback：配置 `LARK_ENCRYPT_KEY` 后只接受密文回调，先解密 `encrypt` 回调体，再验 token 和处理 challenge / message。
 - Lark `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
 - 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过飞书开放平台发送文本回复；未配置时本地只写日志。
+- Lark 图片消息下载：从消息 `content` 中提取 `image_key`，通过飞书消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
+- 多模型链路：`VISION_*` 独立配置视觉识别模型，适合用 Qwen-VL 先识别截图；`LLM_*` 独立配置后续文本推理模型，后续可换 GPT/Claude。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
@@ -232,6 +234,30 @@ OPS_READONLY_BASE_URL=https://ops-readonly.internal
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
 
+配置千问视觉识别：
+
+```bash
+VISION_PROVIDER=qwen_openai_compatible
+VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+VISION_API_KEY=replace-with-dashscope-key
+VISION_MODEL=qwen3-vl-plus
+VISION_MAX_IMAGES_PER_MESSAGE=3
+VISION_MAX_IMAGE_BYTES=10485760
+```
+
+配置后，飞书图片消息会被下载、传给视觉模型识别，识别出的截图文字和客观现象会进入 `OCRText`，后续分类、实体抽取和工具编排会同时使用用户文本与图片识别结果。
+
+配置文本推理模型：
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://llm-gateway.internal/v1
+LLM_API_KEY=replace-with-llm-key
+LLM_MODEL=replace-with-gpt-or-claude-model
+```
+
+推荐生产链路是：`VISION_*` 使用 Qwen-VL 做截图 OCR/视觉理解，`LLM_*` 使用公司统一 LLM 网关后的 GPT/Claude/其它强推理模型做分类、工具选择和总结。两类模型互不耦合，可以分别替换。
+
 回填根因并触发知识自进化：
 
 ```bash
@@ -299,7 +325,7 @@ Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Orchestrator 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
-- 飞书图片下载还未接入；截图类问题先通过 OCR 文本字段或后续图片 adapter 补齐。
+- 飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 
 ## 下一步
 

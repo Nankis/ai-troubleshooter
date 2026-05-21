@@ -14,6 +14,7 @@ import (
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/ginseng/ai-troubleshooter/internal/vision"
 )
 
 func TestHandlerRejectsDisallowedChat(t *testing.T) {
@@ -151,6 +152,51 @@ func TestParseEventSupportsLarkV2Message(t *testing.T) {
 	}
 }
 
+func TestParseEventSupportsLarkV2ImageMessage(t *testing.T) {
+	event, err := ParseEvent([]byte(`{
+		"schema":"2.0",
+		"header":{"event_id":"evt_img","token":"token_1"},
+		"event":{
+			"sender":{"sender_id":{"open_id":"ou_1"}},
+			"message":{
+				"message_id":"msg_img",
+				"chat_id":"oc_1",
+				"root_id":"root_1",
+				"message_type":"image",
+				"content":"{\"image_key\":\"img_1\"}"
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.MessageID != "msg_img" || len(event.ImageKeys) != 1 || event.ImageKeys[0] != "img_1" {
+		t.Fatalf("unexpected image event: %+v", event)
+	}
+}
+
+func TestHandlerDownloadsAndAnalyzesImages(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	q := &recordingQueue{}
+	handler := NewHandler(store, q, nil)
+	handler.SetImageProcessor(fakeImageDownloader{}, fakeVisionClient{}, ImageOptions{MaxImages: 3, MaxImageBytes: 1024})
+	body := `{"chat_id":"oc_1","message_id":"msg_img","user_id":"ou_1","text":"@bot 帮忙看截图","image_keys":["img_1"]}`
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body)))
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	c, err := store.FindCaseByMessageID(context.Background(), "lark", "msg_img")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.OCRText, "BTCUSDT") || !strings.Contains(c.OCRText, "qwen-test") {
+		t.Fatalf("expected image OCR in case, got %s", c.OCRText)
+	}
+}
+
 func TestHandlerIgnoresDuplicateMessageID(t *testing.T) {
 	store := caseflow.NewInMemoryStore()
 	q := &recordingQueue{}
@@ -195,6 +241,21 @@ func (q *recordingQueue) Publish(ctx context.Context, event queue.Event) error {
 func (q *recordingQueue) Consume(ctx context.Context) (queue.Event, error) {
 	<-ctx.Done()
 	return queue.Event{}, ctx.Err()
+}
+
+type fakeImageDownloader struct{}
+
+func (fakeImageDownloader) DownloadImage(ctx context.Context, messageID string, imageKey string) (DownloadedImage, error) {
+	_ = ctx
+	return DownloadedImage{ImageKey: imageKey, MediaType: "image/png", Data: []byte("image bytes")}, nil
+}
+
+type fakeVisionClient struct{}
+
+func (fakeVisionClient) AnalyzeImages(ctx context.Context, userText string, images []vision.ImageInput) (vision.Analysis, error) {
+	_ = ctx
+	_ = userText
+	return vision.Analysis{ModelProvider: "qwen-test", ModelName: "qwen-vl-test", OCRText: "截图文字：BTCUSDT 1m 价格不一致"}, nil
 }
 
 func encryptedTestEnvelope(t *testing.T, encryptKey string, plaintext []byte) string {

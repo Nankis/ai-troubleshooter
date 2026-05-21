@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -48,6 +49,40 @@ func TestBotMessengerRepliesThenFallsBackToChat(t *testing.T) {
 	}
 	if len(paths) != 3 {
 		t.Fatalf("expected token, reply and fallback send calls, got %v", paths)
+	}
+}
+
+func TestBotMessengerDownloadsMessageImageResource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/open-apis/auth/v3/tenant_access_token/internal":
+			writeTestJSON(w, map[string]any{"code": 0, "tenant_access_token": "token_1", "expire": 7200})
+		case "/open-apis/im/v1/messages/om_1/resources/img_1":
+			if r.Method != http.MethodGet {
+				t.Fatalf("expected GET, got %s", r.Method)
+			}
+			if r.Header.Get("Authorization") != "Bearer token_1" {
+				t.Fatalf("missing authorization header: %s", r.Header.Get("Authorization"))
+			}
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("fake image bytes BTCUSDT"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	messenger := NewBotMessenger(BotMessengerOptions{
+		AppID:     "app_1",
+		AppSecret: "secret_1",
+		BaseURL:   server.URL,
+	})
+	image, err := messenger.DownloadImage(context.Background(), "om_1", "img_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.MediaType != "image/png" || !strings.Contains(string(image.Data), "BTCUSDT") {
+		t.Fatalf("unexpected downloaded image: %+v", image)
 	}
 }
 

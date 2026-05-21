@@ -23,6 +23,7 @@ import (
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
 	"github.com/ginseng/ai-troubleshooter/internal/storage"
+	"github.com/ginseng/ai-troubleshooter/internal/vision"
 	"github.com/ginseng/ai-troubleshooter/internal/worker"
 )
 
@@ -46,7 +47,7 @@ func main() {
 		log.Fatal(err)
 	}
 	evolver := evolution.NewService(store)
-	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
+	orch := orchestrator.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), orchestrator.Config{
 		AgentID:                 "business-troubleshooter-v1",
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,
@@ -58,17 +59,24 @@ func main() {
 	pool.Start(ctx)
 
 	var messenger lark.Messenger
+	var imageDownloader lark.ImageDownloader
 	if cfg.Lark.AppID != "" && cfg.Lark.AppSecret != "" {
-		messenger = lark.NewBotMessenger(lark.BotMessengerOptions{
+		bot := lark.NewBotMessenger(lark.BotMessengerOptions{
 			AppID:     cfg.Lark.AppID,
 			AppSecret: cfg.Lark.AppSecret,
 		})
+		messenger = bot
+		imageDownloader = bot
 	}
 	larkHandler := lark.NewHandler(store, q, messenger)
 	larkHandler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
 		EncryptKey:        cfg.Lark.EncryptKey,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
+	})
+	larkHandler.SetImageProcessor(imageDownloader, vision.NewFromConfig(cfg.Vision), lark.ImageOptions{
+		MaxImages:     cfg.Vision.MaxImagesPerMessage,
+		MaxImageBytes: cfg.Vision.MaxImageBytes,
 	})
 	mux := http.NewServeMux()
 	mux.Handle("/lark/events", larkHandler)

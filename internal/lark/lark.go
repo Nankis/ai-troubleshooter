@@ -14,6 +14,7 @@ import (
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/ginseng/ai-troubleshooter/internal/vision"
 )
 
 type Event struct {
@@ -41,10 +42,13 @@ func (LogMessenger) SendMessage(ctx context.Context, chatID string, threadID str
 }
 
 type Handler struct {
-	store     caseflow.Store
-	queue     queue.Queue
-	options   Options
-	messenger Messenger
+	store           caseflow.Store
+	queue           queue.Queue
+	options         Options
+	messenger       Messenger
+	imageDownloader ImageDownloader
+	vision          vision.Client
+	imageOptions    ImageOptions
 }
 
 type Options struct {
@@ -106,6 +110,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ignored": true, "reason": "bot was not mentioned"})
 		return
 	}
+	event.OCRText = h.enrichOCRWithImages(r.Context(), event)
 	if event.MessageID != "" {
 		existing, err := h.store.FindCaseByMessageID(r.Context(), "lark", event.MessageID)
 		if err == nil {
@@ -142,8 +147,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		CaseID:        c.ID,
 		Role:          "user",
 		LarkMessageID: event.MessageID,
-		Content:       event.Text,
-		ContentType:   "text",
+		Content:       messageContent(event),
+		ContentType:   messageContentType(event),
 	})
 	if err := h.queue.Publish(r.Context(), queue.Event{Type: "case.created", CaseID: c.ID}); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -164,7 +169,7 @@ func ParseEvent(body []byte) (Event, error) {
 	if err := json.Unmarshal(body, &simple); err != nil {
 		return Event{}, err
 	}
-	if simple.Challenge != "" || simple.ChatID != "" || simple.Text != "" {
+	if simple.Challenge != "" || simple.ChatID != "" || simple.Text != "" || len(simple.ImageKeys) > 0 {
 		return simple, nil
 	}
 
@@ -178,11 +183,12 @@ func ParseEvent(body []byte) (Event, error) {
 		} `json:"header"`
 		Event struct {
 			Message struct {
-				ChatID    string `json:"chat_id"`
-				ThreadID  string `json:"thread_id"`
-				RootID    string `json:"root_id"`
-				MessageID string `json:"message_id"`
-				Content   string `json:"content"`
+				ChatID      string `json:"chat_id"`
+				ThreadID    string `json:"thread_id"`
+				RootID      string `json:"root_id"`
+				MessageID   string `json:"message_id"`
+				Content     string `json:"content"`
+				MessageType string `json:"message_type"`
 			} `json:"message"`
 			Sender struct {
 				SenderID struct {
@@ -205,8 +211,9 @@ func ParseEvent(body []byte) (Event, error) {
 		MessageID: fallback(v2.Event.Message.MessageID, v2.Header.EventID),
 		UserID:    fallback(v2.Event.Sender.SenderID.OpenID, v2.Event.Sender.SenderID.UserID),
 		Text:      extractText(v2.Event.Message.Content),
+		ImageKeys: extractImageKeys(v2.Event.Message.Content),
 	}
-	if event.ChatID == "" && event.MessageID == "" && event.Text == "" {
+	if event.ChatID == "" && event.MessageID == "" && event.Text == "" && len(event.ImageKeys) == 0 {
 		return Event{}, fmt.Errorf("unsupported lark event payload")
 	}
 	return event, nil
@@ -224,6 +231,63 @@ func extractText(content string) string {
 		return decoded.Text
 	}
 	return content
+}
+
+func extractImageKeys(content string) []string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
+		return nil
+	}
+	keys := []string{}
+	var walk func(any)
+	walk = func(value any) {
+		switch v := value.(type) {
+		case map[string]any:
+			for key, child := range v {
+				switch strings.ToLower(key) {
+				case "image_key", "imagekey":
+					if s, ok := child.(string); ok {
+						keys = append(keys, s)
+					}
+				case "image_keys":
+					walk(child)
+				default:
+					walk(child)
+				}
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		case string:
+			if strings.HasPrefix(v, "img_") {
+				keys = append(keys, v)
+			}
+		}
+	}
+	walk(decoded)
+	return boundedImageKeys(keys, 20)
+}
+
+func messageContent(event Event) string {
+	if strings.TrimSpace(event.Text) != "" {
+		return event.Text
+	}
+	if len(event.ImageKeys) > 0 {
+		return "[image] " + strings.Join(event.ImageKeys, ",")
+	}
+	return "[empty]"
+}
+
+func messageContentType(event Event) string {
+	if strings.TrimSpace(event.Text) == "" && len(event.ImageKeys) > 0 {
+		return "image"
+	}
+	return "text"
 }
 
 func (h *Handler) verifyToken(token string) error {

@@ -10,6 +10,7 @@ type Config struct {
 	Server      ServerConfig
 	Lark        LarkConfig
 	LLM         LLMConfig
+	Vision      VisionConfig
 	Database    DatabaseConfig
 	Queue       QueueConfig
 	Connectors  ConnectorConfig
@@ -39,6 +40,16 @@ type LLMConfig struct {
 	Model          string
 	TimeoutSeconds int
 	MaxConcurrency int
+}
+
+type VisionConfig struct {
+	Provider            string
+	BaseURL             string
+	APIKey              string
+	Model               string
+	TimeoutSeconds      int
+	MaxImagesPerMessage int
+	MaxImageBytes       int
 }
 
 type DatabaseConfig struct {
@@ -111,6 +122,15 @@ func LoadFromEnv() Config {
 			Model:          env("LLM_MODEL", "rules-v1"),
 			TimeoutSeconds: envInt("LLM_TIMEOUT_SECONDS", 30),
 			MaxConcurrency: envInt("LLM_MAX_CONCURRENCY", 10),
+		},
+		Vision: VisionConfig{
+			Provider:            env("VISION_PROVIDER", "local_mock"),
+			BaseURL:             env("VISION_BASE_URL", ""),
+			APIKey:              env("VISION_API_KEY", ""),
+			Model:               env("VISION_MODEL", "qwen3-vl-plus"),
+			TimeoutSeconds:      envInt("VISION_TIMEOUT_SECONDS", 30),
+			MaxImagesPerMessage: envInt("VISION_MAX_IMAGES_PER_MESSAGE", 3),
+			MaxImageBytes:       envInt("VISION_MAX_IMAGE_BYTES", 10*1024*1024),
 		},
 		Database: DatabaseConfig{
 			Driver: env("DB_DRIVER", "mysql"),

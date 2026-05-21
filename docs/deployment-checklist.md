@@ -17,6 +17,13 @@ LLM_BASE_URL=https://llm-gateway.internal/v1
 LLM_API_KEY=xxx
 LLM_MODEL=replace-with-model
 
+VISION_PROVIDER=qwen_openai_compatible
+VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+VISION_API_KEY=xxx
+VISION_MODEL=qwen3-vl-plus
+VISION_MAX_IMAGES_PER_MESSAGE=3
+VISION_MAX_IMAGE_BYTES=10485760
+
 DB_DRIVER=mysql
 DB_DSN='user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local'
 
@@ -47,6 +54,9 @@ MAX_INVESTIGATION_SECONDS=120
 - 内部联调如需机器人在群里真实回复，已配置 `LARK_APP_ID` 和 `LARK_APP_SECRET`，并确保应用开启机器人能力。
 - 飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
 - 配置 `LARK_ENCRYPT_KEY` 后，Lark 入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
+- 如果需要识别截图，飞书应用必须具备读取消息资源/图片资源的权限，并配置 `LARK_APP_ID`、`LARK_APP_SECRET` 供系统下载图片。
+- 视觉模型建议独立配置：`VISION_PROVIDER=qwen_openai_compatible` 使用千问视觉识别图片，后续 `LLM_*` 仍可接 GPT/Claude 做文字推理。
+- 原图默认只在内存中短暂处理，不写入 MySQL；如需留存原图，必须接公司对象存储、保留周期和数据分级审批。
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
 - adapter 对所有底层查询设置 timeout、limit 和审计。
 - adapter 不提供写操作，不透传 SQL。
@@ -99,6 +109,23 @@ curl -s localhost:19091/lark/events \
   }'
 ```
 
+图片消息本地模拟：
+
+```bash
+curl -s localhost:19091/lark/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id":"oc_dev",
+    "thread_id":"thread_dev",
+    "message_id":"msg_image_1",
+    "user_id":"ou_dev",
+    "text":"@排障机器人 帮忙看截图",
+    "image_keys":["img_dev_1"]
+  }'
+```
+
+真实飞书联调时，图片下载需要 `LARK_APP_ID` / `LARK_APP_SECRET`；本地 mock 模式下如未配置真实 Bot，响应中会提示图片未下载，不影响文字工单链路。
+
 重复投递检查：
 
 ```bash
@@ -119,6 +146,7 @@ curl -s localhost:19091/lark/events \
 - 信息不足 case 进入 `WAITING_USER_REPLY`。
 - 工具调用审计日志包含 tool name、case id、policy decision、query id。
 - 重复投递响应包含 `duplicate=true`，worker 不会产生第二轮工具调用。
+- 有图片时，`cases.ocr_text` 或 `/cases/{case_no}` 响应中的 `ocr_text` 包含视觉识别结果；下游工具选择会使用这些字段。
 
 根因回填与知识自进化：
 
