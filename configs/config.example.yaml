@@ -34,7 +34,7 @@ vision:
 
 database:
   driver: mysql
-  # Example: user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local
+  # Example: ai_user:replace-with-db-password@tcp(mysql.example.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local
   # Empty dsn falls back to in-memory store for local smoke tests.
   dsn: ""
 
@@ -72,7 +72,7 @@ control_api:
 tool_gateway:
   endpoint: http://localhost:8080
   client_id: dev-client
-  client_secret: dev-secret
+  client_secret: ""
 
 limits:
   max_tool_calls_per_case: 10

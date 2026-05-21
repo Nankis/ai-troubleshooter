@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	"github.com/ginseng/ai-troubleshooter/internal/gateway"
-	"github.com/ginseng/ai-troubleshooter/internal/storage"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/gateway"
+	"github.com/Nankis/ai-troubleshooter/internal/storage"
 )
 
 func main() {

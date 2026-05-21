@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	"github.com/ginseng/ai-troubleshooter/internal/gateway"
-	"github.com/ginseng/ai-troubleshooter/internal/httpauth"
-	"github.com/ginseng/ai-troubleshooter/internal/llm"
-	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
-	"github.com/ginseng/ai-troubleshooter/internal/storage"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/gateway"
+	"github.com/Nankis/ai-troubleshooter/internal/httpauth"
+	"github.com/Nankis/ai-troubleshooter/internal/llm"
+	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
+	"github.com/Nankis/ai-troubleshooter/internal/storage"
 )
 
 func main() {

@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	"github.com/ginseng/ai-troubleshooter/internal/lark"
-	"github.com/ginseng/ai-troubleshooter/internal/queue"
-	"github.com/ginseng/ai-troubleshooter/internal/storage"
-	"github.com/ginseng/ai-troubleshooter/internal/vision"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/lark"
+	"github.com/Nankis/ai-troubleshooter/internal/queue"
+	"github.com/Nankis/ai-troubleshooter/internal/storage"
+	"github.com/Nankis/ai-troubleshooter/internal/vision"
 )
 
 func main() {

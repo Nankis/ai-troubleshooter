@@ -1,5 +1,5 @@
-GO ?= /Users/ginseng/sdk/go1.26.2/bin/go
-GOFMT ?= /Users/ginseng/sdk/go1.26.2/bin/gofmt
+GO ?= go
+GOFMT ?= gofmt
 
 .PHONY: fmt test dev gateway
 

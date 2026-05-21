@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/audit"
+	"github.com/Nankis/ai-troubleshooter/internal/audit"
 )
 
 func (s *Store) Record(ctx context.Context, record audit.Record) error {

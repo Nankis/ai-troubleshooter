@@ -7,13 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	"github.com/ginseng/ai-troubleshooter/internal/gateway"
-	"github.com/ginseng/ai-troubleshooter/internal/llm"
-	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
-	"github.com/ginseng/ai-troubleshooter/internal/queue"
-	"github.com/ginseng/ai-troubleshooter/internal/storage"
-	"github.com/ginseng/ai-troubleshooter/internal/worker"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/gateway"
+	"github.com/Nankis/ai-troubleshooter/internal/llm"
+	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
+	"github.com/Nankis/ai-troubleshooter/internal/queue"
+	"github.com/Nankis/ai-troubleshooter/internal/storage"
+	"github.com/Nankis/ai-troubleshooter/internal/worker"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/ginseng/ai-troubleshooter
+module github.com/Nankis/ai-troubleshooter
 
 go 1.26
 

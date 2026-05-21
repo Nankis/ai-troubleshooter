@@ -14,7 +14,7 @@ LARK_ENCRYPT_KEY=xxx
 LARK_ALLOWED_CHAT_IDS=oc_xxx,oc_yyy
 
 LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://llm-gateway.internal/v1
+LLM_BASE_URL=https://llm-gateway.example.internal/v1
 LLM_API_KEY=xxx
 LLM_MODEL=replace-with-model
 
@@ -26,13 +26,13 @@ VISION_MAX_IMAGES_PER_MESSAGE=3
 VISION_MAX_IMAGE_BYTES=10485760
 
 DB_DRIVER=mysql
-DB_DSN='user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local'
+DB_DSN='ai_user:replace-with-db-password@tcp(mysql.example.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local'
 
 CONNECTOR_MODE=http
 CONNECTOR_API_KEY=xxx
-MARKET_READONLY_BASE_URL=https://market-readonly.internal
-ASSET_READONLY_BASE_URL=https://asset-readonly.internal
-OPS_READONLY_BASE_URL=https://ops-readonly.internal
+MARKET_READONLY_BASE_URL=https://market-readonly.example.internal
+ASSET_READONLY_BASE_URL=https://asset-readonly.example.internal
+OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
 
 GATEWAY_AUTH_ENABLED=true
 GATEWAY_BEARER_TOKENS='business-troubleshooter-v1:replace-with-strong-token'

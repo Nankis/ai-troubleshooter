@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
-	"github.com/ginseng/ai-troubleshooter/internal/llm"
-	"github.com/ginseng/ai-troubleshooter/internal/masking"
-	"github.com/ginseng/ai-troubleshooter/internal/tool"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/llm"
+	"github.com/Nankis/ai-troubleshooter/internal/masking"
+	"github.com/Nankis/ai-troubleshooter/internal/tool"
 )
 
 type ToolClient interface {

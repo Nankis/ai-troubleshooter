@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ginseng/ai-troubleshooter/internal/audit"
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	mysqlstore "github.com/ginseng/ai-troubleshooter/internal/storage/mysql"
+	"github.com/Nankis/ai-troubleshooter/internal/audit"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	mysqlstore "github.com/Nankis/ai-troubleshooter/internal/storage/mysql"
 )
 
 type OpenedStore struct {

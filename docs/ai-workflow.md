@@ -1,6 +1,6 @@
 # ai-workflow 开发规范接入
 
-本仓库后续开发按 `/Users/ginseng/Documents/AI工作区/ai-workflow` 的自动化开发闭环执行。
+本仓库后续开发建议按团队内部 `ai-workflow` / `programs` 自动化开发闭环执行；如果没有同名流程，也可以直接复用本目录下的 `programs/P-*` 模板。
 
 ## 本仓库执行约定
 
@@ -21,7 +21,7 @@ make test
 
 ## 分支策略
 
-本仓库是可部署后端仓库，默认不直接 push `main`。
+本仓库是可部署后端仓库，推荐通过分支和 PR 合并；仓库维护者也可以按项目治理规则直接维护 `main`。
 
 推荐流程：
 
@@ -35,7 +35,7 @@ main
   -> merge
 ```
 
-如果本地已在 `main` 产生 commit，不要继续 push `main`；创建工作分支指向当前提交，让用户决定合并。
+如果本地已在 `main` 产生 commit，公开协作时建议创建工作分支指向当前提交，再通过 PR 做 review 和 CI 验证。
 
 ## DDL 变更规则
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
-	"github.com/ginseng/ai-troubleshooter/internal/masking"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/masking"
 )
 
 type Service struct {

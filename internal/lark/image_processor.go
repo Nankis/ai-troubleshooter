@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ginseng/ai-troubleshooter/internal/vision"
+	"github.com/Nankis/ai-troubleshooter/internal/vision"
 )
 
 type DownloadedImage struct {

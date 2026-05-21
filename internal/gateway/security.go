@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/ratelimit"
+	"github.com/Nankis/ai-troubleshooter/internal/ratelimit"
 )
 
 var (

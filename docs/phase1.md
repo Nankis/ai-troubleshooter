@@ -1,6 +1,6 @@
 # 一期实现说明
 
-源 TRD：`/Users/ginseng/.openclaw/workspace/AI工作区/生产排障Agent/一期TRD-业务工单排障Agent.md`
+本文档是一期 TRD 的公开摘要，保留可实现的工程约束和范围说明；原始内部 TRD 不随开源仓库发布。
 
 ## 一期不可变原则
 

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/audit"
-	"github.com/ginseng/ai-troubleshooter/internal/config"
-	"github.com/ginseng/ai-troubleshooter/internal/connectors"
-	"github.com/ginseng/ai-troubleshooter/internal/policy"
-	"github.com/ginseng/ai-troubleshooter/internal/tool"
+	"github.com/Nankis/ai-troubleshooter/internal/audit"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/connectors"
+	"github.com/Nankis/ai-troubleshooter/internal/policy"
+	"github.com/Nankis/ai-troubleshooter/internal/tool"
 )
 
 func NewDefault(timeout time.Duration) *Gateway {

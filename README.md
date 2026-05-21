@@ -177,10 +177,11 @@ docs/                      TRD 摘要与一期说明
 
 ## 本地启动
 
-本机如果 `go` 不在 PATH，可以临时使用：
+需要 Go 1.26 或更高版本，并确保 `go` 与 `gofmt` 在 PATH 中：
 
 ```bash
-export PATH="/Users/ginseng/sdk/go1.26.2/bin:$PATH"
+go version
+make test
 ```
 
 启动一体化 dev server：
@@ -228,9 +229,9 @@ curl -s localhost:8080/tools/get_asset_snapshot/invoke \
 ```bash
 CONNECTOR_MODE=http
 CONNECTOR_API_KEY=replace-with-internal-token
-MARKET_READONLY_BASE_URL=https://market-readonly.internal
-ASSET_READONLY_BASE_URL=https://asset-readonly.internal
-OPS_READONLY_BASE_URL=https://ops-readonly.internal
+MARKET_READONLY_BASE_URL=https://market-readonly.example.internal
+ASSET_READONLY_BASE_URL=https://asset-readonly.example.internal
+OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
 ```
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
@@ -252,7 +253,7 @@ VISION_MAX_IMAGE_BYTES=10485760
 
 ```bash
 LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://llm-gateway.internal/v1
+LLM_BASE_URL=https://llm-gateway.example.internal/v1
 LLM_API_KEY=replace-with-llm-key
 LLM_MODEL=replace-with-gpt-or-claude-model
 ```
@@ -309,6 +310,10 @@ compose 示例见 [deploy/docker-compose.example.yml](deploy/docker-compose.exam
 go test ./...
 ```
 
+## 开源许可与贡献
+
+本项目使用 Apache License 2.0 开源，适合企业内部二次开发、私有化部署和按需封装业务 adapter。贡献前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请按 [SECURITY.md](SECURITY.md) 走私下披露流程。
+
 ## Gateway 安全边界
 
 平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计持久化和返回脱敏。
@@ -331,7 +336,7 @@ Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 ## 下一步
 
 1. 把 `queue.Queue` 从内存实现替换为 Redis Stream。
-2. 接真实 Lark 图片下载和 OCR。
+2. 按公司数据分级策略接对象存储或统一审计平台，补充图片留存与追溯能力。
 3. 接真实 LLM provider，并保留规则型实现作为本地 fallback。
 4. 用真实业务只读 API 替换 mock connector。
 5. 把 MySQL tool audit / decision logs 同步到统一日志或 SIEM。

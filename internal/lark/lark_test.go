@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
-	"github.com/ginseng/ai-troubleshooter/internal/queue"
-	"github.com/ginseng/ai-troubleshooter/internal/vision"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/queue"
+	"github.com/Nankis/ai-troubleshooter/internal/vision"
 )
 
 func TestHandlerRejectsDisallowedChat(t *testing.T) {

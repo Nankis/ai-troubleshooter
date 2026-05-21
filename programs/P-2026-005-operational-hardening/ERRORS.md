@@ -2,7 +2,7 @@
 
 ## 已处理
 
-- 本机 `go` 不在默认 PATH，改用 Makefile 固定的 `/Users/ginseng/sdk/go1.26.2/bin/go` 和 `gofmt`。
+- 本地环境 `go` 不在默认 PATH 时会导致 `make test` 失败；公开仓库已改为默认使用 PATH 中的 `go` 和 `gofmt`，开发者需先安装 Go 1.26+。
 
 ## 待观察
 

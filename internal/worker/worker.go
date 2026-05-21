@@ -5,8 +5,8 @@ import (
 	"log"
 	"sync"
 
-	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
-	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
+	"github.com/Nankis/ai-troubleshooter/internal/queue"
 )
 
 type Pool struct {

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 )
 
 func TestOpenAICompatibleClientClassifiesIssue(t *testing.T) {

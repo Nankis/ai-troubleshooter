@@ -10,7 +10,7 @@ import (
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 )
 
 type Store struct {

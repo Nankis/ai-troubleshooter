@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 )
 
 type CaseInput struct {

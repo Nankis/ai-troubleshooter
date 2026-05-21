@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 )
 
 func TestConfirmRootCauseEvolvesKnowledge(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ginseng/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
 )
 
 func NewFromConfig(cfg config.VisionConfig) Client {
