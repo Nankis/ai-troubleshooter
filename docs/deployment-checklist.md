@@ -45,7 +45,8 @@ MAX_INVESTIGATION_SECONDS=120
 - Lark 机器人只加入允许的群。
 - `LARK_ALLOWED_CHAT_IDS` 已配置，避免任意群触发。
 - 内部联调如需机器人在群里真实回复，已配置 `LARK_APP_ID` 和 `LARK_APP_SECRET`，并确保应用开启机器人能力。
-- 当前一期回调加密解包未启用，飞书事件订阅内部测试先关闭回调加密；如果必须开启，需要先补加密解包。
+- 飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
+- 配置 `LARK_ENCRYPT_KEY` 后，Lark 入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
 - adapter 对所有底层查询设置 timeout、limit 和审计。
 - adapter 不提供写操作，不透传 SQL。

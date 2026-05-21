@@ -35,6 +35,7 @@ func main() {
 	handler := lark.NewHandler(store, q, messenger)
 	handler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
+		EncryptKey:        cfg.Lark.EncryptKey,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
 	})
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)

@@ -67,6 +67,7 @@ func main() {
 	larkHandler := lark.NewHandler(store, q, messenger)
 	larkHandler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
+		EncryptKey:        cfg.Lark.EncryptKey,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
 	})
 	mux := http.NewServeMux()

@@ -2,6 +2,10 @@ package lark
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +42,87 @@ func TestHandlerRespondsToLarkChallenge(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "challenge_1") {
 		t.Fatalf("expected challenge response, got %s", rec.Body.String())
+	}
+}
+
+func TestHandlerRespondsToEncryptedLarkChallenge(t *testing.T) {
+	encryptKey := "encrypt_key_1"
+	handler := NewHandler(caseflow.NewInMemoryStore(), queue.NewMemoryQueue(1), nil)
+	handler.SetOptions(Options{VerificationToken: "token_1", EncryptKey: encryptKey})
+	body := encryptedTestEnvelope(t, encryptKey, []byte(`{"token":"token_1","challenge":"challenge_1"}`))
+
+	req := httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "challenge_1") {
+		t.Fatalf("expected challenge response, got %s", rec.Body.String())
+	}
+}
+
+func TestHandlerAcceptsEncryptedLarkMessage(t *testing.T) {
+	encryptKey := "encrypt_key_1"
+	store := caseflow.NewInMemoryStore()
+	q := &recordingQueue{}
+	handler := NewHandler(store, q, nil)
+	handler.SetOptions(Options{VerificationToken: "token_1", EncryptKey: encryptKey})
+	body := encryptedTestEnvelope(t, encryptKey, []byte(`{
+		"schema":"2.0",
+		"header":{"event_id":"evt_1","token":"token_1"},
+		"event":{
+			"sender":{"sender_id":{"open_id":"ou_1"}},
+			"message":{
+				"message_id":"msg_1",
+				"chat_id":"oc_1",
+				"root_id":"root_1",
+				"content":"{\"text\":\"@排障机器人 BTCUSDT 1m K线不对\"}"
+			}
+		}
+	}`))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body)))
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if q.published != 1 {
+		t.Fatalf("expected one queue publish, got %d", q.published)
+	}
+	c, err := store.FindCaseByMessageID(context.Background(), "lark", "msg_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ChatID != "oc_1" || c.ReporterUserID != "ou_1" {
+		t.Fatalf("unexpected case from encrypted message: %+v", c)
+	}
+}
+
+func TestHandlerRejectsEncryptedPayloadWithoutKey(t *testing.T) {
+	body := encryptedTestEnvelope(t, "encrypt_key_1", []byte(`{"token":"token_1","challenge":"challenge_1"}`))
+	handler := NewHandler(caseflow.NewInMemoryStore(), queue.NewMemoryQueue(1), nil)
+	handler.SetOptions(Options{VerificationToken: "token_1"})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body)))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerRejectsPlainPayloadWhenEncryptKeyConfigured(t *testing.T) {
+	handler := NewHandler(caseflow.NewInMemoryStore(), queue.NewMemoryQueue(1), nil)
+	handler.SetOptions(Options{VerificationToken: "token_1", EncryptKey: "encrypt_key_1"})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(`{"token":"token_1","challenge":"challenge_1"}`)))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -110,4 +195,32 @@ func (q *recordingQueue) Publish(ctx context.Context, event queue.Event) error {
 func (q *recordingQueue) Consume(ctx context.Context) (queue.Event, error) {
 	<-ctx.Done()
 	return queue.Event{}, ctx.Err()
+}
+
+func encryptedTestEnvelope(t *testing.T, encryptKey string, plaintext []byte) string {
+	t.Helper()
+	key := sha256.Sum256([]byte(encryptKey))
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	padded := pkcs7Pad(plaintext, aes.BlockSize)
+	ciphertext := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, key[:aes.BlockSize]).CryptBlocks(ciphertext, padded)
+	encoded := base64.StdEncoding.EncodeToString(ciphertext)
+	body, err := json.Marshal(map[string]string{"encrypt": encoded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func pkcs7Pad(value []byte, blockSize int) []byte {
+	padding := blockSize - len(value)%blockSize
+	out := make([]byte, 0, len(value)+padding)
+	out = append(out, value...)
+	for i := 0; i < padding; i++ {
+		out = append(out, byte(padding))
+	}
+	return out
 }

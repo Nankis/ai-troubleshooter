@@ -49,6 +49,7 @@ type Handler struct {
 
 type Options struct {
 	VerificationToken string
+	EncryptKey        string
 	AllowedChatIDs    []string
 	RequireMention    bool
 	BotMentionText    string
@@ -71,6 +72,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	body, err = decodeEncryptedEventBody(body, h.options.EncryptKey)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
