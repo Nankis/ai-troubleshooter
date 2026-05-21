@@ -25,7 +25,14 @@ func main() {
 	defer openedStore.Close()
 	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
-	handler := lark.NewHandler(store, q, nil)
+	var messenger lark.Messenger
+	if cfg.Lark.AppID != "" && cfg.Lark.AppSecret != "" {
+		messenger = lark.NewBotMessenger(lark.BotMessengerOptions{
+			AppID:     cfg.Lark.AppID,
+			AppSecret: cfg.Lark.AppSecret,
+		})
+	}
+	handler := lark.NewHandler(store, q, messenger)
 	handler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,

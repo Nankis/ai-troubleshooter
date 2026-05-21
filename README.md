@@ -147,6 +147,7 @@ docs/                      TRD 摘要与一期说明
 - Lark 事件入口：`POST /lark/events`，支持本地模拟 payload 和 Lark v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
 - Lark `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
+- 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过飞书开放平台发送文本回复；未配置时本地只写日志。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
@@ -292,16 +293,17 @@ Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 
 ## 当前实现边界
 
-- Redis Stream、真实 Lark 发消息 API、真实日志/DB/Redis connector 尚未接入，已保留接口。
+- Redis Stream、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Orchestrator 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
+- 飞书事件回调加密和图片下载还未接入；内部联调先关闭回调加密。
 
 ## 下一步
 
 1. 把 `queue.Queue` 从内存实现替换为 Redis Stream。
-2. 接真实 Lark 加密验签、消息发送和图片下载。
+2. 接真实 Lark 回调加密验签和图片下载。
 3. 接真实 LLM provider，并保留规则型实现作为本地 fallback。
 4. 用真实业务只读 API 替换 mock connector。
 5. 把 MySQL tool audit / decision logs 同步到统一日志或 SIEM。

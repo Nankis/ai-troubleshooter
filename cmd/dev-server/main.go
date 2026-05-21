@@ -57,7 +57,14 @@ func main() {
 	pool := worker.NewPool(q, orch, cfg.Limits.WorkerConcurrency)
 	pool.Start(ctx)
 
-	larkHandler := lark.NewHandler(store, q, nil)
+	var messenger lark.Messenger
+	if cfg.Lark.AppID != "" && cfg.Lark.AppSecret != "" {
+		messenger = lark.NewBotMessenger(lark.BotMessengerOptions{
+			AppID:     cfg.Lark.AppID,
+			AppSecret: cfg.Lark.AppSecret,
+		})
+	}
+	larkHandler := lark.NewHandler(store, q, messenger)
 	larkHandler.SetOptions(lark.Options{
 		VerificationToken: cfg.Lark.VerificationToken,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
