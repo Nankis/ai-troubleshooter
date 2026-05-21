@@ -25,6 +25,12 @@ CONNECTOR_API_KEY=xxx
 MARKET_READONLY_BASE_URL=https://market-readonly.internal
 ASSET_READONLY_BASE_URL=https://asset-readonly.internal
 OPS_READONLY_BASE_URL=https://ops-readonly.internal
+
+GATEWAY_AUTH_ENABLED=true
+GATEWAY_BEARER_TOKENS='business-troubleshooter-v1:replace-with-strong-token'
+GATEWAY_AGENT_QPS=5
+GATEWAY_USER_QPS=2
+GATEWAY_TOOL_QPS=10
 ```
 
 ## 接入前检查
@@ -34,6 +40,10 @@ OPS_READONLY_BASE_URL=https://ops-readonly.internal
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
 - adapter 对所有底层查询设置 timeout、limit 和审计。
 - adapter 不提供写操作，不透传 SQL。
+- Gateway HTTP 鉴权已开启：`GATEWAY_AUTH_ENABLED=true`。
+- Gateway Bearer token 通过密钥系统注入，不写入 Git 或镜像。
+- 调用 Gateway 的 orchestrator/worker 已使用与 `agent_id` 绑定的 token。
+- Gateway 上游入口已做内网 ACL、Ingress allowlist 或 service mesh 策略。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
 - 数据库已执行 `migrations/001_initial.sql` 和 `migrations/002_knowledge_evolution.sql`，DSN 必须包含 `parseTime=true`。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。

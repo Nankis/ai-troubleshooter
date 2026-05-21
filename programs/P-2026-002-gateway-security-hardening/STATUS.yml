@@ -1,0 +1,22 @@
+program: P-2026-002-gateway-security-hardening
+name: "Gateway security hardening"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-21"
+updated_at: "2026-05-21"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program"
+    status: done
+  - id: task-2
+    name: "Gateway HTTP 鉴权与身份绑定"
+    status: done
+  - id: task-3
+    name: "网关级限流"
+    status: done
+  - id: task-4
+    name: "文档和验证"
+    status: done

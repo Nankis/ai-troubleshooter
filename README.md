@@ -134,6 +134,7 @@ docs/                      TRD 摘要与一期说明
 关键文档：
 
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
+- [Gateway 安全与鉴权边界](docs/gateway-security.md)
 - [部署检查清单](docs/deployment-checklist.md)
 - [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
 - [ai-workflow 开发规范接入](docs/ai-workflow.md)
@@ -149,6 +150,7 @@ docs/                      TRD 摘要与一期说明
 - LLMClient 抽象和规则型本地实现。
 - Tool Registry 和内部 Tool Invoke API。
 - Query Gateway 默认拒绝策略、scope 校验、参数边界控制。
+- Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
 - Audit sink 和脱敏。
 - 10 个一期只读工具。
 - K线、资产、日志 mock connector。
@@ -264,11 +266,17 @@ compose 示例见 [deploy/docker-compose.example.yml](deploy/docker-compose.exam
 go test ./...
 ```
 
+## Gateway 安全边界
+
+平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计和返回脱敏。
+
+部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
+
 ## 当前实现边界
 
 - Redis Stream、真实 Lark 发消息 API、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
-- Gateway 已按一期原则默认拒绝、只读工具、scope 校验、时间范围/limit 约束、审计和脱敏。
+- Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 
 ## 下一步

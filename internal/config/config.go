@@ -13,6 +13,7 @@ type Config struct {
 	Database    DatabaseConfig
 	Queue       QueueConfig
 	Connectors  ConnectorConfig
+	Gateway     GatewayConfig
 	ToolGateway ToolGatewayConfig
 	Limits      LimitsConfig
 }
@@ -57,6 +58,15 @@ type ConnectorConfig struct {
 	MarketBaseURL  string
 	AssetBaseURL   string
 	OpsBaseURL     string
+}
+
+type GatewayConfig struct {
+	AuthEnabled                   bool
+	BearerTokens                  map[string]string
+	AllowUnauthenticatedListTools bool
+	AgentQPS                      int
+	UserQPS                       int
+	ToolQPS                       int
 }
 
 type ToolGatewayConfig struct {
@@ -111,6 +121,14 @@ func LoadFromEnv() Config {
 			AssetBaseURL:   env("ASSET_READONLY_BASE_URL", ""),
 			OpsBaseURL:     env("OPS_READONLY_BASE_URL", ""),
 		},
+		Gateway: GatewayConfig{
+			AuthEnabled:                   envBool("GATEWAY_AUTH_ENABLED", false),
+			BearerTokens:                  envTokenMap("GATEWAY_BEARER_TOKENS"),
+			AllowUnauthenticatedListTools: envBool("GATEWAY_ALLOW_UNAUTHENTICATED_LIST_TOOLS", false),
+			AgentQPS:                      envInt("GATEWAY_AGENT_QPS", 5),
+			UserQPS:                       envInt("GATEWAY_USER_QPS", 2),
+			ToolQPS:                       envInt("GATEWAY_TOOL_QPS", 10),
+		},
 		ToolGateway: ToolGatewayConfig{
 			Endpoint:     env("TOOL_GATEWAY_ENDPOINT", "http://localhost:8080"),
 			ClientID:     env("TOOL_GATEWAY_CLIENT_ID", "dev-client"),
@@ -145,6 +163,21 @@ func envInt(key string, def int) int {
 	return v
 }
 
+func envBool(key string, def bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if raw == "" {
+		return def
+	}
+	switch raw {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return def
+	}
+}
+
 func envCSV(key string) []string {
 	raw := strings.TrimSpace(os.Getenv(key))
 	if raw == "" {
@@ -156,6 +189,30 @@ func envCSV(key string) []string {
 		part = strings.TrimSpace(part)
 		if part != "" {
 			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func envTokenMap(key string) map[string]string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	out := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		pair := strings.SplitN(part, ":", 2)
+		if len(pair) != 2 {
+			continue
+		}
+		agentID := strings.TrimSpace(pair[0])
+		token := strings.TrimSpace(pair[1])
+		if agentID != "" && token != "" {
+			out[token] = agentID
 		}
 	}
 	return out

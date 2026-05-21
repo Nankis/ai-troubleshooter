@@ -39,6 +39,16 @@ connectors:
   asset_base_url: ""
   ops_base_url: ""
 
+gateway:
+  auth_enabled: false
+  # Runtime env format:
+  # GATEWAY_BEARER_TOKENS=business-troubleshooter-v1:replace-with-strong-token
+  bearer_tokens: {}
+  allow_unauthenticated_list_tools: false
+  agent_qps: 5
+  user_qps: 2
+  tool_qps: 10
+
 tool_gateway:
   endpoint: http://localhost:8080
   client_id: dev-client

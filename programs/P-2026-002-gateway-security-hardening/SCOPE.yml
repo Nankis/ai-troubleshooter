@@ -1,0 +1,16 @@
+program: P-2026-002-gateway-security-hardening
+allowed_paths:
+  - README.md
+  - configs/**
+  - docs/**
+  - internal/config/**
+  - internal/gateway/**
+  - internal/ratelimit/**
+  - programs/P-2026-002-gateway-security-hardening/**
+forbidden_paths:
+  - .env
+  - "**/*secret*"
+requires_approval:
+  - production deploy
+  - push to main
+notes: "用户已允许上一轮直接推 main；本轮仍先走 Program 分支，完成后按授权情况合并。"

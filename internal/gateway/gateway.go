@@ -29,6 +29,8 @@ type Gateway struct {
 	policy   policy.Engine
 	audit    audit.Sink
 	timeout  time.Duration
+	security SecurityConfig
+	limits   rateLimiters
 }
 
 func New(registry *tool.Registry, policyEngine policy.Engine, auditSink audit.Sink, timeout time.Duration) *Gateway {
@@ -40,7 +42,14 @@ func New(registry *tool.Registry, policyEngine policy.Engine, auditSink audit.Si
 		policy:   policyEngine,
 		audit:    auditSink,
 		timeout:  timeout,
+		limits:   newRateLimiters(SecurityConfig{}),
 	}
+}
+
+func (g *Gateway) WithSecurity(config SecurityConfig) *Gateway {
+	g.security = config
+	g.limits = newRateLimiters(config)
+	return g
 }
 
 func (g *Gateway) Registry() *tool.Registry {
@@ -76,6 +85,23 @@ func (g *Gateway) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.
 	if spec.Status != "" && spec.Status != "enabled" {
 		resp.Summary = "tool disabled"
 		return resp, tool.ErrToolDisabled
+	}
+	if authenticatedAgent := authenticatedAgentFromContext(ctx); authenticatedAgent != "" {
+		if req.AgentID == "" {
+			req.AgentID = authenticatedAgent
+		}
+		if req.AgentID != authenticatedAgent {
+			resp.Status = "denied"
+			resp.Summary = ErrAgentMismatch.Error()
+			g.recordAudit(ctx, req, spec, toolCallID, "denied", ErrAgentMismatch.Error(), "", 0, start, nil)
+			return resp, ErrAgentMismatch
+		}
+	}
+	if err := g.enforceRateLimits(req); err != nil {
+		resp.Status = "denied"
+		resp.Summary = err.Error()
+		g.recordAudit(ctx, req, spec, toolCallID, "denied", err.Error(), "", 0, start, nil)
+		return resp, err
 	}
 
 	decision, err := g.policy.Authorize(ctx, policy.Request{
@@ -149,6 +175,14 @@ func (g *Gateway) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/tools":
+		if g.security.AuthEnabled && !g.security.AllowUnauthenticatedListTools {
+			authCtx, err := g.authenticateRequest(r)
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
+				return
+			}
+			r = r.WithContext(authCtx)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"tools": g.registry.List()})
 		return
 	case r.Method == http.MethodGet && r.URL.Path == "/healthz":
@@ -162,6 +196,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		if g.security.AuthEnabled {
+			authCtx, err := g.authenticateRequest(r)
+			if err != nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
+				return
+			}
+			r = r.WithContext(authCtx)
+		}
 		req.ToolName = name
 		if req.Arguments == nil {
 			req.Arguments = map[string]any{}
@@ -171,6 +213,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status := http.StatusInternalServerError
 			if errors.Is(err, ErrDenied) {
 				status = http.StatusForbidden
+			}
+			if errors.Is(err, ErrUnauthenticated) {
+				status = http.StatusUnauthorized
+			}
+			if errors.Is(err, ErrAgentMismatch) {
+				status = http.StatusForbidden
+			}
+			if errors.Is(err, ErrRateLimited) {
+				status = http.StatusTooManyRequests
 			}
 			if errors.Is(err, ErrInvalidArguments) || errors.Is(err, tool.ErrToolNotFound) || errors.Is(err, tool.ErrToolDisabled) {
 				status = http.StatusBadRequest
@@ -184,6 +235,28 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
+}
+
+func (g *Gateway) authenticateRequest(r *http.Request) (context.Context, error) {
+	agentID, ok := authenticateBearer(g.security.BearerTokens, bearerToken(r))
+	if !ok {
+		return r.Context(), ErrUnauthenticated
+	}
+	return contextWithAuthenticatedAgent(r.Context(), agentID), nil
+}
+
+func (g *Gateway) enforceRateLimits(req tool.InvocationRequest) error {
+	now := time.Now()
+	if !g.limits.agent.Allow("agent:"+req.AgentID, now) {
+		return ErrRateLimited
+	}
+	if req.LarkUserID != "" && !g.limits.user.Allow("user:"+req.LarkUserID, now) {
+		return ErrRateLimited
+	}
+	if !g.limits.tool.Allow("tool:"+req.ToolName, now) {
+		return ErrRateLimited
+	}
+	return nil
 }
 
 func validateBoundary(args map[string]any, decision policy.Decision) error {

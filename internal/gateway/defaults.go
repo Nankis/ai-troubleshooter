@@ -30,7 +30,14 @@ func NewFromConfig(cfg config.Config) (*Gateway, error) {
 		return nil, err
 	}
 	RegisterDefaultTools(registry, kline, asset, ops)
-	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout), nil
+	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout).WithSecurity(SecurityConfig{
+		AuthEnabled:                   cfg.Gateway.AuthEnabled,
+		BearerTokens:                  cfg.Gateway.BearerTokens,
+		AllowUnauthenticatedListTools: cfg.Gateway.AllowUnauthenticatedListTools,
+		AgentQPS:                      cfg.Gateway.AgentQPS,
+		UserQPS:                       cfg.Gateway.UserQPS,
+		ToolQPS:                       cfg.Gateway.ToolQPS,
+	}), nil
 }
 
 func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.AssetConnector, connectors.OpsConnector, error) {
