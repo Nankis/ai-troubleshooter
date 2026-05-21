@@ -1,0 +1,19 @@
+FROM golang:1.26-alpine AS builder
+
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY . .
+
+ARG SERVICE=dev-server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/${SERVICE}
+
+FROM alpine:3.21
+
+RUN adduser -D -H appuser
+WORKDIR /app
+COPY --from=builder /out/server /app/server
+USER appuser
+
+EXPOSE 8080
+ENTRYPOINT ["/app/server"]

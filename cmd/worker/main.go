@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
@@ -24,7 +23,10 @@ func main() {
 
 	store := caseflow.NewInMemoryStore()
 	q := queue.NewMemoryQueue(256)
-	gw := gateway.NewDefault(time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second)
+	gw, err := gateway.NewFromConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
 		AgentID:             "business-troubleshooter-v1",
 		ModelProvider:       cfg.LLM.Provider,

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/audit"
+	"github.com/ginseng/ai-troubleshooter/internal/connectors"
 	"github.com/ginseng/ai-troubleshooter/internal/masking"
 	"github.com/ginseng/ai-troubleshooter/internal/policy"
 	"github.com/ginseng/ai-troubleshooter/internal/tool"
@@ -116,6 +117,13 @@ func (g *Gateway) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.
 
 	callCtx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
+	callCtx = connectors.ContextWithRequestMeta(callCtx, connectors.RequestMeta{
+		CaseID:       req.CaseID,
+		AgentID:      req.AgentID,
+		CallerUserID: req.LarkUserID,
+		ToolName:     spec.Name,
+		Timeout:      g.timeout,
+	})
 	out, err := handler(callCtx, req)
 	out.ToolCallID = toolCallID
 	if out.Warnings == nil {

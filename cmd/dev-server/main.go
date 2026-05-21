@@ -30,7 +30,10 @@ func main() {
 
 	store := caseflow.NewInMemoryStore()
 	q := queue.NewMemoryQueue(256)
-	gw := gateway.NewDefault(time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second)
+	gw, err := gateway.NewFromConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
 		AgentID:             "business-troubleshooter-v1",
 		ModelProvider:       cfg.LLM.Provider,
@@ -41,6 +44,10 @@ func main() {
 	pool.Start(ctx)
 
 	larkHandler := lark.NewHandler(store, q, nil)
+	larkHandler.SetOptions(lark.Options{
+		VerificationToken: cfg.Lark.VerificationToken,
+		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
+	})
 	mux := http.NewServeMux()
 	mux.Handle("/lark/events", larkHandler)
 	mux.Handle("/tools", gw)

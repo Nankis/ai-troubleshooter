@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
@@ -19,7 +18,10 @@ import (
 func main() {
 	cfg := config.LoadFromEnv()
 	store := caseflow.NewInMemoryStore()
-	gw := gateway.NewDefault(time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second)
+	gw, err := gateway.NewFromConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
 		AgentID:             "business-troubleshooter-v1",
 		ModelProvider:       cfg.LLM.Provider,

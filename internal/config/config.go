@@ -12,6 +12,7 @@ type Config struct {
 	LLM         LLMConfig
 	Database    DatabaseConfig
 	Queue       QueueConfig
+	Connectors  ConnectorConfig
 	ToolGateway ToolGatewayConfig
 	Limits      LimitsConfig
 }
@@ -47,6 +48,15 @@ type QueueConfig struct {
 	Type       string
 	RedisAddr  string
 	StreamName string
+}
+
+type ConnectorConfig struct {
+	Mode           string
+	APIKey         string
+	TimeoutSeconds int
+	MarketBaseURL  string
+	AssetBaseURL   string
+	OpsBaseURL     string
 }
 
 type ToolGatewayConfig struct {
@@ -92,6 +102,14 @@ func LoadFromEnv() Config {
 			Type:       env("QUEUE_TYPE", "memory"),
 			RedisAddr:  env("REDIS_ADDR", ""),
 			StreamName: env("QUEUE_STREAM_NAME", "case_events"),
+		},
+		Connectors: ConnectorConfig{
+			Mode:           env("CONNECTOR_MODE", "mock"),
+			APIKey:         env("CONNECTOR_API_KEY", ""),
+			TimeoutSeconds: envInt("CONNECTOR_TIMEOUT_SECONDS", 5),
+			MarketBaseURL:  env("MARKET_READONLY_BASE_URL", ""),
+			AssetBaseURL:   env("ASSET_READONLY_BASE_URL", ""),
+			OpsBaseURL:     env("OPS_READONLY_BASE_URL", ""),
 		},
 		ToolGateway: ToolGatewayConfig{
 			Endpoint:     env("TOOL_GATEWAY_ENDPOINT", "http://localhost:8080"),

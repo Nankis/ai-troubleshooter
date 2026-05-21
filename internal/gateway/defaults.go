@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/audit"
+	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/connectors"
 	"github.com/ginseng/ai-troubleshooter/internal/policy"
 	"github.com/ginseng/ai-troubleshooter/internal/tool"
@@ -16,6 +17,55 @@ func NewDefault(timeout time.Duration) *Gateway {
 	registry := tool.NewRegistry()
 	RegisterDefaultTools(registry, connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{})
 	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout)
+}
+
+func NewFromConfig(cfg config.Config) (*Gateway, error) {
+	timeout := time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	registry := tool.NewRegistry()
+	kline, asset, ops, err := buildConnectors(cfg)
+	if err != nil {
+		return nil, err
+	}
+	RegisterDefaultTools(registry, kline, asset, ops)
+	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout), nil
+}
+
+func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.AssetConnector, connectors.OpsConnector, error) {
+	if strings.EqualFold(cfg.Connectors.Mode, "http") {
+		timeout := time.Duration(cfg.Connectors.TimeoutSeconds) * time.Second
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		kline, err := connectors.NewHTTPKlineConnector(connectors.HTTPConfig{
+			BaseURL: cfg.Connectors.MarketBaseURL,
+			APIKey:  cfg.Connectors.APIKey,
+			Timeout: timeout,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("market readonly connector: %w", err)
+		}
+		asset, err := connectors.NewHTTPAssetConnector(connectors.HTTPConfig{
+			BaseURL: cfg.Connectors.AssetBaseURL,
+			APIKey:  cfg.Connectors.APIKey,
+			Timeout: timeout,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("asset readonly connector: %w", err)
+		}
+		ops, err := connectors.NewHTTPOpsConnector(connectors.HTTPConfig{
+			BaseURL: cfg.Connectors.OpsBaseURL,
+			APIKey:  cfg.Connectors.APIKey,
+			Timeout: timeout,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("ops readonly connector: %w", err)
+		}
+		return kline, asset, ops, nil
+	}
+	return connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{}, nil
 }
 
 func RegisterDefaultTools(reg *tool.Registry, kline connectors.KlineConnector, asset connectors.AssetConnector, ops connectors.OpsConnector) {

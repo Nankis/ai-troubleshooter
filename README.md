@@ -131,11 +131,17 @@ migrations/                MySQL 初始化表
 docs/                      TRD 摘要与一期说明
 ```
 
+关键文档：
+
+- [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
+- [部署检查清单](docs/deployment-checklist.md)
+
 ## 已实现能力
 
 - 独立 Go 仓库和一期目录结构。
 - 本地一体化 `dev-server`。
-- Lark 模拟事件入口：`POST /lark/events`。
+- Lark 事件入口：`POST /lark/events`，支持本地模拟 payload 和 Lark v2 消息 payload。
+- Lark verification token 和 allowed chat 基础门禁。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
@@ -144,9 +150,10 @@ docs/                      TRD 摘要与一期说明
 - Audit sink 和脱敏。
 - 10 个一期只读工具。
 - K线、资产、日志 mock connector。
+- 标准 HTTP 只读 connector，可按文档对接公司接口。
 - MySQL 初始化 migration。
 - OpenAPI 草案。
-- 单元测试覆盖状态机、policy、masking、tool registry。
+- 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope。
 
 ## 本地启动
 
@@ -196,6 +203,35 @@ curl -s localhost:8080/tools/get_asset_snapshot/invoke \
   }'
 ```
 
+对接公司只读 adapter：
+
+```bash
+CONNECTOR_MODE=http
+CONNECTOR_API_KEY=replace-with-internal-token
+MARKET_READONLY_BASE_URL=https://market-readonly.internal
+ASSET_READONLY_BASE_URL=https://asset-readonly.internal
+OPS_READONLY_BASE_URL=https://ops-readonly.internal
+```
+
+adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
+
+## 容器部署
+
+构建本地一体化服务：
+
+```bash
+docker build --build-arg SERVICE=dev-server -t ai-troubleshooter:dev .
+docker run --rm -p 8080:8080 --env CONNECTOR_MODE=mock ai-troubleshooter:dev
+```
+
+构建独立 gateway：
+
+```bash
+docker build --build-arg SERVICE=investigation-gateway -t ai-troubleshooter-gateway:dev .
+```
+
+compose 示例见 [deploy/docker-compose.example.yml](deploy/docker-compose.example.yml)。
+
 ## 验证
 
 ```bash
@@ -207,6 +243,7 @@ go test ./...
 - Redis Stream、MySQL、真实 Lark API、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则默认拒绝、只读工具、scope 校验、时间范围/limit 约束、审计和脱敏。
+- 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 
 ## 下一步
 

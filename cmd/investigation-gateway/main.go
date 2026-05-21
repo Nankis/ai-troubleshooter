@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
@@ -12,7 +11,10 @@ import (
 
 func main() {
 	cfg := config.LoadFromEnv()
-	gw := gateway.NewDefault(time.Duration(cfg.Limits.DefaultToolTimeoutSeconds) * time.Second)
+	gw, err := gateway.NewFromConfig(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	log.Printf("investigation-gateway listening on http://localhost%s", addr)
 	if err := http.ListenAndServe(addr, gw); err != nil {

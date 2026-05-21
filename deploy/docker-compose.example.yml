@@ -1,0 +1,15 @@
+services:
+  ai-troubleshooter:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: dev-server
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: dev
+      HTTP_PORT: 8080
+      CONNECTOR_MODE: mock
+      LLM_PROVIDER: local_rules
+      LLM_MODEL: rules-v1

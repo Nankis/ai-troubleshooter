@@ -27,6 +27,16 @@ queue:
   redis_addr: ""
   stream_name: case_events
 
+connectors:
+  # mock: use built-in mock connector for local demo
+  # http: call company-provided readonly APIs defined in docs/ai-connector-integration.md
+  mode: mock
+  api_key: ""
+  timeout_seconds: 5
+  market_base_url: ""
+  asset_base_url: ""
+  ops_base_url: ""
+
 tool_gateway:
   endpoint: http://localhost:8080
   client_id: dev-client

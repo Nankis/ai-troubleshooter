@@ -3,14 +3,19 @@ package lark
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
 )
 
 type Event struct {
+	Challenge string   `json:"challenge"`
+	Token     string   `json:"token"`
 	ChatID    string   `json:"chat_id"`
 	ThreadID  string   `json:"thread_id"`
 	MessageID string   `json:"message_id"`
@@ -35,7 +40,15 @@ func (LogMessenger) SendMessage(ctx context.Context, chatID string, threadID str
 type Handler struct {
 	store     caseflow.Store
 	queue     queue.Queue
+	options   Options
 	messenger Messenger
+}
+
+type Options struct {
+	VerificationToken string
+	AllowedChatIDs    []string
+	RequireMention    bool
+	BotMentionText    string
 }
 
 func NewHandler(store caseflow.Store, q queue.Queue, messenger Messenger) *Handler {
@@ -45,14 +58,43 @@ func NewHandler(store caseflow.Store, q queue.Queue, messenger Messenger) *Handl
 	return &Handler{store: store, queue: q, messenger: messenger}
 }
 
+func (h *Handler) SetOptions(options Options) {
+	h.options = options
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost || r.URL.Path != "/lark/events" {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
-	var event Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	event, err := ParseEvent(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if event.Challenge != "" {
+		if err := h.verifyToken(event.Token); err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"challenge": event.Challenge})
+		return
+	}
+	if err := h.verifyToken(event.Token); err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": err.Error()})
+		return
+	}
+	if !h.chatAllowed(event.ChatID) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "chat is not allowed"})
+		return
+	}
+	if h.options.RequireMention && h.options.BotMentionText != "" && !strings.Contains(event.Text, h.options.BotMentionText) {
+		writeJSON(w, http.StatusAccepted, map[string]any{"ignored": true, "reason": "bot was not mentioned"})
 		return
 	}
 	c, err := h.store.CreateCase(r.Context(), caseflow.CreateCaseInput{
@@ -88,6 +130,108 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"status":  c.Status,
 		"reply":   reply,
 	})
+}
+
+func ParseEvent(body []byte) (Event, error) {
+	var simple Event
+	if err := json.Unmarshal(body, &simple); err != nil {
+		return Event{}, err
+	}
+	if simple.Challenge != "" || simple.ChatID != "" || simple.Text != "" {
+		return simple, nil
+	}
+
+	var v2 struct {
+		Challenge string `json:"challenge"`
+		Token     string `json:"token"`
+		Type      string `json:"type"`
+		Header    struct {
+			Token   string `json:"token"`
+			EventID string `json:"event_id"`
+		} `json:"header"`
+		Event struct {
+			Message struct {
+				ChatID    string `json:"chat_id"`
+				ThreadID  string `json:"thread_id"`
+				RootID    string `json:"root_id"`
+				MessageID string `json:"message_id"`
+				Content   string `json:"content"`
+			} `json:"message"`
+			Sender struct {
+				SenderID struct {
+					OpenID string `json:"open_id"`
+					UserID string `json:"user_id"`
+				} `json:"sender_id"`
+			} `json:"sender"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(body, &v2); err != nil {
+		return Event{}, err
+	}
+	if v2.Challenge != "" {
+		return Event{Challenge: v2.Challenge, Token: v2.Token}, nil
+	}
+	event := Event{
+		Token:     fallback(v2.Header.Token, v2.Token),
+		ChatID:    v2.Event.Message.ChatID,
+		ThreadID:  fallback(v2.Event.Message.ThreadID, v2.Event.Message.RootID),
+		MessageID: fallback(v2.Event.Message.MessageID, v2.Header.EventID),
+		UserID:    fallback(v2.Event.Sender.SenderID.OpenID, v2.Event.Sender.SenderID.UserID),
+		Text:      extractText(v2.Event.Message.Content),
+	}
+	if event.ChatID == "" && event.MessageID == "" && event.Text == "" {
+		return Event{}, fmt.Errorf("unsupported lark event payload")
+	}
+	return event, nil
+}
+
+func extractText(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	var decoded struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(content), &decoded); err == nil && decoded.Text != "" {
+		return decoded.Text
+	}
+	return content
+}
+
+func (h *Handler) verifyToken(token string) error {
+	if h.options.VerificationToken == "" {
+		return nil
+	}
+	if token != h.options.VerificationToken {
+		return errUnauthorized("invalid lark verification token")
+	}
+	return nil
+}
+
+func (h *Handler) chatAllowed(chatID string) bool {
+	if len(h.options.AllowedChatIDs) == 0 {
+		return true
+	}
+	for _, allowed := range h.options.AllowedChatIDs {
+		if allowed == chatID {
+			return true
+		}
+	}
+	return false
+}
+
+type errUnauthorized string
+
+func (e errUnauthorized) Error() string {
+	return string(e)
+}
+
+func fallback(v string, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
