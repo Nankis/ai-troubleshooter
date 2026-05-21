@@ -1,6 +1,8 @@
 package lark
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,4 +64,50 @@ func TestParseEventSupportsLarkV2Message(t *testing.T) {
 	if event.Text != "@排障机器人 BTCUSDT 1m K线不对" {
 		t.Fatalf("unexpected text %q", event.Text)
 	}
+}
+
+func TestHandlerIgnoresDuplicateMessageID(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	q := &recordingQueue{}
+	handler := NewHandler(store, q, nil)
+	body := `{"chat_id":"oc_1","message_id":"msg_1","user_id":"ou_1","text":"@bot BTCUSDT 1m K线价格不一致"}`
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body)))
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("expected first event to be accepted, got %d body=%s", first.Code, first.Body.String())
+	}
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/lark/events", strings.NewReader(body)))
+	if second.Code != http.StatusAccepted {
+		t.Fatalf("expected duplicate event to be accepted idempotently, got %d body=%s", second.Code, second.Body.String())
+	}
+	if q.published != 1 {
+		t.Fatalf("expected one queue publish, got %d", q.published)
+	}
+	var duplicateResp map[string]any
+	if err := json.Unmarshal(second.Body.Bytes(), &duplicateResp); err != nil {
+		t.Fatal(err)
+	}
+	if duplicateResp["duplicate"] != true || duplicateResp["ignored"] != true {
+		t.Fatalf("expected duplicate ignored response, got %s", second.Body.String())
+	}
+}
+
+type recordingQueue struct {
+	published int
+	events    []queue.Event
+}
+
+func (q *recordingQueue) Publish(ctx context.Context, event queue.Event) error {
+	_ = ctx
+	q.published++
+	q.events = append(q.events, event)
+	return nil
+}
+
+func (q *recordingQueue) Consume(ctx context.Context) (queue.Event, error) {
+	<-ctx.Done()
+	return queue.Event{}, ctx.Err()
 }

@@ -1,0 +1,12 @@
+program: P-2026-005-operational-hardening
+in_scope:
+  - "Lark event idempotency"
+  - "case processing duplicate guard"
+  - "AI decision snapshot masking"
+  - "MySQL idempotency migration"
+  - "tests and deployment docs"
+out_of_scope:
+  - "Redis Stream implementation"
+  - "distributed rate limit backend"
+  - "real business adapter implementation"
+  - "Lark encrypted callback verification"

@@ -14,6 +14,11 @@
 - `tool_query_stopped`：达到失败上限后为什么停止继续查下游。
 - `summarize_findings`：如何基于有限证据生成结论。
 - `process_failure`：超时或异常时的失败原因。
+- `process_skipped`：重复事件、重复 worker 或非入口状态为什么跳过处理。
+- `process_stale_timeout`：case 卡在处理中状态超过陈旧窗口后为什么失败收敛。
+- `process_stale_claim_recovered`：case 卡在 `READY_TO_INVESTIGATE` 超过陈旧窗口后为什么重新认领。
+
+`input_snapshot_json`、`output_snapshot_json` 和 `selected_tools_json` 写入前会经过 `masking.MaskValue`，手机号、邮箱、token、secret、api key、access key、address、raw payload 等敏感值不落明文。原始 case 文本如需长期留存，应由业务方根据公司数据分级要求控制保留周期或再做列级加密。
 
 查询：
 
@@ -53,6 +58,21 @@ Gateway 侧仍有独立保护：
 - 时间范围、limit 边界。
 - agent/user/tool QPS 限流。
 - 下游 readonly connector timeout。
+
+## 幂等和重复处理保护
+
+Lark 平台可能因为网络抖动或业务接口超时重复投递同一条消息。系统按 `source + message_id` 建 case 幂等键：
+
+- Lark handler 在创建 case 前先查询同一 `message_id` 是否已被接收。
+- 已接收的事件返回 `202`，响应包含 `duplicate=true` 和已有 `case_no`，不再重复入队。
+- MySQL 通过 `migrations/004_case_idempotency.sql` 增加唯一索引，防并发重复创建。
+
+Worker 侧也有第二道保护：Orchestrator 只允许 `NEW`、`NEED_MORE_INFO`、`WAITING_USER_REPLY` 进入处理，并会先把 case 认领到 `READY_TO_INVESTIGATE`。如果重复 worker、重复事件或终态 case 再次触发处理，系统写入 `process_skipped` 决策日志并返回当前状态，不会再次调用下游工具。
+
+为了避免 worker 崩溃后 case 永久卡住，Orchestrator 使用 `MAX_INVESTIGATION_SECONDS * 2` 作为陈旧窗口，最小 60 秒：
+
+- `READY_TO_INVESTIGATE` 超过窗口会被重新认领并继续处理。
+- `INVESTIGATING` 或 `WAITING_TOOL_RESULT` 超过窗口会写入 `process_stale_timeout`，并收敛为 `FAILED`，避免后台任务无限占用处理中状态。
 
 ## 失败收敛
 

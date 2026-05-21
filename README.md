@@ -146,11 +146,13 @@ docs/                      TRD 摘要与一期说明
 - 本地一体化 `dev-server`。
 - Lark 事件入口：`POST /lark/events`，支持本地模拟 payload 和 Lark v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
+- Lark `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
-- AI 决策日志：分类、实体抽取、字段检查、工具计划、工具调用、总结、失败原因均可审计。
+- AI 决策日志：分类、实体抽取、字段检查、工具计划、工具调用、总结、失败原因、重复处理跳过原因、陈旧处理中状态收敛原因均可审计，快照写入前会统一脱敏。
 - Case 级排查超时、工具调用总数上限和工具失败上限，避免查不到问题时持续打下游。
+- Orchestrator 处理前先认领 case；重复 worker、重复事件或终态 case 会安全跳过，不再查询下游；陈旧处理中状态会恢复或失败收敛。
 - Tool Registry 和内部 Tool Invoke API。
 - Query Gateway 默认拒绝策略、scope 校验、参数边界控制。
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
@@ -164,6 +166,7 @@ docs/                      TRD 摘要与一期说明
 - MySQL 初始化 migration。
 - 知识沉淀增强 migration。
 - AI 决策日志 migration。
+- 事件幂等索引 migration。
 - OpenAPI 草案。
 - 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope、Lark payload、知识自进化。
 
@@ -283,7 +286,7 @@ go test ./...
 
 root cause、feedback、knowledge、orchestrator case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
-Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `ai_decision_logs`，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。
+Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `ai_decision_logs`，快照入库前脱敏，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。Lark 入口用 `source + message_id` 幂等去重，Orchestrator 处理前先认领 case，重复事件或重复 worker 只记录 `process_skipped`，不会重复打下游；陈旧处理中状态会恢复或失败收敛。
 
 部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
 

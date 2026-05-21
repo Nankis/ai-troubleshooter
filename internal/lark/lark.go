@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -98,6 +99,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.options.RequireMention && h.options.BotMentionText != "" && !strings.Contains(event.Text, h.options.BotMentionText) {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ignored": true, "reason": "bot was not mentioned"})
 		return
+	}
+	if event.MessageID != "" {
+		existing, err := h.store.FindCaseByMessageID(r.Context(), "lark", event.MessageID)
+		if err == nil {
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"case_id":   existing.ID,
+				"case_no":   existing.CaseNo,
+				"status":    existing.Status,
+				"duplicate": true,
+				"ignored":   true,
+				"reason":    "message_id was already accepted",
+			})
+			return
+		}
+		if !errors.Is(err, caseflow.ErrNotFound) {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
 	}
 	c, err := h.store.CreateCase(r.Context(), caseflow.CreateCaseInput{
 		Source:         "lark",

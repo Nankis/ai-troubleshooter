@@ -19,6 +19,7 @@ var allowedTransitions = map[Status]map[Status]bool{
 		StatusCancelled:          true,
 	},
 	StatusReadyToInvestigate: {
+		StatusNeedMoreInfo:  true,
 		StatusInvestigating: true,
 		StatusFailed:        true,
 		StatusCancelled:     true,

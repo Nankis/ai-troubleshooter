@@ -10,6 +10,7 @@ import (
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
+	"github.com/ginseng/ai-troubleshooter/internal/masking"
 	"github.com/ginseng/ai-troubleshooter/internal/tool"
 )
 
@@ -86,6 +87,44 @@ func (o *Orchestrator) ProcessCase(parent context.Context, caseID int64) (result
 	c, err = o.store.GetCase(ctx, caseID)
 	if err != nil {
 		return caseflow.ProcessResult{}, err
+	}
+	staleAfter := processingStaleAfter(o.cfg)
+	switch {
+	case canStartProcessing(c.Status):
+		c, err = o.claimForProcessing(ctx, c)
+		if err != nil {
+			var skipped skipErr
+			if errors.As(err, &skipped) {
+				return skipped.result, nil
+			}
+			return caseflow.ProcessResult{}, err
+		}
+	case c.Status == caseflow.StatusReadyToInvestigate && isProcessingStale(c, staleAfter):
+		c, err = o.refreshProcessingClaim(ctx, c)
+		if err != nil {
+			var skipped skipErr
+			if errors.As(err, &skipped) {
+				return skipped.result, nil
+			}
+			return caseflow.ProcessResult{}, err
+		}
+	case isActiveProcessingStatus(c.Status) && isProcessingStale(c, staleAfter):
+		reason := fmt.Sprintf("case stayed in %s longer than %s", c.Status, staleAfter)
+		o.recordDecision(ctx, decisionRecord{
+			Case:         c,
+			DecisionType: "process_stale_timeout",
+			Reason:       reason,
+			Input:        map[string]any{"case_no": c.CaseNo, "status": c.Status, "stale_after": staleAfter.String()},
+			Status:       "timeout",
+		})
+		o.failRunningCase(ctx, c, nil, reason)
+		latest, latestErr := o.store.GetCase(ctx, c.ID)
+		if latestErr == nil {
+			c = latest
+		}
+		return caseflow.ProcessResult{CaseID: c.ID, CaseNo: c.CaseNo, Status: c.Status, Reply: "[" + c.CaseNo + "] 排查已停止：" + reason}, nil
+	default:
+		return o.skipProcessing(ctx, c, "case is already being processed or has reached a non-entry status"), nil
 	}
 	messages, _ := o.store.ListMessages(ctx, c.ID)
 	input := llm.CaseInput{Case: *c, Messages: messages}
@@ -333,6 +372,14 @@ type decisionRecord struct {
 	Err           error
 }
 
+type skipErr struct {
+	result caseflow.ProcessResult
+}
+
+func (e skipErr) Error() string {
+	return "processing skipped"
+}
+
 func (o *Orchestrator) recordDecision(ctx context.Context, record decisionRecord) {
 	if record.Case == nil {
 		return
@@ -362,6 +409,63 @@ func (o *Orchestrator) recordDecision(ctx context.Context, record decisionRecord
 		LatencyMS:          record.Latency.Milliseconds(),
 		ErrorMessage:       errorMessage,
 	})
+}
+
+func (o *Orchestrator) claimForProcessing(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
+	claimed, err := o.transition(ctx, c, caseflow.StatusReadyToInvestigate)
+	if err == nil {
+		return claimed, nil
+	}
+	if errors.Is(err, caseflow.ErrVersionConflict) {
+		latest, latestErr := o.store.GetCase(ctx, c.ID)
+		if latestErr != nil {
+			return nil, latestErr
+		}
+		return nil, skipErr{result: o.skipProcessing(ctx, latest, "case version changed before processing was claimed")}
+	}
+	return nil, err
+}
+
+func (o *Orchestrator) refreshProcessingClaim(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
+	refreshed, err := o.store.UpdateCase(ctx, c.ID, c.Version, func(next *caseflow.Case) error {
+		next.Status = caseflow.StatusReadyToInvestigate
+		return nil
+	})
+	if err == nil {
+		o.recordDecision(ctx, decisionRecord{
+			Case:         refreshed,
+			DecisionType: "process_stale_claim_recovered",
+			Reason:       "case was left in READY_TO_INVESTIGATE beyond stale window and was reclaimed",
+			Input:        map[string]any{"case_no": refreshed.CaseNo, "status": refreshed.Status},
+			Status:       "recovered",
+		})
+		return refreshed, nil
+	}
+	if errors.Is(err, caseflow.ErrVersionConflict) {
+		latest, latestErr := o.store.GetCase(ctx, c.ID)
+		if latestErr != nil {
+			return nil, latestErr
+		}
+		return nil, skipErr{result: o.skipProcessing(ctx, latest, "stale case was claimed by another worker")}
+	}
+	return nil, err
+}
+
+func (o *Orchestrator) skipProcessing(ctx context.Context, c *caseflow.Case, reason string) caseflow.ProcessResult {
+	o.recordDecision(ctx, decisionRecord{
+		Case:         c,
+		DecisionType: "process_skipped",
+		Reason:       reason,
+		Input:        map[string]any{"case_no": c.CaseNo, "status": c.Status},
+		Status:       "skipped",
+	})
+	reply := fmt.Sprintf("[%s] 当前状态为 %s，跳过重复排障。", c.CaseNo, c.Status)
+	return caseflow.ProcessResult{
+		CaseID: c.ID,
+		CaseNo: c.CaseNo,
+		Status: c.Status,
+		Reply:  reply,
+	}
 }
 
 func (o *Orchestrator) failRunningCase(ctx context.Context, c *caseflow.Case, inv *caseflow.Investigation, reason string) {
@@ -514,6 +618,39 @@ func boundedToolNames(names []string, max int) []string {
 	return out
 }
 
+func canStartProcessing(status caseflow.Status) bool {
+	switch status {
+	case caseflow.StatusNew, caseflow.StatusNeedMoreInfo, caseflow.StatusWaitingUserReply:
+		return true
+	default:
+		return false
+	}
+}
+
+func isActiveProcessingStatus(status caseflow.Status) bool {
+	switch status {
+	case caseflow.StatusInvestigating, caseflow.StatusWaitingToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
+func isProcessingStale(c *caseflow.Case, staleAfter time.Duration) bool {
+	if c == nil || staleAfter <= 0 || c.UpdatedAt.IsZero() {
+		return false
+	}
+	return time.Since(c.UpdatedAt) > staleAfter
+}
+
+func processingStaleAfter(cfg Config) time.Duration {
+	seconds := cfg.MaxInvestigationSeconds * 2
+	if seconds < 60 {
+		seconds = 60
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 func statusForErr(err error) string {
 	if err == nil {
 		return "success"
@@ -531,7 +668,7 @@ func jsonSnapshot(value any) string {
 	if value == nil {
 		return ""
 	}
-	b, err := json.Marshal(value)
+	b, err := json.Marshal(masking.MaskValue(value))
 	if err != nil {
 		return "{}"
 	}

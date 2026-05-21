@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestProcessCaseRecordsDecisionsAndStopsAfterToolFailureLimit(t *testing.T) 
 	c, err := store.CreateCase(ctx, caseflow.CreateCaseInput{
 		ChatID:         "oc_dev",
 		ReporterUserID: "ou_dev",
-		OriginalText:   "BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00",
+		OriginalText:   "BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00，手机号 13812345678，api_key: abcdefghijk123",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +46,31 @@ func TestProcessCaseRecordsDecisionsAndStopsAfterToolFailureLimit(t *testing.T) 
 	}
 	if !hasDecision(logs, "classify_issue") || !hasDecision(logs, "decide_next_action") || !hasDecision(logs, "tool_query_stopped") || !hasDecision(logs, "summarize_findings") {
 		t.Fatalf("missing expected decision logs: %+v", logs)
+	}
+	logBlob := decisionLogBlob(logs)
+	if strings.Contains(logBlob, "13812345678") || strings.Contains(logBlob, "abcdefghijk123") {
+		t.Fatalf("decision snapshots contain sensitive raw value: %s", logBlob)
+	}
+	if !strings.Contains(logBlob, "138****5678") || !strings.Contains(logBlob, "api_key=[REDACTED]") {
+		t.Fatalf("decision snapshots were not masked as expected: %s", logBlob)
+	}
+
+	second, err := orch.ProcessCase(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Status != caseflow.StatusNeedHumanConfirmation {
+		t.Fatalf("expected duplicate processing to keep NEED_HUMAN_CONFIRMATION, got %s", second.Status)
+	}
+	if toolClient.calls != 1 {
+		t.Fatalf("expected no extra tool calls after duplicate processing, got %d", toolClient.calls)
+	}
+	logs, err = store.ListAIDecisionLogs(ctx, c.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDecisionStatus(logs, "process_skipped", "skipped") {
+		t.Fatalf("expected process_skipped decision log, got %+v", logs)
 	}
 }
 
@@ -153,4 +179,12 @@ func hasDecisionStatus(logs []caseflow.AIDecisionLog, decisionType string, statu
 		}
 	}
 	return false
+}
+
+func decisionLogBlob(logs []caseflow.AIDecisionLog) string {
+	parts := []string{}
+	for _, log := range logs {
+		parts = append(parts, log.InputSnapshotJSON, log.OutputSnapshotJSON, log.SelectedToolsJSON)
+	}
+	return strings.Join(parts, "\n")
 }

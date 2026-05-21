@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 )
@@ -38,6 +38,16 @@ func (s *Store) Close() error {
 
 func (s *Store) CreateCase(ctx context.Context, input caseflow.CreateCaseInput) (*caseflow.Case, error) {
 	now := time.Now()
+	source := fallback(input.Source, "lark")
+	if input.MessageID != "" {
+		existing, err := s.FindCaseByMessageID(ctx, source, input.MessageID)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, caseflow.ErrNotFound) {
+			return nil, err
+		}
+	}
 	tz := input.Timezone
 	if tz == "" {
 		tz = "Asia/Shanghai"
@@ -53,10 +63,14 @@ func (s *Store) CreateCase(ctx context.Context, input caseflow.CreateCaseInput) 
 INSERT INTO cases
 (case_no, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text, status, priority, timezone, created_at, updated_at, version)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-		tmpNo, fallback(input.Source, "lark"), nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
+		tmpNo, source, nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
 		nullableString(input.ReporterUserID), nullableString(input.OriginalText), nullableString(input.OCRText),
 		caseflow.StatusNew, "normal", tz, now, now)
 	if err != nil {
+		if input.MessageID != "" && isDuplicateKey(err) {
+			rollback(tx)
+			return s.FindCaseByMessageID(ctx, source, input.MessageID)
+		}
 		return nil, err
 	}
 	id, err := res.LastInsertId()
@@ -80,6 +94,14 @@ func (s *Store) GetCase(ctx context.Context, id int64) (*caseflow.Case, error) {
 
 func (s *Store) FindCaseByNo(ctx context.Context, caseNo string) (*caseflow.Case, error) {
 	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE case_no = ?`, caseNo)
+	return scanCase(row)
+}
+
+func (s *Store) FindCaseByMessageID(ctx context.Context, source string, messageID string) (*caseflow.Case, error) {
+	if strings.TrimSpace(source) == "" || strings.TrimSpace(messageID) == "" {
+		return nil, caseflow.ErrNotFound
+	}
+	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE source = ? AND message_id = ?`, source, messageID)
 	return scanCase(row)
 }
 
@@ -750,6 +772,11 @@ func normalizeNotFound(err error) error {
 		return caseflow.ErrNotFound
 	}
 	return err
+}
+
+func isDuplicateKey(err error) bool {
+	var mysqlErr *mysqlDriver.MySQLError
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
 }
 
 func rollback(tx *sql.Tx) {

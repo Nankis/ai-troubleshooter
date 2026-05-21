@@ -28,6 +28,7 @@ type Store interface {
 	CreateCase(ctx context.Context, input CreateCaseInput) (*Case, error)
 	GetCase(ctx context.Context, id int64) (*Case, error)
 	FindCaseByNo(ctx context.Context, caseNo string) (*Case, error)
+	FindCaseByMessageID(ctx context.Context, source string, messageID string) (*Case, error)
 	UpdateCase(ctx context.Context, id int64, expectedVersion int64, update func(*Case) error) (*Case, error)
 	AddEntities(ctx context.Context, caseID int64, entities []Entity) error
 	ListEntities(ctx context.Context, caseID int64) ([]Entity, error)
@@ -62,6 +63,7 @@ type InMemoryStore struct {
 	nextKnowledgeEvolutionRunID int64
 	cases                       map[int64]*Case
 	casesByNo                   map[string]int64
+	casesBySourceMessageID      map[string]int64
 	entities                    map[int64][]Entity
 	messages                    map[int64][]Message
 	investigations              map[int64]*Investigation
@@ -83,17 +85,18 @@ type KnowledgeFilter struct {
 
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		cases:          map[int64]*Case{},
-		casesByNo:      map[string]int64{},
-		entities:       map[int64][]Entity{},
-		messages:       map[int64][]Message{},
-		investigations: map[int64]*Investigation{},
-		aiDecisionLogs: map[int64][]AIDecisionLog{},
-		rootCauses:     map[int64]*RootCause{},
-		feedback:       map[int64][]CaseFeedback{},
-		knowledgeItems: map[int64]*KnowledgeItem{},
-		knowledgeIndex: map[string]int64{},
-		evolutionRuns:  map[int64][]KnowledgeEvolutionRun{},
+		cases:                  map[int64]*Case{},
+		casesByNo:              map[string]int64{},
+		casesBySourceMessageID: map[string]int64{},
+		entities:               map[int64][]Entity{},
+		messages:               map[int64][]Message{},
+		investigations:         map[int64]*Investigation{},
+		aiDecisionLogs:         map[int64][]AIDecisionLog{},
+		rootCauses:             map[int64]*RootCause{},
+		feedback:               map[int64][]CaseFeedback{},
+		knowledgeItems:         map[int64]*KnowledgeItem{},
+		knowledgeIndex:         map[string]int64{},
+		evolutionRuns:          map[int64][]KnowledgeEvolutionRun{},
 	}
 }
 
@@ -101,6 +104,13 @@ func (s *InMemoryStore) CreateCase(ctx context.Context, input CreateCaseInput) (
 	_ = ctx
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	source := fallback(input.Source, "lark")
+	if key := sourceMessageKey(source, input.MessageID); key != "" {
+		if id, ok := s.casesBySourceMessageID[key]; ok {
+			return cloneCase(s.cases[id]), nil
+		}
+	}
 
 	s.nextCaseID++
 	now := time.Now()
@@ -111,7 +121,7 @@ func (s *InMemoryStore) CreateCase(ctx context.Context, input CreateCaseInput) (
 	c := &Case{
 		ID:             s.nextCaseID,
 		CaseNo:         fmt.Sprintf("case_%s_%06d", now.Format("20060102"), s.nextCaseID),
-		Source:         fallback(input.Source, "lark"),
+		Source:         source,
 		ChatID:         input.ChatID,
 		ThreadID:       input.ThreadID,
 		MessageID:      input.MessageID,
@@ -127,6 +137,9 @@ func (s *InMemoryStore) CreateCase(ctx context.Context, input CreateCaseInput) (
 	}
 	s.cases[c.ID] = cloneCase(c)
 	s.casesByNo[c.CaseNo] = c.ID
+	if key := sourceMessageKey(c.Source, c.MessageID); key != "" {
+		s.casesBySourceMessageID[key] = c.ID
+	}
 	return cloneCase(c), nil
 }
 
@@ -146,6 +159,21 @@ func (s *InMemoryStore) FindCaseByNo(ctx context.Context, caseNo string) (*Case,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	id, ok := s.casesByNo[caseNo]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return cloneCase(s.cases[id]), nil
+}
+
+func (s *InMemoryStore) FindCaseByMessageID(ctx context.Context, source string, messageID string) (*Case, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	key := sourceMessageKey(fallback(source, "lark"), messageID)
+	if key == "" {
+		return nil, ErrNotFound
+	}
+	id, ok := s.casesBySourceMessageID[key]
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -516,6 +544,13 @@ func cloneKnowledgeItem(item *KnowledgeItem) *KnowledgeItem {
 
 func knowledgeKey(issueDomain string, issueType string, rootCauseCategory string) string {
 	return issueDomain + "|" + issueType + "|" + rootCauseCategory
+}
+
+func sourceMessageKey(source string, messageID string) string {
+	if source == "" || messageID == "" {
+		return ""
+	}
+	return source + "|" + messageID
 }
 
 func hasEntity(entities []Entity, typ string, value string) bool {

@@ -1,0 +1,25 @@
+program: P-2026-005-operational-hardening
+name: "Operational hardening"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-21"
+updated_at: "2026-05-21"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program"
+    status: done
+  - id: task-2
+    name: "Lark 事件幂等"
+    status: done
+  - id: task-3
+    name: "Orchestrator 重复处理保护"
+    status: done
+  - id: task-4
+    name: "决策日志快照脱敏"
+    status: done
+  - id: task-5
+    name: "文档和验证"
+    status: done

@@ -54,9 +54,11 @@ MAX_INVESTIGATION_SECONDS=120
 - 控制面 API 已开启内部 Bearer 鉴权：`CONTROL_API_AUTH_ENABLED=true`。
 - root cause、feedback、knowledge、orchestrator case/process API 仅允许内部系统或已授权 owner 调用。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
-- 数据库已执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql` 和 `migrations/003_ai_decision_logs.sql`，DSN 必须包含 `parseTime=true`。
+- 数据库已依次执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql`、`migrations/003_ai_decision_logs.sql` 和 `migrations/004_case_idempotency.sql`，DSN 必须包含 `parseTime=true`。
 - `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tool_call_audits`，orchestrator 会把 AI 决策写入 `ai_decision_logs`。
 - `MAX_TOOL_CALLS_PER_CASE`、`MAX_TOOL_FAILURES_PER_CASE`、`MAX_INVESTIGATION_SECONDS` 已按业务下游承载能力设置。
+- Lark 重复投递已验证：同一个 `message_id` 重放只返回已有 `case_no`，不重复入队、不重复查下游。
+- `ai_decision_logs` 快照已验证脱敏：手机号、邮箱、token、secret、api key 不出现明文。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
 ## 本地 smoke test
@@ -94,11 +96,26 @@ curl -s localhost:19091/lark/events \
   }'
 ```
 
+重复投递检查：
+
+```bash
+curl -s localhost:19091/lark/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "chat_id":"oc_dev",
+    "thread_id":"thread_dev",
+    "message_id":"msg_1",
+    "user_id":"ou_dev",
+    "text":"@排障机器人 用户反馈 BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00，对比 Binance"
+  }'
+```
+
 预期：
 
 - 完整 K线 case 进入 `NEED_HUMAN_CONFIRMATION`。
 - 信息不足 case 进入 `WAITING_USER_REPLY`。
 - 工具调用审计日志包含 tool name、case id、policy decision、query id。
+- 重复投递响应包含 `duplicate=true`，worker 不会产生第二轮工具调用。
 
 根因回填与知识自进化：
 
@@ -124,3 +141,4 @@ curl -s 'localhost:19091/cases/case_20260521_000001/ai-decisions?limit=100'
 - 响应包含 `root_cause`、`knowledge_item`、`evolution_run`。
 - `/knowledge` 能查到新增或更新后的知识条目。
 - `/cases/{case_no}/ai-decisions` 能查到分类、实体抽取、工具计划、工具调用和总结日志。
+- 决策日志快照里的敏感字段已脱敏；重复处理会出现 `process_skipped`。
