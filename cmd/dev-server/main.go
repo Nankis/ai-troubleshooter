@@ -64,6 +64,7 @@ func main() {
 		bot := lark.NewBotMessenger(lark.BotMessengerOptions{
 			AppID:     cfg.Lark.AppID,
 			AppSecret: cfg.Lark.AppSecret,
+			BaseURL:   cfg.Lark.APIBaseURL,
 		})
 		messenger = bot
 		imageDownloader = bot

@@ -149,6 +149,7 @@ docs/                      TRD 摘要与一期说明
 - Lark encrypted callback：配置 `LARK_ENCRYPT_KEY` 后只接受密文回调，先解密 `encrypt` 回调体，再验 token 和处理 challenge / message。
 - Lark `source + message_id` 幂等去重，平台重复投递不会重复创建 case 或重复入队。
 - 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过飞书开放平台发送文本回复；未配置时本地只写日志。
+- `LARK_API_BASE_URL` 可配置开放平台域名：飞书中国站默认 `https://open.feishu.cn`，Lark 国际版切到对应 Lark Open Platform base URL 即可复用同一套事件、加密和消息资源逻辑。
 - Lark 图片消息下载：从消息 `content` 中提取 `image_key`，通过飞书消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
 - 多模型链路：`VISION_*` 独立配置视觉识别模型，适合用 Qwen-VL 先识别截图；`LLM_*` 独立配置后续文本推理模型，后续可换 GPT/Claude。
 - Case 创建、状态流转、消息和实体记录。

@@ -5,6 +5,9 @@ server:
 lark:
   app_id: ""
   app_secret: ""
+  # Feishu China: https://open.feishu.cn
+  # Lark global: configure the matching Lark Open Platform base URL.
+  api_base_url: https://open.feishu.cn
   verification_token: ""
   encrypt_key: ""
   allowed_chat_ids:

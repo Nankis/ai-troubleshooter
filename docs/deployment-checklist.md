@@ -8,6 +8,7 @@ HTTP_PORT=8080
 
 LARK_APP_ID=cli_xxx
 LARK_APP_SECRET=xxx
+LARK_API_BASE_URL=https://open.feishu.cn
 LARK_VERIFICATION_TOKEN=xxx
 LARK_ENCRYPT_KEY=xxx
 LARK_ALLOWED_CHAT_IDS=oc_xxx,oc_yyy
@@ -51,6 +52,7 @@ MAX_INVESTIGATION_SECONDS=120
 
 - Lark 机器人只加入允许的群。
 - `LARK_ALLOWED_CHAT_IDS` 已配置，避免任意群触发。
+- 飞书中国站使用 `LARK_API_BASE_URL=https://open.feishu.cn`；Lark 国际版使用对应 Lark Open Platform base URL，事件 payload 和业务处理逻辑保持一致。
 - 内部联调如需机器人在群里真实回复，已配置 `LARK_APP_ID` 和 `LARK_APP_SECRET`，并确保应用开启机器人能力。
 - 飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
 - 配置 `LARK_ENCRYPT_KEY` 后，Lark 入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。

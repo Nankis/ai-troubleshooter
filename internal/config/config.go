@@ -28,6 +28,7 @@ type ServerConfig struct {
 type LarkConfig struct {
 	AppID             string
 	AppSecret         string
+	APIBaseURL        string
 	VerificationToken string
 	EncryptKey        string
 	AllowedChatIDs    []string
@@ -111,6 +112,7 @@ func LoadFromEnv() Config {
 		Lark: LarkConfig{
 			AppID:             env("LARK_APP_ID", ""),
 			AppSecret:         env("LARK_APP_SECRET", ""),
+			APIBaseURL:        env("LARK_API_BASE_URL", "https://open.feishu.cn"),
 			VerificationToken: env("LARK_VERIFICATION_TOKEN", ""),
 			EncryptKey:        env("LARK_ENCRYPT_KEY", ""),
 			AllowedChatIDs:    envCSV("LARK_ALLOWED_CHAT_IDS"),
