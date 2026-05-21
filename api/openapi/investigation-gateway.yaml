@@ -1,0 +1,59 @@
+openapi: 3.0.3
+info:
+  title: AI Troubleshooter Investigation Gateway
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+  /tools:
+    get:
+      summary: List registered tools
+      responses:
+        "200":
+          description: Tool list
+  /tools/{tool_name}/invoke:
+    post:
+      summary: Invoke a read-only investigation tool
+      parameters:
+        - name: tool_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolInvocationRequest"
+      responses:
+        "200":
+          description: Invocation result
+        "400":
+          description: Invalid request
+        "403":
+          description: Denied by policy
+components:
+  schemas:
+    ToolInvocationRequest:
+      type: object
+      required:
+        - case_id
+        - agent_id
+        - arguments
+      properties:
+        case_id:
+          type: string
+        agent_id:
+          type: string
+        lark_user_id:
+          type: string
+        chat_id:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true

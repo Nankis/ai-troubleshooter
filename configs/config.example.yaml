@@ -1,0 +1,39 @@
+server:
+  env: dev
+  http_port: 8080
+
+lark:
+  app_id: ""
+  app_secret: ""
+  verification_token: ""
+  encrypt_key: ""
+  allowed_chat_ids:
+    - oc_dev
+
+llm:
+  provider: local_rules
+  base_url: ""
+  api_key: ""
+  model: rules-v1
+  timeout_seconds: 30
+  max_concurrency: 10
+
+database:
+  driver: mysql
+  dsn: ""
+
+queue:
+  type: memory
+  redis_addr: ""
+  stream_name: case_events
+
+tool_gateway:
+  endpoint: http://localhost:8080
+  client_id: dev-client
+  client_secret: dev-secret
+
+limits:
+  max_tool_calls_per_case: 10
+  max_llm_calls_per_case: 8
+  default_log_time_range_minutes: 30
+  default_tool_timeout_seconds: 5
