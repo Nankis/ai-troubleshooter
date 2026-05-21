@@ -82,6 +82,78 @@ type Investigation struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
+type RootCause struct {
+	ID                     int64     `json:"id"`
+	CaseID                 int64     `json:"case_id"`
+	AIPredictedReason      string    `json:"ai_predicted_reason,omitempty"`
+	HumanConfirmedReason   string    `json:"human_confirmed_reason"`
+	RootCauseCategory      string    `json:"root_cause_category"`
+	OwnerService           string    `json:"owner_service,omitempty"`
+	OwnerTeam              string    `json:"owner_team,omitempty"`
+	IsCacheIssue           bool      `json:"is_cache_issue"`
+	IsDataSyncIssue        bool      `json:"is_data_sync_issue"`
+	IsExternalSourceIssue  bool      `json:"is_external_source_issue"`
+	IsFrontendDisplayIssue bool      `json:"is_frontend_display_issue"`
+	IsUserMisunderstanding bool      `json:"is_user_misunderstanding"`
+	FixAction              string    `json:"fix_action,omitempty"`
+	PreventionAction       string    `json:"prevention_action,omitempty"`
+	ConfirmedBy            string    `json:"confirmed_by,omitempty"`
+	ConfirmedAt            time.Time `json:"confirmed_at"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+}
+
+type CaseFeedback struct {
+	ID                    int64     `json:"id"`
+	CaseID                int64     `json:"case_id"`
+	Rating                int       `json:"rating"`
+	AIUseful              bool      `json:"ai_useful"`
+	WrongConclusion       bool      `json:"wrong_conclusion"`
+	MissingKeyInformation string    `json:"missing_key_information,omitempty"`
+	MissingToolsJSON      string    `json:"missing_tools_json,omitempty"`
+	Comment               string    `json:"comment,omitempty"`
+	CreatedBy             string    `json:"created_by,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+type KnowledgeItem struct {
+	ID                    int64     `json:"id"`
+	Title                 string    `json:"title"`
+	IssueDomain           string    `json:"issue_domain"`
+	IssueType             string    `json:"issue_type,omitempty"`
+	TypicalDescription    string    `json:"typical_description,omitempty"`
+	TypicalOCRFeatures    string    `json:"typical_ocr_features,omitempty"`
+	RequiredFieldsJSON    string    `json:"required_fields_json,omitempty"`
+	RecommendedStepsJSON  string    `json:"recommended_steps_json,omitempty"`
+	CommonCausesJSON      string    `json:"common_causes_json,omitempty"`
+	UsefulToolsJSON       string    `json:"useful_tools_json,omitempty"`
+	SuccessCaseIDsJSON    string    `json:"success_case_ids_json,omitempty"`
+	FailureCaseIDsJSON    string    `json:"failure_case_ids_json,omitempty"`
+	Confidence            float64   `json:"confidence"`
+	Status                string    `json:"status"`
+	ObservedCaseCount     int       `json:"observed_case_count"`
+	LastRootCauseCategory string    `json:"last_root_cause_category,omitempty"`
+	LastConfirmedReason   string    `json:"last_confirmed_reason,omitempty"`
+	LastEvolvedAt         time.Time `json:"last_evolved_at"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+type KnowledgeEvolutionRun struct {
+	ID                   int64     `json:"id"`
+	RunNo                string    `json:"run_no"`
+	CaseID               int64     `json:"case_id"`
+	KnowledgeItemID      int64     `json:"knowledge_item_id"`
+	TriggerType          string    `json:"trigger_type"`
+	InputSnapshotJSON    string    `json:"input_snapshot_json"`
+	OutputSummary        string    `json:"output_summary"`
+	Decision             string    `json:"decision"`
+	CreatedKnowledgeItem bool      `json:"created_knowledge_item"`
+	UpdatedKnowledgeItem bool      `json:"updated_knowledge_item"`
+	ErrorMessage         string    `json:"error_message,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+}
+
 type ProcessResult struct {
 	CaseID        int64    `json:"case_id"`
 	CaseNo        string   `json:"case_no"`

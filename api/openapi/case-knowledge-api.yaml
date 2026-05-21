@@ -1,0 +1,148 @@
+openapi: 3.0.3
+info:
+  title: AI Troubleshooter Case Knowledge API
+  version: 0.2.0
+paths:
+  /cases/{case_no}:
+    get:
+      summary: Get case detail with entities, messages, root cause, and evolution runs
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      responses:
+        "200":
+          description: Case detail
+  /cases/{case_no}/root-cause:
+    get:
+      summary: Get confirmed root cause
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      responses:
+        "200":
+          description: Root cause
+    post:
+      summary: Confirm root cause and evolve knowledge
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRootCauseRequest"
+      responses:
+        "201":
+          description: Root cause, knowledge item, and evolution run
+  /cases/{case_no}/feedback:
+    get:
+      summary: List case feedback
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      responses:
+        "200":
+          description: Feedback list
+    post:
+      summary: Add case feedback
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CaseFeedbackRequest"
+      responses:
+        "201":
+          description: Feedback saved
+  /cases/{case_no}/evolution-runs:
+    get:
+      summary: List knowledge evolution runs for a case
+      parameters:
+        - $ref: "#/components/parameters/CaseNo"
+      responses:
+        "200":
+          description: Evolution run list
+  /knowledge:
+    get:
+      summary: Query reusable troubleshooting knowledge
+      parameters:
+        - name: issue_domain
+          in: query
+          schema:
+            type: string
+        - name: issue_type
+          in: query
+          schema:
+            type: string
+        - name: root_cause_category
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Knowledge item list
+components:
+  parameters:
+    CaseNo:
+      name: case_no
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    ConfirmRootCauseRequest:
+      type: object
+      required:
+        - human_confirmed_reason
+        - root_cause_category
+      properties:
+        ai_predicted_reason:
+          type: string
+        human_confirmed_reason:
+          type: string
+        root_cause_category:
+          type: string
+        owner_service:
+          type: string
+        owner_team:
+          type: string
+        is_cache_issue:
+          type: boolean
+        is_data_sync_issue:
+          type: boolean
+        is_external_source_issue:
+          type: boolean
+        is_frontend_display_issue:
+          type: boolean
+        is_user_misunderstanding:
+          type: boolean
+        fix_action:
+          type: string
+        prevention_action:
+          type: string
+        confirmed_by:
+          type: string
+    CaseFeedbackRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+        ai_useful:
+          type: boolean
+        wrong_conclusion:
+          type: boolean
+        missing_key_information:
+          type: string
+        missing_tools_json:
+          type: string
+        comment:
+          type: string
+        created_by:
+          type: string

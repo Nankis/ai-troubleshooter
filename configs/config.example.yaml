@@ -20,6 +20,8 @@ llm:
 
 database:
   driver: mysql
+  # Example: user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local
+  # Empty dsn falls back to in-memory store for local smoke tests.
   dsn: ""
 
 queue:

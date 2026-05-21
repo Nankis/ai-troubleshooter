@@ -15,11 +15,13 @@ import (
 
 	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
+	"github.com/ginseng/ai-troubleshooter/internal/evolution"
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
 	"github.com/ginseng/ai-troubleshooter/internal/lark"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/ginseng/ai-troubleshooter/internal/storage"
 	"github.com/ginseng/ai-troubleshooter/internal/worker"
 )
 
@@ -28,12 +30,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	store := caseflow.NewInMemoryStore()
+	openedStore, err := storage.Open(ctx, cfg.Database)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer openedStore.Close()
+	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
 	gw, err := gateway.NewFromConfig(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
+	evolver := evolution.NewService(store)
 	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
 		AgentID:             "business-troubleshooter-v1",
 		ModelProvider:       cfg.LLM.Provider,
@@ -56,15 +64,54 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "service": "dev-server"})
 	})
 	mux.HandleFunc("/cases/", func(w http.ResponseWriter, r *http.Request) {
-		caseRef := strings.TrimPrefix(r.URL.Path, "/cases/")
+		caseRef, action := splitCasePath(r.URL.Path)
 		c, err := loadCase(r.Context(), store, caseRef)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 			return
 		}
+		switch action {
+		case "":
+			if r.Method != http.MethodGet {
+				writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+				return
+			}
+		case "root-cause":
+			handleRootCause(w, r, store, evolver, c)
+			return
+		case "feedback":
+			handleFeedback(w, r, store, c)
+			return
+		case "evolution-runs":
+			handleEvolutionRuns(w, r, store, c)
+			return
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+			return
+		}
 		entities, _ := store.ListEntities(r.Context(), c.ID)
 		messages, _ := store.ListMessages(r.Context(), c.ID)
-		writeJSON(w, http.StatusOK, map[string]any{"case": c, "entities": entities, "messages": messages})
+		rootCause, _ := store.GetRootCause(r.Context(), c.ID)
+		runs, _ := store.ListKnowledgeEvolutionRuns(r.Context(), c.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"case": c, "entities": entities, "messages": messages, "root_cause": rootCause, "evolution_runs": runs})
+	})
+	mux.HandleFunc("/knowledge", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+			return
+		}
+		items, err := store.ListKnowledgeItems(r.Context(), caseflow.KnowledgeFilter{
+			IssueDomain:       r.URL.Query().Get("issue_domain"),
+			IssueType:         r.URL.Query().Get("issue_type"),
+			RootCauseCategory: r.URL.Query().Get("root_cause_category"),
+			Status:            r.URL.Query().Get("status"),
+			Limit:             intQuery(r, "limit", 50),
+		})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
@@ -87,6 +134,96 @@ func loadCase(ctx context.Context, store caseflow.Store, ref string) (*caseflow.
 		return store.GetCase(ctx, id)
 	}
 	return store.FindCaseByNo(ctx, ref)
+}
+
+func splitCasePath(path string) (string, string) {
+	trimmed := strings.Trim(strings.TrimPrefix(path, "/cases/"), "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) == 0 {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], parts[1]
+}
+
+func handleRootCause(w http.ResponseWriter, r *http.Request, store caseflow.Store, evolver *evolution.Service, c *caseflow.Case) {
+	switch r.Method {
+	case http.MethodGet:
+		rootCause, err := store.GetRootCause(r.Context(), c.ID)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, rootCause)
+	case http.MethodPost:
+		var input evolution.ConfirmRootCauseInput
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		result, err := evolver.ConfirmRootCause(r.Context(), c, input)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func handleFeedback(w http.ResponseWriter, r *http.Request, store caseflow.Store, c *caseflow.Case) {
+	switch r.Method {
+	case http.MethodPost:
+		var feedback caseflow.CaseFeedback
+		if err := json.NewDecoder(r.Body).Decode(&feedback); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		feedback.CaseID = c.ID
+		saved, err := store.AddCaseFeedback(r.Context(), feedback)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, saved)
+	case http.MethodGet:
+		items, err := store.ListCaseFeedback(r.Context(), c.ID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func handleEvolutionRuns(w http.ResponseWriter, r *http.Request, store caseflow.Store, c *caseflow.Case) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	runs, err := store.ListKnowledgeEvolutionRuns(r.Context(), c.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": runs})
+}
+
+func intQuery(r *http.Request, key string, def int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return def
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return def
+	}
+	return value
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

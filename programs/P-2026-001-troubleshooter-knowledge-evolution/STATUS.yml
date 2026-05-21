@@ -1,0 +1,29 @@
+program: P-2026-001-troubleshooter-knowledge-evolution
+name: "Troubleshooter knowledge evolution hardening"
+level: "Full"
+phase: "complete"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-21"
+updated_at: "2026-05-21"
+current_task: "done"
+artifacts:
+  program: "PROGRAM.md"
+  scope: "SCOPE.yml"
+  tasks: "TASKS.md"
+  evidence: "EVIDENCE.md"
+  handoff: "HANDOFF.md"
+tasks:
+  - id: task-1
+    name: "建立 Program 与 Scope"
+    status: done
+  - id: task-2
+    name: "补经验沉淀与自进化核心实现"
+    status: done
+  - id: task-3
+    name: "补 API 与文档"
+    status: done
+  - id: task-4
+    name: "验证、Evidence、提交推送工作分支"
+    status: done
+notes: "用户明确要求本仓库后续开发使用 ai-workflow Program 机制；本轮已补 Program。"

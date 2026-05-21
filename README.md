@@ -135,6 +135,8 @@ docs/                      TRD 摘要与一期说明
 
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
 - [部署检查清单](docs/deployment-checklist.md)
+- [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
+- [ai-workflow 开发规范接入](docs/ai-workflow.md)
 
 ## 已实现能力
 
@@ -151,9 +153,12 @@ docs/                      TRD 摘要与一期说明
 - 10 个一期只读工具。
 - K线、资产、日志 mock connector。
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
+- 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
+- MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
 - MySQL 初始化 migration。
+- 知识沉淀增强 migration。
 - OpenAPI 草案。
-- 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope。
+- 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope、Lark payload、知识自进化。
 
 ## 本地启动
 
@@ -215,6 +220,27 @@ OPS_READONLY_BASE_URL=https://ops-readonly.internal
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
 
+回填根因并触发知识自进化：
+
+```bash
+curl -s localhost:8080/cases/case_20260521_000001/root-cause \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "human_confirmed_reason":"行情源短时延迟，补偿任务完成前用户看到旧 high",
+    "root_cause_category":"external_source_delay",
+    "owner_service":"market-service",
+    "is_external_source_issue":true,
+    "prevention_action":"增加行情源延迟监控和补偿任务告警",
+    "confirmed_by":"owner_1"
+  }'
+```
+
+查询知识库：
+
+```bash
+curl -s 'localhost:8080/knowledge?issue_domain=kline&issue_type=价格不一致'
+```
+
 ## 容器部署
 
 构建本地一体化服务：
@@ -240,7 +266,7 @@ go test ./...
 
 ## 当前实现边界
 
-- Redis Stream、MySQL、真实 Lark API、真实日志/DB/Redis connector 尚未接入，已保留接口。
+- Redis Stream、真实 Lark 发消息 API、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则默认拒绝、只读工具、scope 校验、时间范围/limit 约束、审计和脱敏。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。

@@ -1,0 +1,23 @@
+program: P-2026-001-troubleshooter-knowledge-evolution
+allowed_paths:
+  - README.md
+  - go.mod
+  - go.sum
+  - cmd/**
+  - internal/caseflow/**
+  - internal/evolution/**
+  - internal/storage/**
+  - migrations/**
+  - docs/**
+  - api/openapi/**
+  - configs/**
+  - programs/P-2026-001-troubleshooter-knowledge-evolution/**
+forbidden_paths:
+  - .env
+  - "**/*secret*"
+  - "**/*key*"
+requires_approval:
+  - production deploy
+  - production database migration execution
+  - push to main
+notes: "本轮必须在 codex/knowledge-evolution 工作分支完成，不直接 push main。"

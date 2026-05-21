@@ -7,12 +7,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/ginseng/ai-troubleshooter/internal/storage"
 	"github.com/ginseng/ai-troubleshooter/internal/worker"
 )
 
@@ -21,7 +21,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	store := caseflow.NewInMemoryStore()
+	openedStore, err := storage.Open(ctx, cfg.Database)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer openedStore.Close()
+	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
 	gw, err := gateway.NewFromConfig(cfg)
 	if err != nil {

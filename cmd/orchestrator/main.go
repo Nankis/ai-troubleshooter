@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,11 +14,17 @@ import (
 	"github.com/ginseng/ai-troubleshooter/internal/gateway"
 	"github.com/ginseng/ai-troubleshooter/internal/llm"
 	"github.com/ginseng/ai-troubleshooter/internal/orchestrator"
+	"github.com/ginseng/ai-troubleshooter/internal/storage"
 )
 
 func main() {
 	cfg := config.LoadFromEnv()
-	store := caseflow.NewInMemoryStore()
+	openedStore, err := storage.Open(context.Background(), cfg.Database)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer openedStore.Close()
+	store := openedStore.Store
 	gw, err := gateway.NewFromConfig(cfg)
 	if err != nil {
 		log.Fatal(err)

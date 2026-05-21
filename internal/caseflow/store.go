@@ -35,19 +35,46 @@ type Store interface {
 	ListMessages(ctx context.Context, caseID int64) ([]Message, error)
 	CreateInvestigation(ctx context.Context, inv Investigation) (Investigation, error)
 	FinishInvestigation(ctx context.Context, id int64, status string, summary string, confidence *float64) (Investigation, error)
+	UpsertRootCause(ctx context.Context, rootCause RootCause) (RootCause, error)
+	GetRootCause(ctx context.Context, caseID int64) (RootCause, error)
+	AddCaseFeedback(ctx context.Context, feedback CaseFeedback) (CaseFeedback, error)
+	ListCaseFeedback(ctx context.Context, caseID int64) ([]CaseFeedback, error)
+	UpsertKnowledgeItem(ctx context.Context, item KnowledgeItem) (KnowledgeItem, error)
+	GetKnowledgeItem(ctx context.Context, id int64) (KnowledgeItem, error)
+	FindKnowledgeItem(ctx context.Context, issueDomain string, issueType string, rootCauseCategory string) (KnowledgeItem, error)
+	ListKnowledgeItems(ctx context.Context, filter KnowledgeFilter) ([]KnowledgeItem, error)
+	CreateKnowledgeEvolutionRun(ctx context.Context, run KnowledgeEvolutionRun) (KnowledgeEvolutionRun, error)
+	ListKnowledgeEvolutionRuns(ctx context.Context, caseID int64) ([]KnowledgeEvolutionRun, error)
 }
 
 type InMemoryStore struct {
-	mu                  sync.RWMutex
-	nextCaseID          int64
-	nextEntityID        int64
-	nextMessageID       int64
-	nextInvestigationID int64
-	cases               map[int64]*Case
-	casesByNo           map[string]int64
-	entities            map[int64][]Entity
-	messages            map[int64][]Message
-	investigations      map[int64]*Investigation
+	mu                          sync.RWMutex
+	nextCaseID                  int64
+	nextEntityID                int64
+	nextMessageID               int64
+	nextInvestigationID         int64
+	nextRootCauseID             int64
+	nextFeedbackID              int64
+	nextKnowledgeItemID         int64
+	nextKnowledgeEvolutionRunID int64
+	cases                       map[int64]*Case
+	casesByNo                   map[string]int64
+	entities                    map[int64][]Entity
+	messages                    map[int64][]Message
+	investigations              map[int64]*Investigation
+	rootCauses                  map[int64]*RootCause
+	feedback                    map[int64][]CaseFeedback
+	knowledgeItems              map[int64]*KnowledgeItem
+	knowledgeIndex              map[string]int64
+	evolutionRuns               map[int64][]KnowledgeEvolutionRun
+}
+
+type KnowledgeFilter struct {
+	IssueDomain       string
+	IssueType         string
+	RootCauseCategory string
+	Status            string
+	Limit             int
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -57,6 +84,11 @@ func NewInMemoryStore() *InMemoryStore {
 		entities:       map[int64][]Entity{},
 		messages:       map[int64][]Message{},
 		investigations: map[int64]*Investigation{},
+		rootCauses:     map[int64]*RootCause{},
+		feedback:       map[int64][]CaseFeedback{},
+		knowledgeItems: map[int64]*KnowledgeItem{},
+		knowledgeIndex: map[string]int64{},
+		evolutionRuns:  map[int64][]KnowledgeEvolutionRun{},
 	}
 }
 
@@ -234,6 +266,184 @@ func (s *InMemoryStore) FinishInvestigation(ctx context.Context, id int64, statu
 	return *cloneInvestigation(inv), nil
 }
 
+func (s *InMemoryStore) UpsertRootCause(ctx context.Context, rootCause RootCause) (RootCause, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.cases[rootCause.CaseID]; !ok {
+		return RootCause{}, ErrNotFound
+	}
+	now := time.Now()
+	if rootCause.ConfirmedAt.IsZero() {
+		rootCause.ConfirmedAt = now
+	}
+	if existing, ok := s.rootCauses[rootCause.CaseID]; ok {
+		rootCause.ID = existing.ID
+		rootCause.CreatedAt = existing.CreatedAt
+		rootCause.UpdatedAt = now
+		s.rootCauses[rootCause.CaseID] = cloneRootCause(&rootCause)
+		return rootCause, nil
+	}
+	s.nextRootCauseID++
+	rootCause.ID = s.nextRootCauseID
+	rootCause.CreatedAt = now
+	rootCause.UpdatedAt = now
+	s.rootCauses[rootCause.CaseID] = cloneRootCause(&rootCause)
+	return rootCause, nil
+}
+
+func (s *InMemoryStore) GetRootCause(ctx context.Context, caseID int64) (RootCause, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rootCause, ok := s.rootCauses[caseID]
+	if !ok {
+		return RootCause{}, ErrNotFound
+	}
+	return *cloneRootCause(rootCause), nil
+}
+
+func (s *InMemoryStore) AddCaseFeedback(ctx context.Context, feedback CaseFeedback) (CaseFeedback, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.cases[feedback.CaseID]; !ok {
+		return CaseFeedback{}, ErrNotFound
+	}
+	s.nextFeedbackID++
+	feedback.ID = s.nextFeedbackID
+	feedback.CreatedAt = time.Now()
+	s.feedback[feedback.CaseID] = append(s.feedback[feedback.CaseID], feedback)
+	return feedback, nil
+}
+
+func (s *InMemoryStore) ListCaseFeedback(ctx context.Context, caseID int64) ([]CaseFeedback, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]CaseFeedback(nil), s.feedback[caseID]...), nil
+}
+
+func (s *InMemoryStore) UpsertKnowledgeItem(ctx context.Context, item KnowledgeItem) (KnowledgeItem, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	key := knowledgeKey(item.IssueDomain, item.IssueType, item.LastRootCauseCategory)
+	if item.ID == 0 {
+		if id, ok := s.knowledgeIndex[key]; ok {
+			item.ID = id
+		}
+	}
+	if item.ID != 0 {
+		existing, ok := s.knowledgeItems[item.ID]
+		if !ok {
+			return KnowledgeItem{}, ErrNotFound
+		}
+		item.CreatedAt = existing.CreatedAt
+		item.UpdatedAt = now
+		if item.LastEvolvedAt.IsZero() {
+			item.LastEvolvedAt = now
+		}
+		if item.Status == "" {
+			item.Status = existing.Status
+		}
+		s.knowledgeItems[item.ID] = cloneKnowledgeItem(&item)
+		s.knowledgeIndex[key] = item.ID
+		return item, nil
+	}
+	s.nextKnowledgeItemID++
+	item.ID = s.nextKnowledgeItemID
+	if item.Status == "" {
+		item.Status = "active"
+	}
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = now
+	}
+	item.UpdatedAt = now
+	if item.LastEvolvedAt.IsZero() {
+		item.LastEvolvedAt = now
+	}
+	s.knowledgeItems[item.ID] = cloneKnowledgeItem(&item)
+	s.knowledgeIndex[key] = item.ID
+	return item, nil
+}
+
+func (s *InMemoryStore) GetKnowledgeItem(ctx context.Context, id int64) (KnowledgeItem, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.knowledgeItems[id]
+	if !ok {
+		return KnowledgeItem{}, ErrNotFound
+	}
+	return *cloneKnowledgeItem(item), nil
+}
+
+func (s *InMemoryStore) FindKnowledgeItem(ctx context.Context, issueDomain string, issueType string, rootCauseCategory string) (KnowledgeItem, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.knowledgeIndex[knowledgeKey(issueDomain, issueType, rootCauseCategory)]
+	if !ok {
+		return KnowledgeItem{}, ErrNotFound
+	}
+	return *cloneKnowledgeItem(s.knowledgeItems[id]), nil
+}
+
+func (s *InMemoryStore) ListKnowledgeItems(ctx context.Context, filter KnowledgeFilter) ([]KnowledgeItem, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	out := []KnowledgeItem{}
+	for _, item := range s.knowledgeItems {
+		if filter.IssueDomain != "" && item.IssueDomain != filter.IssueDomain {
+			continue
+		}
+		if filter.IssueType != "" && item.IssueType != filter.IssueType {
+			continue
+		}
+		if filter.RootCauseCategory != "" && item.LastRootCauseCategory != filter.RootCauseCategory {
+			continue
+		}
+		if filter.Status != "" && item.Status != filter.Status {
+			continue
+		}
+		out = append(out, *cloneKnowledgeItem(item))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *InMemoryStore) CreateKnowledgeEvolutionRun(ctx context.Context, run KnowledgeEvolutionRun) (KnowledgeEvolutionRun, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.cases[run.CaseID]; !ok {
+		return KnowledgeEvolutionRun{}, ErrNotFound
+	}
+	s.nextKnowledgeEvolutionRunID++
+	now := time.Now()
+	run.ID = s.nextKnowledgeEvolutionRunID
+	run.RunNo = fmt.Sprintf("ke_%s_%06d", now.Format("20060102"), run.ID)
+	run.CreatedAt = now
+	s.evolutionRuns[run.CaseID] = append(s.evolutionRuns[run.CaseID], run)
+	return run, nil
+}
+
+func (s *InMemoryStore) ListKnowledgeEvolutionRuns(ctx context.Context, caseID int64) ([]KnowledgeEvolutionRun, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]KnowledgeEvolutionRun(nil), s.evolutionRuns[caseID]...), nil
+}
+
 func cloneCase(c *Case) *Case {
 	if c == nil {
 		return nil
@@ -248,6 +458,26 @@ func cloneInvestigation(inv *Investigation) *Investigation {
 	}
 	cp := *inv
 	return &cp
+}
+
+func cloneRootCause(rootCause *RootCause) *RootCause {
+	if rootCause == nil {
+		return nil
+	}
+	cp := *rootCause
+	return &cp
+}
+
+func cloneKnowledgeItem(item *KnowledgeItem) *KnowledgeItem {
+	if item == nil {
+		return nil
+	}
+	cp := *item
+	return &cp
+}
+
+func knowledgeKey(issueDomain string, issueType string, rootCauseCategory string) string {
+	return issueDomain + "|" + issueType + "|" + rootCauseCategory
 }
 
 func hasEntity(entities []Entity, typ string, value string) bool {

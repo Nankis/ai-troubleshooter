@@ -1,19 +1,25 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 
-	"github.com/ginseng/ai-troubleshooter/internal/caseflow"
 	"github.com/ginseng/ai-troubleshooter/internal/config"
 	"github.com/ginseng/ai-troubleshooter/internal/lark"
 	"github.com/ginseng/ai-troubleshooter/internal/queue"
+	"github.com/ginseng/ai-troubleshooter/internal/storage"
 )
 
 func main() {
 	cfg := config.LoadFromEnv()
-	store := caseflow.NewInMemoryStore()
+	openedStore, err := storage.Open(context.Background(), cfg.Database)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer openedStore.Close()
+	store := openedStore.Store
 	q := queue.NewMemoryQueue(256)
 	handler := lark.NewHandler(store, q, nil)
 	handler.SetOptions(lark.Options{

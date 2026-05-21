@@ -17,6 +17,9 @@ LLM_BASE_URL=https://llm-gateway.internal/v1
 LLM_API_KEY=xxx
 LLM_MODEL=replace-with-model
 
+DB_DRIVER=mysql
+DB_DSN='user:password@tcp(mysql.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local'
+
 CONNECTOR_MODE=http
 CONNECTOR_API_KEY=xxx
 MARKET_READONLY_BASE_URL=https://market-readonly.internal
@@ -32,6 +35,8 @@ OPS_READONLY_BASE_URL=https://ops-readonly.internal
 - adapter 对所有底层查询设置 timeout、limit 和审计。
 - adapter 不提供写操作，不透传 SQL。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
+- 数据库已执行 `migrations/001_initial.sql` 和 `migrations/002_knowledge_evolution.sql`，DSN 必须包含 `parseTime=true`。
+- 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
 ## 本地 smoke test
 
@@ -73,3 +78,25 @@ curl -s localhost:19091/lark/events \
 - 完整 K线 case 进入 `NEED_HUMAN_CONFIRMATION`。
 - 信息不足 case 进入 `WAITING_USER_REPLY`。
 - 工具调用审计日志包含 tool name、case id、policy decision、query id。
+
+根因回填与知识自进化：
+
+```bash
+curl -s localhost:19091/cases/case_20260521_000001/root-cause \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "human_confirmed_reason":"行情源短时延迟，补偿任务完成前用户看到旧 high",
+    "root_cause_category":"external_source_delay",
+    "owner_service":"market-service",
+    "is_external_source_issue":true,
+    "confirmed_by":"owner_1"
+  }'
+
+curl -s 'localhost:19091/knowledge?issue_domain=kline'
+```
+
+预期：
+
+- case 状态进入 `DONE`。
+- 响应包含 `root_cause`、`knowledge_item`、`evolution_run`。
+- `/knowledge` 能查到新增或更新后的知识条目。
