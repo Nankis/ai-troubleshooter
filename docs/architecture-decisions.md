@@ -31,17 +31,65 @@ Gateway、业务 connector、安全鉴权、审计、限流、脱敏、只读工
 
 目标边界：
 
-```text
-Lark / Feishu / Web Chat
-  -> Case API / Queue
-  -> Python Decision Engine
-       -> Tool Catalog / RAG / Local Code Inspector
-       -> Gateway readonly tools
-  -> Investigation Gateway
-       -> auth / scope / rate limit / audit / masking
-       -> readonly business adapters
-  -> MySQL / Postgres
-       -> tb_troubleshoot_* case / message / decision / audit / knowledge tables
+```mermaid
+flowchart TB
+  subgraph Inputs["输入通道"]
+    Lark["Lark 群聊"]
+    Feishu["飞书群聊"]
+    Web["Web Chat / 图片上传"]
+  end
+
+  subgraph Intake["Channel Adapters"]
+    LarkBot["lark-bot<br/>/lark/events /feishu/events"]
+    WebAdapter["web-chat adapter"]
+  end
+
+  subgraph CaseLayer["Case Layer"]
+    CaseAPI["Case API<br/>case / message / idempotency"]
+    Queue["Queue<br/>memory now / Redis Stream later"]
+    Store["MySQL<br/>tb_troubleshoot_*"]
+  end
+
+  subgraph Brain["Decision Layer"]
+    GoOrch["Go orchestrator<br/>baseline / fallback"]
+    PyEngine["Python 3.13 Decision Engine<br/>target"]
+    Retriever["Knowledge Retriever / RAG<br/>SQL first, vector later"]
+    LocalCode["Local Code Inspector<br/>last resort"]
+  end
+
+  subgraph Gateway["Investigation Gateway"]
+    Policy["auth / scope / rate limit"]
+    Audit["timeout / audit / masking"]
+    Registry["readonly tool registry"]
+  end
+
+  subgraph Downstream["下游只读证据源"]
+    APIs["Company readonly APIs"]
+    Logs["logs / cache / external exchange"]
+    Deploy["deploy records<br/>reserved"]
+  end
+
+  Lark --> LarkBot
+  Feishu --> LarkBot
+  Web --> WebAdapter
+  LarkBot --> CaseAPI
+  WebAdapter --> CaseAPI
+  CaseAPI --> Store
+  CaseAPI --> Queue
+  Queue --> GoOrch
+  Queue -. migration target .-> PyEngine
+  GoOrch --> Retriever
+  PyEngine --> Retriever
+  PyEngine -. last resort .-> LocalCode
+  GoOrch --> Policy
+  PyEngine --> Policy
+  Policy --> Audit
+  Audit --> Registry
+  Registry --> APIs
+  Registry --> Logs
+  Registry -. reserved .-> Deploy
+  Policy --> Store
+  Audit --> Store
 ```
 
 ### 约束

@@ -88,72 +88,55 @@ Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 
 
 一期数据表围绕 case、实体、消息、investigation、tool audit、root cause、knowledge item 设计。即使 AI 没查准，也要保留原始问题、抽取字段、调用过程、AI 判断和人工最终根因。失败样本同样是后续优化 prompt、工具和知识库的材料。
 
-## 总体架构
+## 一期部署架构
 
 ```mermaid
-flowchart TB
-  subgraph Inputs["输入通道"]
-    Lark["Lark 群聊"]
-    Feishu["飞书群聊"]
-    Web["Web Chat / 图片上传<br/>planned"]
+flowchart LR
+  subgraph Entry["输入入口"]
+    Chat["Lark / 飞书<br/>文字 + 图片"]
+    Web["Web Chat<br/>可选"]
   end
 
-  subgraph Intake["Channel Adapters"]
-    LarkBot["lark-bot<br/>/lark/events /feishu/events"]
-    WebAdapter["web-chat adapter<br/>planned"]
+  subgraph Agent["排障 Agent 平台"]
+    Intake["Channel Adapter<br/>验签 / 解密 / 下载图片"]
+    Case["Case API + Queue<br/>幂等 / 状态机 / 消息"]
+    Brain["Decision Engine<br/>Go baseline 或 Python"]
+    Gateway["Investigation Gateway<br/>鉴权 / Scope / 限流 / 超时 / 审计 / 脱敏"]
   end
 
-  subgraph CaseLayer["Case Layer"]
-    CaseAPI["Case API<br/>case / message / idempotency"]
-    Queue["Queue<br/>memory now / Redis Stream later"]
-    Store["MySQL<br/>tb_troubleshoot_*<br/>cases / decisions / audits / knowledge"]
+  subgraph Company["业务方提供"]
+    APIs["Readonly APIs<br/>行情 / 资产 / 日志 / 缓存"]
+    LLM["LLM / Vision Provider<br/>主模型可复用图片能力"]
   end
 
-  subgraph Brain["Decision Layer"]
-    GoOrch["Go orchestrator<br/>current baseline"]
-    PyEngine["Python 3.13 Decision Engine<br/>apps/decision-engine"]
-    Retriever["Knowledge Retriever / RAG<br/>Phase 0: SQL + tag + keyword<br/>Future: vector index"]
-    LocalCode["Local Code Inspector<br/>last resort"]
+  subgraph Data["平台数据"]
+    MySQL["MySQL<br/>tb_troubleshoot_*"]
+    Knowledge["经验沉淀<br/>root cause -> knowledge"]
   end
 
-  subgraph Gateway["Investigation Gateway"]
-    Policy["auth / scope / rate limit"]
-    Audit["timeout / audit / masking"]
-    Registry["readonly tool registry"]
-  end
-
-  subgraph Downstream["下游只读证据源"]
-    Market["market readonly APIs"]
-    Asset["asset readonly APIs"]
-    Logs["logs / cache / external exchange"]
-    Deploy["deploy records<br/>reserved"]
-  end
-
-  Lark --> LarkBot
-  Feishu --> LarkBot
-  Web --> WebAdapter
-  LarkBot --> CaseAPI
-  WebAdapter --> CaseAPI
-  CaseAPI --> Store
-  CaseAPI --> Queue
-  Queue --> GoOrch
-  Queue -. future .-> PyEngine
-  GoOrch --> Retriever
-  PyEngine --> Retriever
-  PyEngine -. last resort .-> LocalCode
-  GoOrch --> Policy
-  PyEngine --> Policy
-  Policy --> Audit
-  Audit --> Registry
-  Registry --> Market
-  Registry --> Asset
-  Registry --> Logs
-  Registry -. reserved .-> Deploy
-  Policy --> Store
-  Audit --> Store
+  Chat --> Intake
+  Web --> Intake
+  Intake --> Case
+  Case --> Brain
+  Brain --> LLM
+  Brain --> Gateway
+  Gateway --> APIs
+  Case --> MySQL
+  Brain --> MySQL
+  Gateway --> MySQL
+  MySQL --> Knowledge
+  Knowledge --> Brain
 ```
 
-### 排障数据流
+业务方开箱接入时只需要补三件事：
+
+- 配好 Lark/飞书机器人，或启用 Web Chat 入口。
+- 按 [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md) 提供只读 API adapter。
+- 配好 MySQL、LLM/Vision、Gateway token 和控制面 token。
+
+向量库、发布记录、本地代码查看、多 Agent workflow 都不是一期部署前置条件；这些演进能力记录在 [架构决策记录](docs/architecture-decisions.md)。
+
+### 单 case 排障流程
 
 ```mermaid
 sequenceDiagram
@@ -164,26 +147,31 @@ sequenceDiagram
   participant D as Decision Layer
   participant G as Investigation Gateway
   participant B as Business Readonly APIs
-  participant K as Knowledge Store
+  participant O as Owner
+  participant K as Knowledge Evolution
 
   U->>C: 文字 / 图片 / 工单描述
   C->>S: 创建 case，写入 message 和 OCR
   C->>D: 投递 case.created
-  D->>S: 读取 case、历史消息、实体
-  D->>K: 检索相似 case / SOP / 经验
+  D->>S: 读取 case、历史消息、实体、历史经验
   D->>D: 分类、实体抽取、必要字段检查
   alt 信息不足
     D->>S: 写入决策日志，状态变更为 WAITING_USER_REPLY
-    D-->>U: 追问关键字段
+    D-->>C: 生成追问
+    C-->>U: 追问关键字段
   else 信息足够
-    D->>G: 调用有限个只读工具
+    D->>G: 按预算调用有限个只读工具
     G->>G: 鉴权、scope、限流、timeout、审计、脱敏
     G->>B: 查询生产只读证据
     B-->>G: 返回证据
     G-->>D: 返回脱敏后的 observation
     D->>S: 写入 AI 决策日志和排查总结
-    D-->>U: 返回结论、证据链和下一步
+    D-->>C: 返回结论、证据链和下一步
+    C-->>U: 回复排查结果
   end
+  O->>S: 回填 root cause / feedback
+  S->>K: 生成或更新 knowledge item
+  K-->>D: 下次排障复用经验
 ```
 
 ### 组件职责
@@ -242,7 +230,7 @@ docs/                      TRD 摘要与一期说明
 
 ## 已实现能力
 
-- 独立 Go 仓库和一期目录结构。
+- Go + Python monorepo 和一期目录结构。
 - 本地一体化 `dev-server`。
 - Lark / 飞书事件入口：`POST /lark/events` 和 `POST /feishu/events`，支持本地模拟 payload 和 Lark/Feishu v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
@@ -251,7 +239,8 @@ docs/                      TRD 摘要与一期说明
 - 配置 `LARK_APP_ID` / `LARK_APP_SECRET` 后，Bot 会通过对应开放平台发送文本回复；未配置时本地只写日志。
 - `LARK_PLATFORM` 默认 `lark`，自动使用 `https://open.larksuite.com`；设为 `feishu` 时自动使用 `https://open.feishu.cn`；`LARK_API_BASE_URL` 可显式覆盖，适合公司代理网关。
 - Lark/Feishu 图片消息下载：从消息 `content` 中提取 `image_key`，通过消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
-- 多模型链路：`VISION_*` 独立配置视觉识别模型，适合用 Qwen-VL 先识别截图；`LLM_*` 独立配置后续文本推理模型，后续可换 GPT/Claude。
+- 多模型链路：默认复用主 LLM 的图片能力；只有显式配置 `VISION_*` 时才启用独立视觉模型，适合用 Qwen-VL 先识别截图。
+- Python Decision Engine 骨架：`apps/decision-engine` 已提供有限工具计划 API、Gateway client、OpenAPI 草案和单元测试。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
