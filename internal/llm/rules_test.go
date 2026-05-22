@@ -30,3 +30,27 @@ func TestRuleBasedClientClassifiesHealthFoodRecommendation(t *testing.T) {
 		t.Fatalf("unexpected health-food entities: %+v", got)
 	}
 }
+
+func TestRuleBasedClientClassifiesEnglishHealthFoodRecommendation(t *testing.T) {
+	client := NewRuleBasedClient()
+	input := CaseInput{Case: caseflow.Case{
+		OriginalText: "health-food recommendation missing uid:hf_user_002 abnormal time 2026-05-23 10:00:00",
+	}}
+
+	classification, err := client.ClassifyIssue(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classification.IssueDomain != caseflow.DomainHealthFood || classification.IssueType != "每日推荐缺失" {
+		t.Fatalf("unexpected classification: %+v", classification)
+	}
+
+	entities, err := client.ExtractEntities(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := caseflow.EntityMap(entities.Entities)
+	if got["uid"] != "hf_user_002" || got["issue_type"] != "每日推荐缺失" || got["service_name"] != "health-food" {
+		t.Fatalf("unexpected health-food entities: %+v", got)
+	}
+}

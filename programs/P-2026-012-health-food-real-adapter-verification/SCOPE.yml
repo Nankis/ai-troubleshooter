@@ -1,0 +1,18 @@
+allowed_paths:
+  - scripts/**
+  - docs/**
+  - configs/**
+  - README.md
+  - internal/llm/**
+  - apps/decision-engine/**
+  - programs/P-2026-012-health-food-real-adapter-verification/**
+
+forbidden_paths:
+  - internal/gateway/**
+  - internal/decisionbaseline/**
+  - migrations/**
+
+notes:
+  - "本轮重点是真实验证，不用 mock 故障数据冒充验收。"
+  - "可新增脚本/adapter 和文档；如需改 Go 主链路，先记录原因。"
+  - "UI 真实输入验证暴露英文 recommendation missing 不能识别，允许小范围修复 internal/llm 规则和测试。"

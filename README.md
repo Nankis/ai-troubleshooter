@@ -355,6 +355,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - 14 个一期只读工具。
 - K线、资产、日志、health-food mock connector。
 - health-food 故障域、本地 readonly adapter、AI 配额 / 餐食 / 每日推荐只读工具和服务注册 manifest 示例。
+- health-food 真实本地联调 adapter：`scripts/real-health-food-readonly-adapter.py` 可连接本地测试 DB 和本地 health-food 服务，验证注册用户、餐食、AI 配额、每日推荐状态和 adapter 鉴权，不用 mock 故障数据冒充验收。
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
 - 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
 - MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
@@ -482,6 +483,36 @@ HEALTH_FOOD_READONLY_BASE_URL=https://health-food-readonly.example.internal
 ```
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。业务服务注册到 Gateway 的 manifest 结构见 [docs/business-service-registration.md](docs/business-service-registration.md)，health-food 示例见 [configs/business-capabilities.health-food.example.yaml](configs/business-capabilities.health-food.example.yaml)。
+
+### health-food 真实本地联调
+
+`scripts/real-health-food-readonly-adapter.py` 用于本地真实验证：它查询本地 health-food 测试库、探活本地 health-food 服务，并按公司 readonly adapter envelope 对外暴露 health-food 首批接口。它不合成 mock 故障数据，也不允许 Agent 直接访问生产 DB。
+
+```bash
+# 1. 先启动本地 health-food，确保 /food-health/sys/alive 可访问。
+
+# 2. 启动真实 readonly adapter。密码、token 只通过环境变量传入，不写入仓库。
+CONNECTOR_API_KEY="$LOCAL_CONNECTOR_API_KEY" \
+HEALTH_FOOD_MYSQL_HOST=127.0.0.1 \
+HEALTH_FOOD_MYSQL_PORT=3306 \
+HEALTH_FOOD_MYSQL_USER=root \
+HEALTH_FOOD_MYSQL_PASSWORD="$LOCAL_MYSQL_PASSWORD" \
+HEALTH_FOOD_MYSQL_DATABASE=hf_troubleshoot_codex \
+HEALTH_FOOD_BASE_URL=http://127.0.0.1:18080 \
+REAL_HEALTH_FOOD_ADAPTER_PORT=19084 \
+python3.13 scripts/real-health-food-readonly-adapter.py
+
+# 3. 让排障平台通过 HTTP connector 接入该 adapter。
+CONNECTOR_MODE=http \
+CONNECTOR_API_KEY="$LOCAL_CONNECTOR_API_KEY" \
+MARKET_READONLY_BASE_URL=http://127.0.0.1:19084 \
+ASSET_READONLY_BASE_URL=http://127.0.0.1:19084 \
+OPS_READONLY_BASE_URL=http://127.0.0.1:19084 \
+HEALTH_FOOD_READONLY_BASE_URL=http://127.0.0.1:19084 \
+go run ./cmd/dev-server
+```
+
+真实联调的验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库；必要时再用 Python Decision Engine 的 debug-only Local Code Agent 根据 `service_name` 定位本地代码路径。
 
 配置图片识别：
 

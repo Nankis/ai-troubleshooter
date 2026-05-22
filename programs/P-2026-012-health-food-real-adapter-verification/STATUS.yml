@@ -1,0 +1,25 @@
+program: P-2026-012-health-food-real-adapter-verification
+name: "Health Food Real Adapter Verification"
+level: "Full"
+phase: "implementation"
+status: "completed"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "done"
+tasks:
+  - id: task-1
+    name: "建立 Program 和真实验收标准"
+    status: completed
+  - id: task-2
+    name: "梳理 health-food 真实 API / DB / 日志 / 代码证据"
+    status: completed
+  - id: task-3
+    name: "实现真实 readonly adapter"
+    status: completed
+  - id: task-4
+    name: "启动真实服务并跑端到端验证"
+    status: completed
+  - id: task-5
+    name: "记录证据、测试、提交推送"
+    status: completed
