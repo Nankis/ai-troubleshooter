@@ -192,6 +192,79 @@ func (MockOpsConnector) SimilarCases(ctx context.Context, issueDomain string, is
 	return SimilarCaseResult{Items: items}, nil
 }
 
+type MockHealthFoodConnector struct{}
+
+func (MockHealthFoodConnector) UserProfile(ctx context.Context, q HealthFoodQuery) (HealthFoodUserProfile, error) {
+	_ = ctx
+	now := time.Now()
+	return HealthFoodUserProfile{
+		UID:               fallback(q.EffectiveUserID(), "hf_user_001"),
+		Registered:        true,
+		MembershipLevel:   1,
+		HealthGoalSummary: "减脂期，目标热量 1800 kcal/day",
+		LatestDevice: map[string]any{
+			"platform": "ios",
+			"version":  "1.2.3",
+		},
+		UpdatedAt: now.Add(-2 * time.Minute),
+		Source:    "health-food/mock",
+		Version:   "mock-v1",
+	}, nil
+}
+
+func (MockHealthFoodConnector) AIQuota(ctx context.Context, q HealthFoodQuery) (HealthFoodAIQuota, error) {
+	_ = ctx
+	now := time.Now()
+	return HealthFoodAIQuota{
+		UID:             fallback(q.EffectiveUserID(), "hf_user_001"),
+		MembershipLevel: 1,
+		AvailableTokens: "0",
+		DailyChatCount:  30,
+		LimitChat:       30,
+		LastResetDate:   now.Add(-26 * time.Hour),
+		Abnormal:        true,
+		Reason:          "mock quota exhausted while membership is still active",
+		DataUpdatedAt:   now.Add(-1 * time.Minute),
+	}, nil
+}
+
+func (MockHealthFoodConnector) MealRecords(ctx context.Context, q HealthFoodQuery) (HealthFoodMealRecords, error) {
+	_ = ctx
+	start := q.StartTime
+	if start.IsZero() {
+		start = time.Now().Add(-24 * time.Hour)
+	}
+	return HealthFoodMealRecords{
+		UID:                 fallback(q.EffectiveUserID(), "hf_user_001"),
+		MealCount:           2,
+		MissingMealIDs:      []string{"meal_mock_003"},
+		MealDataFingerprint: "mock_fingerprint_stale",
+		Meals: []map[string]any{
+			{"meal_id": "meal_mock_001", "meal_name": "breakfast", "meal_time": start.Add(8 * time.Hour).Format(time.RFC3339)},
+			{"meal_id": "meal_mock_002", "meal_name": "lunch", "meal_time": start.Add(13 * time.Hour).Format(time.RFC3339)},
+		},
+		DataUpdatedAt: time.Now().Add(-6 * time.Hour),
+	}, nil
+}
+
+func (MockHealthFoodConnector) RecommendationStatus(ctx context.Context, q HealthFoodQuery) (HealthFoodRecommendationStatus, error) {
+	_ = ctx
+	date := q.RecommendationDate
+	if date == "" {
+		date = time.Now().Format("2006-01-02")
+	}
+	return HealthFoodRecommendationStatus{
+		UID:                 fallback(q.EffectiveUserID(), "hf_user_001"),
+		RecommendDate:       date,
+		HasRecommendation:   false,
+		JobStatus:           "failed",
+		MealCount:           2,
+		MealDataFingerprint: "mock_fingerprint_stale",
+		FailureReason:       "mock daily recommendation skipped because meal fingerprint did not refresh",
+		SourceMealIDs:       []string{"meal_mock_001", "meal_mock_002"},
+	}, nil
+}
+
 func mockCandles(start time.Time, count int, base float64) []Candle {
 	if start.IsZero() {
 		start = time.Now().Add(-time.Duration(count) * time.Minute)

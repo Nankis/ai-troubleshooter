@@ -19,9 +19,12 @@ CONNECTOR_TIMEOUT_SECONDS=5
 MARKET_READONLY_BASE_URL=https://market-readonly.example.internal
 ASSET_READONLY_BASE_URL=https://asset-readonly.example.internal
 OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
+HEALTH_FOOD_READONLY_BASE_URL=https://health-food-readonly.example.internal
 ```
 
-也可以把三个 base URL 指向同一个 adapter 服务。
+也可以把这些 base URL 指向同一个 adapter 服务。
+
+如果接入的是新的业务域，例如 `health-food`，业务方还需要提交一份能力注册 manifest，说明服务名、owner、base URL、scope、工具名、参数和返回 schema。manifest 数据结构见 [business-service-registration.md](business-service-registration.md)，示例见 [../configs/business-capabilities.health-food.example.yaml](../configs/business-capabilities.health-food.example.yaml)。
 
 ## 通用约定
 

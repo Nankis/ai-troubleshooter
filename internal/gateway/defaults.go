@@ -15,7 +15,7 @@ import (
 
 func NewDefault(timeout time.Duration) *Gateway {
 	registry := tool.NewRegistry()
-	RegisterDefaultTools(registry, connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{})
+	RegisterDefaultTools(registry, connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{}, connectors.MockHealthFoodConnector{})
 	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), audit.NewMemorySink(), timeout)
 }
 
@@ -35,11 +35,11 @@ func NewFromConfigWithAudit(cfg config.Config, auditSink audit.Sink) (*Gateway, 
 		timeout = 5 * time.Second
 	}
 	registry := tool.NewRegistry()
-	kline, asset, ops, err := buildConnectors(cfg)
+	kline, asset, ops, healthFood, err := buildConnectors(cfg)
 	if err != nil {
 		return nil, err
 	}
-	RegisterDefaultTools(registry, kline, asset, ops)
+	RegisterDefaultTools(registry, kline, asset, ops, healthFood)
 	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), auditSink, timeout).WithSecurity(SecurityConfig{
 		AuthEnabled:                   cfg.Gateway.AuthEnabled,
 		BearerTokens:                  cfg.Gateway.BearerTokens,
@@ -50,7 +50,7 @@ func NewFromConfigWithAudit(cfg config.Config, auditSink audit.Sink) (*Gateway, 
 	}), nil
 }
 
-func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.AssetConnector, connectors.OpsConnector, error) {
+func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.AssetConnector, connectors.OpsConnector, connectors.HealthFoodConnector, error) {
 	if strings.EqualFold(cfg.Connectors.Mode, "http") {
 		timeout := time.Duration(cfg.Connectors.TimeoutSeconds) * time.Second
 		if timeout <= 0 {
@@ -62,7 +62,7 @@ func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.A
 			Timeout: timeout,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("market readonly connector: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("market readonly connector: %w", err)
 		}
 		asset, err := connectors.NewHTTPAssetConnector(connectors.HTTPConfig{
 			BaseURL: cfg.Connectors.AssetBaseURL,
@@ -70,7 +70,7 @@ func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.A
 			Timeout: timeout,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("asset readonly connector: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("asset readonly connector: %w", err)
 		}
 		ops, err := connectors.NewHTTPOpsConnector(connectors.HTTPConfig{
 			BaseURL: cfg.Connectors.OpsBaseURL,
@@ -78,14 +78,23 @@ func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.A
 			Timeout: timeout,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("ops readonly connector: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("ops readonly connector: %w", err)
 		}
-		return kline, asset, ops, nil
+		healthFoodBaseURL := firstNonEmpty(cfg.Connectors.HealthFoodBaseURL, cfg.Connectors.OpsBaseURL, cfg.Connectors.AssetBaseURL, cfg.Connectors.MarketBaseURL)
+		healthFood, err := connectors.NewHTTPHealthFoodConnector(connectors.HTTPConfig{
+			BaseURL: healthFoodBaseURL,
+			APIKey:  cfg.Connectors.APIKey,
+			Timeout: timeout,
+		})
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("health-food readonly connector: %w", err)
+		}
+		return kline, asset, ops, healthFood, nil
 	}
-	return connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{}, nil
+	return connectors.MockKlineConnector{}, connectors.MockAssetConnector{}, connectors.MockOpsConnector{}, connectors.MockHealthFoodConnector{}, nil
 }
 
-func RegisterDefaultTools(reg *tool.Registry, kline connectors.KlineConnector, asset connectors.AssetConnector, ops connectors.OpsConnector) {
+func RegisterDefaultTools(reg *tool.Registry, kline connectors.KlineConnector, asset connectors.AssetConnector, ops connectors.OpsConnector, healthFood connectors.HealthFoodConnector) {
 	mustRegister(reg, tool.Spec{
 		Name:                "search_logs_by_service",
 		Description:         "按服务、时间、关键词查询日志摘要。",
@@ -302,6 +311,100 @@ func RegisterDefaultTools(reg *tool.Registry, kline connectors.KlineConnector, a
 			Summary: fmt.Sprintf("found %d user error samples", len(result.Errors)),
 		}, err
 	})
+
+	mustRegister(reg, tool.Spec{
+		Name:                "get_health_food_user_profile",
+		Description:         "查询 health-food 用户资料、会员等级和最近设备摘要。",
+		InputSchema:         schema("user_id", "uid", "at_time"),
+		RequiredScope:       "health_food:user:read",
+		BackendHandler:      "health_food_connector.user_profile",
+		MaxTimeRangeMinutes: 120,
+	}, func(ctx context.Context, req tool.InvocationRequest) (tool.InvocationResponse, error) {
+		q := healthFoodQuery(req.Arguments)
+		if q.EffectiveUserID() == "" {
+			return tool.InvocationResponse{}, fmt.Errorf("user_id or uid is required")
+		}
+		result, err := healthFood.UserProfile(ctx, q)
+		return tool.InvocationResponse{
+			Status:  "success",
+			Data:    result,
+			Summary: fmt.Sprintf("health-food user %s registered=%t membership_level=%d", result.UID, result.Registered, result.MembershipLevel),
+		}, err
+	})
+
+	mustRegister(reg, tool.Spec{
+		Name:                "get_health_food_ai_quota",
+		Description:         "查询 health-food 用户 AI token / 对话次数配额状态。",
+		InputSchema:         schema("user_id", "uid", "at_time"),
+		RequiredScope:       "health_food:ai_quota:read",
+		BackendHandler:      "health_food_connector.ai_quota",
+		MaxTimeRangeMinutes: 120,
+	}, func(ctx context.Context, req tool.InvocationRequest) (tool.InvocationResponse, error) {
+		q := healthFoodQuery(req.Arguments)
+		if q.EffectiveUserID() == "" {
+			return tool.InvocationResponse{}, fmt.Errorf("user_id or uid is required")
+		}
+		result, err := healthFood.AIQuota(ctx, q)
+		status := "normal"
+		if result.Abnormal {
+			status = "abnormal"
+		}
+		return tool.InvocationResponse{
+			Status:  "success",
+			Data:    result,
+			Summary: fmt.Sprintf("health-food ai quota %s: tokens=%s daily_chat=%d/%d reason=%s", status, result.AvailableTokens, result.DailyChatCount, result.LimitChat, result.Reason),
+		}, err
+	})
+
+	mustRegister(reg, tool.Spec{
+		Name:                "get_health_food_meal_records",
+		Description:         "查询 health-food 指定用户时间窗内的餐食记录和数据指纹。",
+		InputSchema:         schema("user_id", "uid", "start_time", "end_time", "limit"),
+		RequiredScope:       "health_food:meal:read",
+		BackendHandler:      "health_food_connector.meal_records",
+		MaxTimeRangeMinutes: 24 * 60,
+		MaxLimit:            100,
+	}, func(ctx context.Context, req tool.InvocationRequest) (tool.InvocationResponse, error) {
+		q := healthFoodQuery(req.Arguments)
+		if q.EffectiveUserID() == "" {
+			return tool.InvocationResponse{}, fmt.Errorf("user_id or uid is required")
+		}
+		result, err := healthFood.MealRecords(ctx, q)
+		return tool.InvocationResponse{
+			Status:  "success",
+			Data:    result,
+			Summary: fmt.Sprintf("health-food returned %d meal records, missing=%d fingerprint=%s", result.MealCount, len(result.MissingMealIDs), result.MealDataFingerprint),
+		}, err
+	})
+
+	mustRegister(reg, tool.Spec{
+		Name:                "get_health_food_recommendation_status",
+		Description:         "查询 health-food 每日推荐生成状态、输入餐食和失败原因。",
+		InputSchema:         schema("user_id", "uid", "recommendation_date", "start_time", "end_time"),
+		RequiredScope:       "health_food:recommendation:read",
+		BackendHandler:      "health_food_connector.recommendation_status",
+		MaxTimeRangeMinutes: 24 * 60,
+	}, func(ctx context.Context, req tool.InvocationRequest) (tool.InvocationResponse, error) {
+		q := healthFoodQuery(req.Arguments)
+		if q.EffectiveUserID() == "" {
+			return tool.InvocationResponse{}, fmt.Errorf("user_id or uid is required")
+		}
+		result, err := healthFood.RecommendationStatus(ctx, q)
+		return tool.InvocationResponse{
+			Status:  "success",
+			Data:    result,
+			Summary: fmt.Sprintf("health-food recommendation date=%s exists=%t job_status=%s reason=%s", result.RecommendDate, result.HasRecommendation, result.JobStatus, result.FailureReason),
+		}, err
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func mustRegister(reg *tool.Registry, spec tool.Spec, handler tool.HandlerFunc) {
@@ -355,6 +458,27 @@ func assetQuery(args map[string]any) connectors.AssetQuery {
 		EndTime:     end,
 		AtTime:      timeDefault(args, "at_time", end),
 		EventTypes:  stringSliceArg(args, "event_types"),
+	}
+}
+
+func healthFoodQuery(args map[string]any) connectors.HealthFoodQuery {
+	start, end := timeWindow(args, 24*time.Hour)
+	uid := stringArg(args, "uid")
+	userID := stringArg(args, "user_id")
+	atTime := timeDefault(args, "at_time", end)
+	recommendationDate := stringArg(args, "recommendation_date")
+	if recommendationDate == "" && !atTime.IsZero() {
+		recommendationDate = atTime.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
+	}
+	return connectors.HealthFoodQuery{
+		UserID:             userID,
+		UID:                uid,
+		StartTime:          start,
+		EndTime:            end,
+		AtTime:             atTime,
+		RecommendationDate: recommendationDate,
+		TraceID:            stringArg(args, "trace_id"),
+		Limit:              intDefault(args, "limit", 50),
 	}
 }
 

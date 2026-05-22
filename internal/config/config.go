@@ -68,12 +68,13 @@ type QueueConfig struct {
 }
 
 type ConnectorConfig struct {
-	Mode           string
-	APIKey         string
-	TimeoutSeconds int
-	MarketBaseURL  string
-	AssetBaseURL   string
-	OpsBaseURL     string
+	Mode              string
+	APIKey            string
+	TimeoutSeconds    int
+	MarketBaseURL     string
+	AssetBaseURL      string
+	OpsBaseURL        string
+	HealthFoodBaseURL string
 }
 
 type GatewayConfig struct {
@@ -153,12 +154,13 @@ func LoadFromEnv() Config {
 			StreamName: env("QUEUE_STREAM_NAME", "case_events"),
 		},
 		Connectors: ConnectorConfig{
-			Mode:           env("CONNECTOR_MODE", "mock"),
-			APIKey:         env("CONNECTOR_API_KEY", ""),
-			TimeoutSeconds: envInt("CONNECTOR_TIMEOUT_SECONDS", 5),
-			MarketBaseURL:  env("MARKET_READONLY_BASE_URL", ""),
-			AssetBaseURL:   env("ASSET_READONLY_BASE_URL", ""),
-			OpsBaseURL:     env("OPS_READONLY_BASE_URL", ""),
+			Mode:              env("CONNECTOR_MODE", "mock"),
+			APIKey:            env("CONNECTOR_API_KEY", ""),
+			TimeoutSeconds:    envInt("CONNECTOR_TIMEOUT_SECONDS", 5),
+			MarketBaseURL:     env("MARKET_READONLY_BASE_URL", ""),
+			AssetBaseURL:      env("ASSET_READONLY_BASE_URL", ""),
+			OpsBaseURL:        env("OPS_READONLY_BASE_URL", ""),
+			HealthFoodBaseURL: env("HEALTH_FOOD_READONLY_BASE_URL", ""),
 		},
 		Gateway: GatewayConfig{
 			AuthEnabled:                   envBool("GATEWAY_AUTH_ENABLED", false),

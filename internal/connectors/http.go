@@ -30,6 +30,10 @@ type HTTPOpsConnector struct {
 	client readonlyHTTPClient
 }
 
+type HTTPHealthFoodConnector struct {
+	client readonlyHTTPClient
+}
+
 func NewHTTPKlineConnector(cfg HTTPConfig) (*HTTPKlineConnector, error) {
 	client, err := newReadonlyHTTPClient(cfg)
 	if err != nil {
@@ -52,6 +56,14 @@ func NewHTTPOpsConnector(cfg HTTPConfig) (*HTTPOpsConnector, error) {
 		return nil, err
 	}
 	return &HTTPOpsConnector{client: client}, nil
+}
+
+func NewHTTPHealthFoodConnector(cfg HTTPConfig) (*HTTPHealthFoodConnector, error) {
+	client, err := newReadonlyHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPHealthFoodConnector{client: client}, nil
 }
 
 func (c *HTTPKlineConnector) InternalKline(ctx context.Context, q KlineQuery) (InternalKlineResult, error) {
@@ -129,6 +141,60 @@ func (c *HTTPOpsConnector) SimilarCases(ctx context.Context, issueDomain string,
 		"limit":        limit,
 	}, &out)
 	return out.Data, err
+}
+
+func (c *HTTPHealthFoodConnector) UserProfile(ctx context.Context, q HealthFoodQuery) (HealthFoodUserProfile, error) {
+	var out readonlyResponse[HealthFoodUserProfile]
+	err := c.client.post(ctx, "/v1/readonly/health-food/user/profile", healthFoodParams(q), &out)
+	return out.Data, err
+}
+
+func (c *HTTPHealthFoodConnector) AIQuota(ctx context.Context, q HealthFoodQuery) (HealthFoodAIQuota, error) {
+	var out readonlyResponse[HealthFoodAIQuota]
+	err := c.client.post(ctx, "/v1/readonly/health-food/ai/quota", healthFoodParams(q), &out)
+	return out.Data, err
+}
+
+func (c *HTTPHealthFoodConnector) MealRecords(ctx context.Context, q HealthFoodQuery) (HealthFoodMealRecords, error) {
+	var out readonlyResponse[HealthFoodMealRecords]
+	err := c.client.post(ctx, "/v1/readonly/health-food/meals/range", healthFoodParams(q), &out)
+	return out.Data, err
+}
+
+func (c *HTTPHealthFoodConnector) RecommendationStatus(ctx context.Context, q HealthFoodQuery) (HealthFoodRecommendationStatus, error) {
+	var out readonlyResponse[HealthFoodRecommendationStatus]
+	err := c.client.post(ctx, "/v1/readonly/health-food/recommendation/status", healthFoodParams(q), &out)
+	return out.Data, err
+}
+
+func healthFoodParams(q HealthFoodQuery) map[string]any {
+	params := map[string]any{
+		"user_id": q.UserID,
+		"uid":     q.UID,
+	}
+	if q.StartTime.IsZero() {
+		params["start_time"] = ""
+	} else {
+		params["start_time"] = q.StartTime.Format(time.RFC3339)
+	}
+	if q.EndTime.IsZero() {
+		params["end_time"] = ""
+	} else {
+		params["end_time"] = q.EndTime.Format(time.RFC3339)
+	}
+	if !q.AtTime.IsZero() {
+		params["at_time"] = q.AtTime.Format(time.RFC3339)
+	}
+	if q.RecommendationDate != "" {
+		params["recommendation_date"] = q.RecommendationDate
+	}
+	if q.TraceID != "" {
+		params["trace_id"] = q.TraceID
+	}
+	if q.Limit > 0 {
+		params["limit"] = q.Limit
+	}
+	return params
 }
 
 type readonlyHTTPClient struct {

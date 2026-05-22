@@ -306,6 +306,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 | [AGENTS.md](AGENTS.md) | AI Agent 进入仓库后的工作规则、Program 规则、验证和提交约束。 |
 | [docs/architecture-decisions.md](docs/architecture-decisions.md) | 架构边界、部署图、流程图、平台数据和业务 Gateway 分界。 |
 | [docs/ai-connector-integration.md](docs/ai-connector-integration.md) | 业务方只读接口接入规范，定义接口命名、参数、返回、错误和 adapter 规则。 |
+| [docs/business-service-registration.md](docs/business-service-registration.md) | 业务服务注册到 Gateway 的 manifest 数据结构、capability 字段和 health-food 示例。 |
 | [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
 | [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
 | [docs/knowledge-evolution.md](docs/knowledge-evolution.md) | root cause 回填、经验沉淀、knowledge item 和自进化逻辑。 |
@@ -351,8 +352,9 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
 - 控制面 API Bearer 鉴权，生产环境缺少关键安全配置时 fail-closed。
 - Audit sink、MySQL tool audit 持久化和脱敏。
-- 10 个一期只读工具。
-- K线、资产、日志 mock connector。
+- 14 个一期只读工具。
+- K线、资产、日志、health-food mock connector。
+- health-food 故障域、本地 readonly adapter、AI 配额 / 餐食 / 每日推荐只读工具和服务注册 manifest 示例。
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
 - 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
 - MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
@@ -476,9 +478,10 @@ CONNECTOR_API_KEY=replace-with-internal-token
 MARKET_READONLY_BASE_URL=https://market-readonly.example.internal
 ASSET_READONLY_BASE_URL=https://asset-readonly.example.internal
 OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
+HEALTH_FOOD_READONLY_BASE_URL=https://health-food-readonly.example.internal
 ```
 
-adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
+adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。业务服务注册到 Gateway 的 manifest 结构见 [docs/business-service-registration.md](docs/business-service-registration.md)，health-food 示例见 [configs/business-capabilities.health-food.example.yaml](configs/business-capabilities.health-food.example.yaml)。
 
 配置图片识别：
 

@@ -18,8 +18,9 @@ const (
 )
 
 const (
-	DomainKline = "kline"
-	DomainAsset = "asset"
+	DomainKline      = "kline"
+	DomainAsset      = "asset"
+	DomainHealthFood = "health_food"
 )
 
 type Case struct {

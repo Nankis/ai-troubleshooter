@@ -28,4 +28,13 @@ func TestMissingRequiredFields(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("expected no missing fields, got %v", missing)
 	}
+
+	missing = MissingRequiredFields(DomainHealthFood, map[string]string{
+		"uid":           "hf_user_1",
+		"abnormal_time": "2026-05-23T10:00:00+08:00",
+		"issue_type":    "每日推荐缺失",
+	})
+	if len(missing) != 0 {
+		t.Fatalf("expected health-food fields complete, got %v", missing)
+	}
 }

@@ -120,6 +120,68 @@ type SimilarCaseResult struct {
 	Items []map[string]any `json:"items"`
 }
 
+type HealthFoodQuery struct {
+	UserID             string
+	UID                string
+	StartTime          time.Time
+	EndTime            time.Time
+	AtTime             time.Time
+	RecommendationDate string
+	TraceID            string
+	Limit              int
+}
+
+func (q HealthFoodQuery) EffectiveUserID() string {
+	if q.UserID != "" {
+		return q.UserID
+	}
+	return q.UID
+}
+
+type HealthFoodUserProfile struct {
+	UID               string         `json:"uid"`
+	Registered        bool           `json:"registered"`
+	MembershipLevel   int            `json:"membership_level"`
+	HealthGoalSummary string         `json:"health_goal_summary"`
+	LatestDevice      map[string]any `json:"latest_device,omitempty"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	Source            string         `json:"source"`
+	Version           string         `json:"version"`
+}
+
+type HealthFoodAIQuota struct {
+	UID             string    `json:"uid"`
+	MembershipLevel int       `json:"membership_level"`
+	AvailableTokens string    `json:"available_tokens"`
+	DailyChatCount  int       `json:"daily_chat_count"`
+	LimitChat       int       `json:"limit_chat"`
+	LastResetDate   time.Time `json:"last_reset_date"`
+	Abnormal        bool      `json:"abnormal"`
+	Reason          string    `json:"reason"`
+	DataUpdatedAt   time.Time `json:"data_updated_at"`
+}
+
+type HealthFoodMealRecords struct {
+	UID                 string           `json:"uid"`
+	MealCount           int              `json:"meal_count"`
+	MissingMealIDs      []string         `json:"missing_meal_ids"`
+	MealDataFingerprint string           `json:"meal_data_fingerprint"`
+	Meals               []map[string]any `json:"meals"`
+	DataUpdatedAt       time.Time        `json:"data_updated_at"`
+}
+
+type HealthFoodRecommendationStatus struct {
+	UID                 string     `json:"uid"`
+	RecommendDate       string     `json:"recommend_date"`
+	HasRecommendation   bool       `json:"has_recommendation"`
+	JobStatus           string     `json:"job_status"`
+	MealCount           int        `json:"meal_count"`
+	MealDataFingerprint string     `json:"meal_data_fingerprint"`
+	GeneratedAt         *time.Time `json:"generated_at,omitempty"`
+	FailureReason       string     `json:"failure_reason,omitempty"`
+	SourceMealIDs       []string   `json:"source_meal_ids"`
+}
+
 type KlineConnector interface {
 	InternalKline(ctx context.Context, q KlineQuery) (InternalKlineResult, error)
 	ExternalKlineCompare(ctx context.Context, q KlineQuery) (KlineCompareResult, error)
@@ -137,4 +199,11 @@ type OpsConnector interface {
 	SearchLogs(ctx context.Context, q LogQuery) (LogSearchResult, error)
 	RecentDeployments(ctx context.Context, serviceName string, startTime time.Time, endTime time.Time) (DeploymentResult, error)
 	SimilarCases(ctx context.Context, issueDomain string, issueType string, text string, entities map[string]any, limit int) (SimilarCaseResult, error)
+}
+
+type HealthFoodConnector interface {
+	UserProfile(ctx context.Context, q HealthFoodQuery) (HealthFoodUserProfile, error)
+	AIQuota(ctx context.Context, q HealthFoodQuery) (HealthFoodAIQuota, error)
+	MealRecords(ctx context.Context, q HealthFoodQuery) (HealthFoodMealRecords, error)
+	RecommendationStatus(ctx context.Context, q HealthFoodQuery) (HealthFoodRecommendationStatus, error)
 }

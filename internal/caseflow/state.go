@@ -60,6 +60,11 @@ func MissingRequiredFields(domain string, entities map[string]string) []string {
 			required = append(required, "user_id 或 account_id")
 		}
 		required = append(required, "asset_symbol", "abnormal_time", "issue_type")
+	case DomainHealthFood:
+		if entities["user_id"] == "" && entities["uid"] == "" {
+			required = append(required, "user_id 或 uid")
+		}
+		required = append(required, "abnormal_time", "issue_type")
 	default:
 		return []string{"issue_domain"}
 	}
@@ -67,6 +72,10 @@ func MissingRequiredFields(domain string, entities map[string]string) []string {
 	missing := make([]string, 0, len(required))
 	for _, field := range required {
 		if field == "user_id 或 account_id" {
+			missing = append(missing, field)
+			continue
+		}
+		if field == "user_id 或 uid" {
 			missing = append(missing, field)
 			continue
 		}

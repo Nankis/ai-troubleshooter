@@ -631,6 +631,8 @@ func humanField(field string) string {
 		return "资产币种，例如 USDT、BTC"
 	case "user_id 或 account_id":
 		return "user_id 或 account_id"
+	case "user_id 或 uid":
+		return "health-food 用户 uid / user_id"
 	default:
 		return field
 	}
@@ -638,6 +640,8 @@ func humanField(field string) string {
 
 func investigationTarget(domain string) string {
 	switch domain {
+	case caseflow.DomainHealthFood:
+		return "health-food 用户上下文、AI配额、餐食数据、推荐任务和服务日志"
 	case caseflow.DomainKline:
 		return "K线数据、缓存状态和外部交易所对比"
 	case caseflow.DomainAsset:
@@ -675,6 +679,23 @@ func buildToolArgs(toolName string, c *caseflow.Case, entities map[string]string
 		args["user_id"] = entities["user_id"]
 		args["account_id"] = entities["account_id"]
 		args["service_names"] = []string{"asset-service", "order-service"}
+	case "get_health_food_user_profile", "get_health_food_ai_quota":
+		args["user_id"] = fallback(entities["user_id"], entities["uid"])
+		args["uid"] = fallback(entities["uid"], entities["user_id"])
+		args["at_time"] = start.Format(time.RFC3339)
+		args["trace_id"] = entities["trace_id"]
+	case "get_health_food_meal_records":
+		args["user_id"] = fallback(entities["user_id"], entities["uid"])
+		args["uid"] = fallback(entities["uid"], entities["user_id"])
+		args["start_time"] = start.Format(time.RFC3339)
+		args["end_time"] = end.Format(time.RFC3339)
+		args["limit"] = 50
+	case "get_health_food_recommendation_status":
+		args["user_id"] = fallback(entities["user_id"], entities["uid"])
+		args["uid"] = fallback(entities["uid"], entities["user_id"])
+		args["start_time"] = start.Format(time.RFC3339)
+		args["end_time"] = end.Format(time.RFC3339)
+		args["recommendation_date"] = start.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
 	case "get_similar_cases":
 		args["issue_domain"] = c.IssueDomain
 		args["issue_type"] = c.IssueType
@@ -684,8 +705,27 @@ func buildToolArgs(toolName string, c *caseflow.Case, entities map[string]string
 			args["entities"].(map[string]any)[key] = value
 		}
 		args["limit"] = 5
+	case "search_logs_by_service":
+		args["service_name"] = fallback(entities["service_name"], serviceNameForDomain(c.IssueDomain))
+		args["keyword"] = fallback(entities["trace_id"], c.IssueType)
+		args["trace_id"] = entities["trace_id"]
+		args["level"] = "error"
+		args["limit"] = 20
 	}
 	return args
+}
+
+func serviceNameForDomain(domain string) string {
+	switch domain {
+	case caseflow.DomainHealthFood:
+		return "health-food"
+	case caseflow.DomainAsset:
+		return "asset-service"
+	case caseflow.DomainKline:
+		return "market-service"
+	default:
+		return ""
+	}
 }
 
 func timeRange(abnormalTime string) (time.Time, time.Time) {

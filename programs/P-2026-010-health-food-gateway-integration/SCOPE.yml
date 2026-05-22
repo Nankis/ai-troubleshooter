@@ -1,0 +1,24 @@
+program: P-2026-010-health-food-gateway-integration
+level: Full
+include:
+  - docs/**
+  - api/openapi/**
+  - internal/connectors/**
+  - internal/gateway/**
+  - internal/tool/**
+  - cmd/**
+  - configs/**
+  - deploy/**
+  - scripts/**
+  - programs/P-2026-010-health-food-gateway-integration/**
+  - verification only: /Users/ginseng/IdeaProjects/health-workspace/repos/health-food/**
+exclude:
+  - committed secrets
+  - real production APIs
+  - direct business DB access from Agent
+  - rewriting old Program history
+secret_policy:
+  - API keys, tokens and MySQL passwords must remain in env only.
+  - Do not paste sensitive health-food config into Program files or chat.
+  - Run secret scan before commit and push.
+

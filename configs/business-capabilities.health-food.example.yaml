@@ -1,0 +1,68 @@
+service:
+  service_name: health-food
+  owner_team: health
+  runtime: spring-boot
+  environment: local
+  base_url: http://127.0.0.1:19081
+  health_check:
+    method: GET
+    path: /healthz
+  auth:
+    type: bearer
+    token_env: CONNECTOR_API_KEY
+  data_classification:
+    contains_user_data: true
+    contains_financial_data: false
+    contains_health_data: true
+    pii_level: internal_sensitive
+  contacts:
+    primary: health-food-owner
+capabilities:
+  - tool_name: get_health_food_user_profile
+    description: 查询用户是否存在、会员等级、健康目标摘要、最近设备
+    scope: health_food:user:read
+    method: POST
+    path: /v1/readonly/health-food/user/profile
+    timeout_ms: 5000
+    max_qps: 5
+    sensitivity_level: sensitive
+    required_params: [uid]
+    optional_params: [user_id, at_time, trace_id]
+    response_data_schema_ref: HealthFoodUserProfile
+  - tool_name: get_health_food_ai_quota
+    description: 查询 AI token / 每日对话次数配额状态
+    scope: health_food:ai_quota:read
+    method: POST
+    path: /v1/readonly/health-food/ai/quota
+    timeout_ms: 5000
+    max_qps: 5
+    sensitivity_level: sensitive
+    required_params: [uid]
+    optional_params: [user_id, at_time, trace_id]
+    response_data_schema_ref: HealthFoodAIQuota
+  - tool_name: get_health_food_meal_records
+    description: 查询时间窗内餐食记录、缺失餐次和数据指纹
+    scope: health_food:meal:read
+    method: POST
+    path: /v1/readonly/health-food/meals/range
+    timeout_ms: 5000
+    max_qps: 5
+    max_time_range_minutes: 1440
+    max_limit: 100
+    sensitivity_level: sensitive
+    required_params: [uid, start_time, end_time]
+    optional_params: [user_id, limit]
+    response_data_schema_ref: HealthFoodMealRecords
+  - tool_name: get_health_food_recommendation_status
+    description: 查询每日推荐是否生成、任务状态、失败原因和输入餐食
+    scope: health_food:recommendation:read
+    method: POST
+    path: /v1/readonly/health-food/recommendation/status
+    timeout_ms: 5000
+    max_qps: 5
+    max_time_range_minutes: 1440
+    sensitivity_level: sensitive
+    required_params: [uid, recommendation_date]
+    optional_params: [user_id, start_time, end_time, trace_id]
+    response_data_schema_ref: HealthFoodRecommendationStatus
+

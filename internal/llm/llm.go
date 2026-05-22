@@ -57,6 +57,8 @@ func (RuleBasedClient) ClassifyIssue(ctx context.Context, input CaseInput) (Issu
 	_ = ctx
 	text := normalize(input.Case.OriginalText + "\n" + input.Case.OCRText)
 	switch {
+	case isHealthFoodText(text):
+		return IssueClassification{IssueDomain: caseflow.DomainHealthFood, IssueType: classifyHealthFoodType(text), Confidence: 0.82}, nil
 	case containsAny(text, "余额", "资产", "冻结", "充值", "提现", "划转", "balance"):
 		return IssueClassification{IssueDomain: caseflow.DomainAsset, IssueType: classifyAssetType(text), Confidence: 0.82}, nil
 	case containsAny(text, "k线", "kline", "行情", "成交量", "最高价", "最低价", "价格不一致", "不显示", "延迟"):
@@ -85,7 +87,9 @@ func (RuleBasedClient) ExtractEntities(ctx context.Context, input CaseInput) (Ex
 		add("interval", match)
 	}
 	if match := firstMatch(text, `(?i)\b(user_id|uid|用户|用户id)[:：\s]*([A-Za-z0-9_\-]+)`); match != "" {
-		add("user_id", secondGroup(text, `(?i)\b(user_id|uid|用户|用户id)[:：\s]*([A-Za-z0-9_\-]+)`))
+		value := secondGroup(text, `(?i)\b(user_id|uid|用户|用户id)[:：\s]*([A-Za-z0-9_\-]+)`)
+		add("user_id", value)
+		add("uid", value)
 	}
 	if match := firstMatch(text, `(?i)\b(account_id|账户|账户id)[:：\s]*([A-Za-z0-9_\-]+)`); match != "" {
 		add("account_id", secondGroup(text, `(?i)\b(account_id|账户|账户id)[:：\s]*([A-Za-z0-9_\-]+)`))
@@ -99,8 +103,15 @@ func (RuleBasedClient) ExtractEntities(ctx context.Context, input CaseInput) (Ex
 	if match := firstTime(text); match != "" {
 		add("abnormal_time", match)
 	}
+	if match := firstMatch(text, `(?i)\b(trace_id|trace|链路id|请求id)[:：\s]*([A-Za-z0-9_\-]+)`); match != "" {
+		add("trace_id", secondGroup(text, `(?i)\b(trace_id|trace|链路id|请求id)[:：\s]*([A-Za-z0-9_\-]+)`))
+	}
 
 	lower := normalize(text)
+	if issueType := classifyHealthFoodType(lower); issueType != "" && isHealthFoodText(lower) {
+		add("issue_type", issueType)
+		add("service_name", "health-food")
+	}
 	if issueType := classifyKlineType(lower); issueType != "" && containsAny(lower, "k线", "kline", "行情", "成交量", "最高价", "最低价", "价格") {
 		add("issue_type", issueType)
 	}
@@ -115,6 +126,39 @@ func (RuleBasedClient) DecideNextAction(ctx context.Context, state caseflow.Case
 	_ = entities
 	_ = tools
 	switch state.IssueDomain {
+	case caseflow.DomainHealthFood:
+		switch state.IssueType {
+		case "AI配额异常", "AI对话失败":
+			return NextAction{
+				ToolNames: []string{
+					"get_health_food_user_profile",
+					"get_health_food_ai_quota",
+					"search_logs_by_service",
+					"get_similar_cases",
+				},
+				Reason: "health-food AI问题需要核对用户资料、会员配额和服务错误日志。",
+			}, nil
+		case "每日推荐缺失", "周报生成异常":
+			return NextAction{
+				ToolNames: []string{
+					"get_health_food_user_profile",
+					"get_health_food_meal_records",
+					"get_health_food_recommendation_status",
+					"search_logs_by_service",
+					"get_similar_cases",
+				},
+				Reason: "health-food 推荐问题需要核对餐食输入、推荐任务状态和服务日志。",
+			}, nil
+		default:
+			return NextAction{
+				ToolNames: []string{
+					"get_health_food_user_profile",
+					"search_logs_by_service",
+					"get_similar_cases",
+				},
+				Reason: "health-food 通用问题先核对用户上下文、日志和历史相似 case。",
+			}, nil
+		}
 	case caseflow.DomainKline:
 		return NextAction{
 			ToolNames: []string{
@@ -198,6 +242,30 @@ func classifyAssetType(text string) string {
 		return "余额减少"
 	default:
 		return ""
+	}
+}
+
+func isHealthFoodText(text string) bool {
+	return containsAny(text,
+		"health-food", "food-health", "健康饮食", "饮食", "餐食", "食物", "营养", "每日推荐", "今日推荐", "周报",
+		"ai对话", "ai 对话", "qianwen", "千问", "token账户", "token 账户", "配额",
+	)
+}
+
+func classifyHealthFoodType(text string) string {
+	switch {
+	case containsAny(text, "每日推荐", "今日推荐", "推荐缺失", "没有推荐", "不出推荐"):
+		return "每日推荐缺失"
+	case containsAny(text, "周报", "weekly"):
+		return "周报生成异常"
+	case containsAny(text, "配额", "token账户", "token 账户", "次数", "余额不足"):
+		return "AI配额异常"
+	case containsAny(text, "ai对话", "ai 对话", "qianwen", "千问", "模型", "识别失败"):
+		return "AI对话失败"
+	case containsAny(text, "餐食", "食物", "饮食记录"):
+		return "餐食记录异常"
+	default:
+		return "health-food业务异常"
 	}
 }
 

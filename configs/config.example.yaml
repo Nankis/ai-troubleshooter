@@ -55,6 +55,7 @@ connectors:
   market_base_url: ""
   asset_base_url: ""
   ops_base_url: ""
+  health_food_base_url: ""
 
 gateway:
   auth_enabled: false
