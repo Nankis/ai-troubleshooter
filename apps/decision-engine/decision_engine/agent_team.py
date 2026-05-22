@@ -10,6 +10,7 @@ from .models import (
     ToolPlan,
     VerificationReport,
 )
+from .local_code import LocalCodeInspector
 
 
 REQUIRED_FIELDS_BY_DOMAIN: dict[str, tuple[str, ...]] = {
@@ -143,6 +144,84 @@ class FallbackAgent:
         )
 
 
+class LocalCodeAgent:
+    name = "local_code_agent"
+
+    def __init__(self, inspector: LocalCodeInspector | None = None) -> None:
+        self.inspector = inspector or LocalCodeInspector.from_env()
+
+    def should_run(self, request: DecisionRequest) -> bool:
+        if not self._truthy(request.entities.get("debug_local_code", "")):
+            return False
+        status = (
+            request.entities.get("gateway_evidence_status")
+            or request.entities.get("tool_evidence_status")
+            or request.entities.get("evidence_status")
+        )
+        return str(status).lower() in {
+            "insufficient",
+            "inconclusive",
+            "no_answer",
+            "no_match",
+            "need_code_inspection",
+            "needs_code_inspection",
+        }
+
+    def evaluate(self, request: DecisionRequest) -> AgentReport:
+        service_name = request.entities.get("service_name", "")
+        repo_hint = request.entities.get("repo_hint", "")
+        if not service_name and not repo_hint:
+            return AgentReport(
+                agent_name=self.name,
+                action="need_human",
+                reason="Gateway 证据不足，但没有提供 service_name 或 repo_hint，无法选择本地仓库。",
+                confidence=0.35,
+                risks=["local_code_service_hint_missing"],
+            )
+
+        query_text = self._query_text(request)
+        result = self.inspector.inspect(service_name=service_name, repo_hint=repo_hint, query_text=query_text)
+        observations = [
+            f"repo_id={result.repo_id}",
+            f"status={result.status}",
+            f"scanned_files={result.scanned_files}",
+            f"skipped_denied_files={result.skipped_denied_files}",
+        ]
+        if result.status == "matched":
+            return AgentReport(
+                agent_name=self.name,
+                action="local_code_inspection",
+                reason=result.summary,
+                confidence=0.56,
+                observations=observations,
+                risks=["本地代码证据只能作为调试辅助，不能替代生产只读证据"],
+                evidence=result.evidence(),
+            )
+
+        return AgentReport(
+            agent_name=self.name,
+            action="need_human",
+            reason=result.summary,
+            confidence=0.35,
+            observations=observations,
+            risks=result.risks or ["local_code_no_supporting_evidence"],
+            evidence=result.evidence(),
+        )
+
+    def _query_text(self, request: DecisionRequest) -> str:
+        parts = [
+            request.entities.get("suspect_area", ""),
+            request.entities.get("issue_type", ""),
+            request.case.issue_type,
+            request.case.original_text,
+            request.case.ocr_text,
+        ]
+        return " ".join(item for item in parts if item)
+
+    def _truthy(self, value: str) -> bool:
+        return str(value).lower() in {"1", "true", "yes", "y", "on", "enabled"}
+
+
 class Verifier:
     name = "verifier"
 
@@ -214,6 +293,18 @@ class Verifier:
             )
             return proposal
 
+        if proposal.action == "local_code_inspection":
+            proposal.tool_plan = []
+            proposal.agent_reports = list(agent_reports)
+            proposal.verification = VerificationReport(
+                accepted=True,
+                reason="本地代码检查已通过 debug-only、无工具调用和 allowlist 约束。",
+                checks=checks + ["debug_local_code_explicit", "local_repo_allowlist", "no_source_snippets"],
+                tool_budget=budget,
+                tool_count=0,
+            )
+            return proposal
+
         violations.append(f"unsupported_action={proposal.action}")
         return self._need_human(request, agent_reports, budget, checks, violations)
 
@@ -273,11 +364,12 @@ class Verifier:
 
 
 class SupervisorAgentTeam:
-    def __init__(self) -> None:
+    def __init__(self, local_code_agent: LocalCodeAgent | None = None) -> None:
         self.knowledge_agent = KnowledgeAgent()
         self.kline_agent = DomainAgent("kline", "kline_agent")
         self.asset_agent = DomainAgent("asset", "asset_agent")
         self.fallback_agent = FallbackAgent()
+        self.local_code_agent = local_code_agent or LocalCodeAgent()
         self.verifier = Verifier()
 
     def plan(self, request: DecisionRequest) -> DecisionResponse:
@@ -299,6 +391,12 @@ class SupervisorAgentTeam:
                 knowledge_source=knowledge_report.knowledge_source,
                 confidence=knowledge_report.confidence,
             )
+            return self.verifier.verify(request, proposal, reports)
+
+        if self.local_code_agent.should_run(request):
+            local_code_report = self.local_code_agent.evaluate(request)
+            reports.append(local_code_report)
+            proposal = self._response_from_report(local_code_report)
             return self.verifier.verify(request, proposal, reports)
 
         specialist = self._select_specialist(request.case.issue_domain)

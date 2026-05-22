@@ -1,0 +1,17 @@
+allowed_paths:
+  - apps/decision-engine/**
+  - api/openapi/decision-engine.yaml
+  - docs/agent-framework-selection.md
+  - docs/decision-logging-and-limits.md
+  - README.md
+  - programs/P-2026-011-local-code-debug-inspection/**
+
+forbidden_paths:
+  - internal/gateway/**
+  - internal/decisionbaseline/**
+  - internal/worker/**
+  - migrations/**
+
+notes:
+  - "本轮不改 Go Gateway；只验证 Python 决策层可用 service_name/repo_hint 进行本地只读代码辅助排查。"
+  - "不能提交真实本地仓库路径或密钥。"

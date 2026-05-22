@@ -22,7 +22,7 @@
 - Agent loop 不无限循环：单 case 有总超时、工具数上限、工具失败上限。
 - 工具不是模型自由决定后直连：只能调用 Gateway 已注册只读工具。
 - 经验优先，但不盲信：高置信经验可直接返回，必须记录来源和原因；低置信或需实时状态时查 Gateway。
-- Supervisor 只负责路由和收敛，不直接查询下游；Kline / Asset specialist 只生成只读工具计划；Verifier 是最终出口。
+- Supervisor 只负责路由和收敛，不直接查询下游；Kline / Asset specialist 只生成只读工具计划；Local Code Agent 仅在 debug-only 且 Gateway 证据不足时读取本地 allowlist 仓库；Verifier 是最终出口。
 - 所有关键决策写入 `tb_troubleshoot_ai_decision_log`。
 - 模型 provider 通过 OpenAI-compatible 接口接入，Qwen/DashScope 不需要 SDK。
 

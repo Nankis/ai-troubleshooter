@@ -108,6 +108,7 @@ class AgentReport:
     confidence: float = 0.0
     observations: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

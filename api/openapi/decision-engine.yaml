@@ -139,6 +139,12 @@ components:
           type: array
           items:
             type: string
+        evidence:
+          type: array
+          description: Structured evidence such as local code relative paths, matched terms, and line numbers. It must not contain source snippets.
+          items:
+            type: object
+            additionalProperties: true
     VerificationReport:
       type: object
       required: [accepted, reason]
@@ -165,7 +171,7 @@ components:
       properties:
         action:
           type: string
-          enum: [ask_user, invoke_tools, answer_from_knowledge, need_human]
+          enum: [ask_user, invoke_tools, answer_from_knowledge, local_code_inspection, need_human]
         reason:
           type: string
         missing_fields:

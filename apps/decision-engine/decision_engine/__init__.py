@@ -2,7 +2,16 @@
 
 from .agent_team import SupervisorAgentTeam
 from .engine import DecisionEngine
-from .models import AgentReport, CaseSnapshot, DecisionRequest, DecisionResponse, KnowledgeCandidate, ToolPlan, VerificationReport
+from .local_code import LocalCodeInspector, LocalRepoConfig
+from .models import (
+    AgentReport,
+    CaseSnapshot,
+    DecisionRequest,
+    DecisionResponse,
+    KnowledgeCandidate,
+    ToolPlan,
+    VerificationReport,
+)
 
 __all__ = [
     "AgentReport",
@@ -11,6 +20,8 @@ __all__ = [
     "DecisionRequest",
     "DecisionResponse",
     "KnowledgeCandidate",
+    "LocalCodeInspector",
+    "LocalRepoConfig",
     "SupervisorAgentTeam",
     "ToolPlan",
     "VerificationReport",

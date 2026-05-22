@@ -1,0 +1,25 @@
+program: P-2026-011-local-code-debug-inspection
+name: "Local Code Debug Inspection"
+level: "Full"
+phase: "complete"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "Task 5"
+tasks:
+  - id: task-1
+    name: "创建 Program 并确认安全边界"
+    status: done
+  - id: task-2
+    name: "实现本地仓库 registry 和只读 inspector"
+    status: done
+  - id: task-3
+    name: "接入 Python Local Code Agent"
+    status: done
+  - id: task-4
+    name: "补正负向测试和文档"
+    status: done
+  - id: task-5
+    name: "验证、提交和推送"
+    status: done

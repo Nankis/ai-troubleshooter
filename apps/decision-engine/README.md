@@ -16,12 +16,40 @@ Current orchestration shape:
 - `Knowledge Agent` checks platform experience first. It can answer directly only when confidence is high, observed cases are enough, and realtime validation is not required.
 - `Kline Agent` plans bounded K-line readonly tools after `symbol`、`interval`、`abnormal_time`、`issue_type` are present.
 - `Asset Agent` plans bounded asset readonly tools after user/account, `asset_symbol`、`abnormal_time`、`issue_type` are present.
+- `Local Code Agent` is debug-only. It can inspect an allowlisted local repo only when Gateway evidence is insufficient and `debug_local_code=true`.
 - `Verifier` deduplicates tool plans, filters unavailable tools, caps tool count, and converts unsafe plans into `need_human`.
 
 The HTTP response keeps the old top-level fields (`action`、`reason`、`tool_plan`) and adds:
 
 - `agent_reports`: per-agent route, skip, ask, plan, or knowledge decision.
 - `verification`: final verifier checks, violations, budget, and accepted flag.
+
+Debug-only local code inspection:
+
+```bash
+export LOCAL_CODE_REPOS_JSON='{
+  "health-food": {
+    "repo_path": "/path/to/local/health-food",
+    "allowed_globs": ["src/main/java/**", "src/main/resources/**"],
+    "deny_globs": ["**/application-prod.yml", "**/*.pem", "**/*secret*"]
+  }
+}'
+```
+
+Gateway / adapter may provide `service_name`、`repo_hint`、`suspect_area`, but must not provide local paths. The decision engine maps `service_name` locally. A request must include `debug_local_code=true` and an insufficient evidence status:
+
+```json
+{
+  "entities": {
+    "debug_local_code": "true",
+    "gateway_evidence_status": "insufficient",
+    "service_name": "health-food",
+    "suspect_area": "recommendation mealDataFingerprint"
+  }
+}
+```
+
+The response action is `local_code_inspection`. Evidence contains only relative file paths, matched terms, and line numbers; no source snippets are returned.
 
 Run locally:
 

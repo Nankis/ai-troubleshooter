@@ -1,7 +1,10 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
-from decision_engine.agent_team import Verifier
+from decision_engine.agent_team import LocalCodeAgent, SupervisorAgentTeam, Verifier
+from decision_engine.local_code import LocalCodeInspector, LocalRepoConfig
 from decision_engine.models import AgentReport, DecisionResponse, KnowledgeCandidate, ToolPlan, ToolSpec
 
 
@@ -172,6 +175,138 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual([item.tool_name for item in response.tool_plan], ["get_asset_events"])
         self.assertIn("unavailable_tool=get_asset_snapshot", response.verification.violations)
         self.assertIn("tool_plan_truncated_by_budget", response.verification.violations)
+
+    def test_local_code_debug_inspects_allowlisted_repo(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            source_file = repo / "src/main/java/com/example/RecommendationJob.java"
+            source_file.parent.mkdir(parents=True)
+            source_file.write_text(
+                "class RecommendationJob {\n"
+                "  void run() { String mealDataFingerprint = \"stale\"; }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            secret_file = repo / "src/main/resources/application-prod.yml"
+            secret_file.parent.mkdir(parents=True, exist_ok=True)
+            secret_file.write_text("recommendation:\n  token: should_not_be_returned\n", encoding="utf-8")
+            inspector = LocalCodeInspector(
+                repos={
+                    "health-food": LocalRepoConfig(
+                        service_name="health-food",
+                        repo_path=repo,
+                        allowed_globs=("src/main/java/**", "src/main/resources/**"),
+                    )
+                }
+            )
+            engine = DecisionEngine(SupervisorAgentTeam(local_code_agent=LocalCodeAgent(inspector)))
+
+            response = engine.plan(
+                DecisionRequest(
+                    case=CaseSnapshot(
+                        case_no="case_local_code",
+                        issue_domain="health_food",
+                        issue_type="recommendation_missing",
+                        original_text="health-food 今日推荐没生成，怀疑 mealDataFingerprint 没刷新",
+                    ),
+                    entities={
+                        "debug_local_code": "true",
+                        "gateway_evidence_status": "insufficient",
+                        "service_name": "health-food",
+                        "suspect_area": "recommendation mealDataFingerprint",
+                    },
+                )
+            )
+
+            self.assertEqual(response.action, "local_code_inspection")
+            self.assertTrue(response.verification.accepted)
+            local_report = response.agent_reports[-1]
+            self.assertEqual(local_report.agent_name, "local_code_agent")
+            self.assertEqual(local_report.evidence[0]["file_path"], "src/main/java/com/example/RecommendationJob.java")
+            self.assertNotIn("application-prod.yml", str(local_report.evidence))
+            self.assertNotIn("should_not_be_returned", str(local_report.evidence))
+            self.assertIn("no_source_snippets", response.verification.checks)
+
+    def test_local_code_debug_requires_gateway_insufficient_status(self) -> None:
+        inspector = LocalCodeInspector(repos={})
+        engine = DecisionEngine(SupervisorAgentTeam(local_code_agent=LocalCodeAgent(inspector)))
+
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_no_code", issue_domain="ops"),
+                entities={
+                    "debug_local_code": "true",
+                    "gateway_evidence_status": "sufficient",
+                    "service_name": "health-food",
+                },
+                max_tool_calls=1,
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertEqual(response.agent_reports[-1].agent_name, "fallback_agent")
+
+    def test_local_code_debug_without_mapping_needs_human(self) -> None:
+        inspector = LocalCodeInspector(repos={})
+        engine = DecisionEngine(SupervisorAgentTeam(local_code_agent=LocalCodeAgent(inspector)))
+
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_no_mapping", issue_domain="health_food"),
+                entities={
+                    "debug_local_code": "true",
+                    "gateway_evidence_status": "insufficient",
+                    "service_name": "health-food",
+                    "suspect_area": "recommendation",
+                },
+            )
+        )
+
+        self.assertEqual(response.action, "need_human")
+        self.assertIn("local_repo_mapping_missing", response.agent_reports[-1].risks)
+
+    def test_local_code_debug_skips_symlink_outside_repo(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            repo = base / "repo"
+            outside = base / "outside"
+            repo_source = repo / "src/main/java/com/example"
+            outside.mkdir()
+            repo_source.mkdir(parents=True)
+            outside_file = outside / "SecretRecommendation.java"
+            outside_file.write_text("class SecretRecommendation { String token = \"hidden\"; }\n", encoding="utf-8")
+            link = repo_source / "SecretRecommendation.java"
+            try:
+                link.symlink_to(outside_file)
+            except OSError:
+                self.skipTest("symlink is not available on this filesystem")
+
+            inspector = LocalCodeInspector(
+                repos={
+                    "health-food": LocalRepoConfig(
+                        service_name="health-food",
+                        repo_path=repo,
+                        allowed_globs=("src/main/java/**",),
+                    )
+                }
+            )
+            engine = DecisionEngine(SupervisorAgentTeam(local_code_agent=LocalCodeAgent(inspector)))
+
+            response = engine.plan(
+                DecisionRequest(
+                    case=CaseSnapshot(case_no="case_symlink", issue_domain="health_food"),
+                    entities={
+                        "debug_local_code": "true",
+                        "gateway_evidence_status": "insufficient",
+                        "service_name": "health-food",
+                        "suspect_area": "SecretRecommendation token",
+                    },
+                )
+            )
+
+            self.assertEqual(response.action, "need_human")
+            self.assertEqual(response.agent_reports[-1].evidence, [])
+            self.assertIn("skipped_denied_files=1", response.agent_reports[-1].observations)
 
 
 if __name__ == "__main__":
