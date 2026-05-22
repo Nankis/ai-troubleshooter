@@ -5,6 +5,9 @@
 ## 一期不可变原则
 
 - Agent 不直接拥有生产权限，业务生产证据查询必须经过 Investigation Gateway。
+- Agent 隔离，不直接访问业务 DB、Redis、日志 MCP 或业务服务。
+- 平台数据、AI 决策日志和知识沉淀属于 Agent 平台内部数据，不通过 Gateway 查询。
+- 字段足够后先查平台经验并评分；经验不足或需要实时证据时再查 Gateway。
 - 一期工具全部只读。
 - 信息不足先追问，不先查生产。
 - 每次排查在 Agent 平台沉淀 case、message、investigation、AI decision log、tool audit 和 knowledge。

@@ -1,0 +1,19 @@
+program: P-2026-007-user-drawn-architecture-flow
+allowed_paths:
+  - README.md
+  - docs/architecture-decisions.md
+  - docs/gateway-security.md
+  - docs/phase1.md
+  - programs/P-2026-007-user-drawn-architecture-flow/**
+forbidden_paths:
+  - .env
+  - "**/*secret*"
+  - programs/P-2026-001-troubleshooter-knowledge-evolution/**
+  - programs/P-2026-002-gateway-security-hardening/**
+  - programs/P-2026-003-framework-readiness-hardening/**
+  - programs/P-2026-004-decision-logging-limits/**
+  - programs/P-2026-005-operational-hardening/**
+  - programs/P-2026-006-architecture-boundary-alignment/**
+requires_approval:
+  - production deploy
+notes: "按用户手绘图更新当前架构和流程文档；旧 Program 不回写。"

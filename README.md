@@ -76,6 +76,8 @@ TRD 里 Tool Server 和 Query Gateway 是两个逻辑层；这里的 Query Gatew
 
 Gateway 不负责查询平台数据。平台 MySQL 由 Case Layer、Decision Engine 和审计 sink 按平台内部权限访问；Gateway 只保护“查业务生产证据”这条边界。代码层面仍然保持包边界，后续可以把 Tool Server 和 Gateway 拆成两个服务，或者补 MCP adapter。
 
+业务服务能力通过 Gateway 注册和授权后才能被 Agent 使用。Gateway 校验 `agent / scope / case / user / tool / limit / timeout`，业务服务也应校验来自 Gateway 的内部身份，形成双层鉴权。日志 MCP、行情、资产、风控等能力都只作为 Gateway 后面的受控工具暴露，决策层不直接连接 MCP 或业务服务。
+
 ### 6. 业务接入优先只读 API
 
 Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 Gateway 自由 SQL。确实需要直查 DB 时，只允许走预注册 SQL 模板、read replica、参数化查询、强制 limit 和 timeout。
@@ -86,7 +88,17 @@ Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 
 - 资产：资产快照、资产事件流、用户近期错误。
 - 通用：日志摘要、发布记录、历史相似 case。
 
-### 7. 每次排查都沉淀
+### 7. 平台经验优先复用
+
+决策层不应该每次都先查下游。字段足够后先查 Agent 平台自己的历史 case、root cause、SOP 和 knowledge item，再由决策层判断经验匹配分、问题普遍程度和置信度：
+
+- 经验命中且置信度高，且问题不依赖强实时生产状态：可以直接返回疑似原因、处理建议和经验来源。
+- 经验命中但置信度一般，或需要确认当前生产状态：返回经验提示，同时做一轮有限业务证据查询。
+- 经验未命中或证据不足：通过 Investigation Gateway 查询业务只读证据。
+
+经验命中不能盲信。所有直接返回都要写 AI 决策日志，记录为什么认为经验可用、置信度是多少、为什么没有继续查下游。
+
+### 8. 每次排查都沉淀
 
 一期数据表围绕 case、实体、消息、investigation、tool audit、root cause、knowledge item 设计。这些表是 Agent 平台自己的沉淀，不要求业务方提供。即使 AI 没查准，也要保留原始问题、抽取字段、调用过程、AI 判断和人工最终根因。失败样本同样是后续优化 prompt、工具和知识库的材料。
 
@@ -94,36 +106,76 @@ Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 
 
 ```mermaid
 flowchart LR
-  subgraph Entry["输入入口"]
-    Chat["Lark / 飞书<br/>文字 + 图片"]
-    Web["Web Chat<br/>可选"]
+  subgraph Input["问题输入"]
+    Chat["飞书 / Lark<br/>文字 + 图片"]
+    Web["Web Chat<br/>文字 + 图片"]
   end
 
-  subgraph Agent["排障 Agent 平台"]
+  subgraph Platform["Agent 问题排查平台"]
     Intake["Channel Adapter<br/>验签 / 解密 / 下载图片"]
     Case["Case API + Queue<br/>幂等 / 状态机 / 消息"]
-    Brain["Python Decision Engine<br/>编排 / 追问 / 工具预算 / 总结"]
-    Gateway["Investigation Gateway<br/>业务只读工具门禁"]
+    Brain["Python Decision Engine<br/>追问 / 工具预算 / 总结"]
+    Experience["平台经验检索<br/>历史 case / root cause / SOP"]
+    Score["经验评分<br/>置信度 / 普遍程度"]
     Model["LLM / Vision Provider<br/>平台统一配置"]
-    Data["Platform Data<br/>MySQL tb_troubleshoot_*"]
-    Knowledge["经验沉淀<br/>root cause -> knowledge"]
+    Admin["Knowledge Admin<br/>管理员录入排查经验"]
+    Data["Platform MySQL<br/>tb_troubleshoot_*"]
   end
 
-  subgraph Business["业务方提供"]
-    APIs["Readonly Business APIs<br/>行情 / 资产 / 日志 / 缓存"]
+  subgraph Gateway["Investigation Gateway"]
+    Gate["鉴权 / Scope / 限流<br/>Timeout / 审计 / 脱敏"]
+    LogsTool["日志 MCP / 日志工具"]
+    MarketTool["行情工具"]
+    AssetTool["资产工具"]
+    RiskTool["风控工具"]
+    OtherTool["其他只读工具"]
+  end
+
+  subgraph Business["业务服务能力"]
+    MarketSvc["行情服务"]
+    AssetSvc["资产服务"]
+    RiskSvc["风控服务"]
+    OtherSvc["其他服务"]
+  end
+
+  subgraph BusinessDB["业务侧数据"]
+    MarketDB[(行情库)]
+    AssetDB[(资产库)]
+    RiskDB[(风控库)]
+    OtherDB[(其他库)]
   end
 
   Chat --> Intake
   Web --> Intake
   Intake --> Case
-  Case --> Data
   Case --> Brain
+  Case --> Data
   Brain --> Model
   Brain --> Data
-  Brain --> Gateway
-  Gateway --> APIs
-  Data --> Knowledge
-  Knowledge --> Brain
+  Admin --> Data
+  Data --> Experience
+  Experience --> Score
+  Score --> Brain
+  Brain -- "高置信经验直接返回" --> Case
+  Brain -- "低置信 / 需实时证据" --> Gate
+  Gate --> LogsTool
+  Gate --> MarketTool
+  Gate --> AssetTool
+  Gate --> RiskTool
+  Gate --> OtherTool
+  MarketSvc -. "注册只读能力 / scope" .-> Gate
+  AssetSvc -. "注册只读能力 / scope" .-> Gate
+  RiskSvc -. "注册只读能力 / scope" .-> Gate
+  OtherSvc -. "注册只读能力 / scope" .-> Gate
+  LogsTool --> OtherSvc
+  MarketTool --> MarketSvc
+  AssetTool --> AssetSvc
+  RiskTool --> RiskSvc
+  OtherTool --> OtherSvc
+  MarketSvc --> MarketDB
+  AssetSvc --> AssetDB
+  RiskSvc --> RiskDB
+  OtherSvc --> OtherDB
 ```
 
 业务方开箱接入时只需要补两类东西：
@@ -142,35 +194,49 @@ sequenceDiagram
   autonumber
   participant U as User
   participant C as Channel Adapter
-  participant S as Case Store
-  participant D as Decision Layer
+  participant S as Case API / Store
+  participant D as Python Decision Engine
+  participant K as Platform Knowledge
   participant G as Investigation Gateway
-  participant B as Business Readonly APIs
+  participant B as Business Services
   participant O as Owner
-  participant K as Knowledge Evolution
 
   U->>C: 文字 / 图片 / 工单描述
-  C->>S: 创建 case，写入 message 和 OCR
-  C->>D: 投递 case.created
-  D->>S: 读取 case、历史消息、实体、历史经验
+  C->>C: 验签 / 解密 / 下载图片 / OCR
+  C->>S: 创建 case，写入 message、图片识别结果和幂等键
+  S->>D: 投递 case.created / case.ready
+  D->>S: 读取 case、历史消息、实体和状态
   D->>D: 分类、实体抽取、必要字段检查
   alt 信息不足
     D->>S: 写入决策日志，状态变更为 WAITING_USER_REPLY
-    D-->>C: 生成追问
+    D-->>S: 生成追问
+    S-->>C: 统一发送出口
     C-->>U: 追问关键字段
   else 信息足够
-    D->>G: 按预算调用有限个只读工具
-    G->>G: 鉴权、scope、限流、timeout、审计、脱敏
-    G->>B: 查询生产只读证据
-    B-->>G: 返回证据
-    G-->>D: 返回脱敏后的 observation
-    D->>S: 写入 AI 决策日志和排查总结
-    D-->>C: 返回结论、证据链和下一步
-    C-->>U: 回复排查结果
+    D->>K: 查询历史 case、root cause、SOP、knowledge item
+    K-->>D: 返回候选经验和来源
+    D->>D: 评分置信度、普遍程度、是否需要实时证据
+    alt 经验高置信且不依赖实时生产状态
+      D->>S: 写入决策日志、经验来源和结论
+      D-->>S: 返回疑似原因、证据来源和建议
+      S-->>C: 统一发送出口
+      C-->>U: 回复排查结果
+    else 经验不足或需要实时证据
+      D->>G: 按预算调用有限个只读工具
+      G->>G: 鉴权、scope、限流、timeout、审计、脱敏
+      G->>B: 查询业务服务只读能力
+      B-->>G: 返回业务证据
+      G-->>D: 返回脱敏后的 observation
+      D->>D: 汇总经验和实时证据，检查停止条件
+      D->>S: 写入 AI 决策日志、工具审计关联和排查总结
+      D-->>S: 返回结论、证据链和下一步
+      S-->>C: 统一发送出口
+      C-->>U: 回复排查结果
+    end
   end
   O->>S: 回填 root cause / feedback
   S->>K: 生成或更新 knowledge item
-  K-->>D: 下次排障复用经验
+  K-->>D: 下次排障优先复用经验
 ```
 
 ### 组件职责
@@ -180,10 +246,10 @@ sequenceDiagram
 | Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
 | Web Chat 入口 | 预留 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口。 |
 | Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
-| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询业务生产证据。 |
+| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、经验评分、追问、有限工具计划和总结；只能通过 Gateway 查询业务生产证据。 |
+| Platform Knowledge | SQL/tag/keyword first | 平台侧历史 case、root cause、SOP 和 knowledge item；首发不强依赖向量库。 |
 | Investigation Gateway | 已实现 | 业务生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册；不是平台数据访问入口。 |
-| Business Adapters | mock + HTTP 规范 | 对接业务只读 API、日志、缓存、外部交易所等证据源。 |
-| Knowledge / RAG | SQL/tag/keyword first | 首发不强依赖向量库，后续按评测效果接 pgvector/Qdrant/Milvus。 |
+| Business Services / Adapters | mock + HTTP 规范 | 注册并提供业务只读能力，服务自身访问自己的 DB，Agent 不直接对 DB。 |
 
 本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时建议拆成 `lark-bot`、`case-api/worker`、`decision-engine`、`investigation-gateway` 四类服务。`cmd/baseline-orchestrator` 只保留给本地 smoke 或兼容 fallback，不作为目标生产编排服务。
 

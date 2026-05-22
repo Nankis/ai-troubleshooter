@@ -1,0 +1,25 @@
+program: P-2026-007-user-drawn-architecture-flow
+name: "User drawn architecture flow"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program 和 Scope"
+    status: done
+  - id: task-2
+    name: "更新 README 架构图和流程图"
+    status: done
+  - id: task-3
+    name: "同步 ADR 长期边界"
+    status: done
+  - id: task-4
+    name: "同步 Gateway 安全和一期原则"
+    status: done
+  - id: task-5
+    name: "验证并提交"
+    status: done
