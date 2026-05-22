@@ -1,0 +1,19 @@
+program: P-2026-009-web-chat-verification-hardening
+name: "Web Chat Verification Hardening"
+level: "Full"
+phase: "complete"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "Task 3"
+tasks:
+  - id: task-1
+    name: "补充 Gateway 安全单测"
+    status: done
+  - id: task-2
+    name: "扩展 Web Chat 场景验证"
+    status: done
+  - id: task-3
+    name: "全量验证和推送"
+    status: done

@@ -227,6 +227,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, ErrInvalidArguments) || errors.Is(err, tool.ErrToolNotFound) || errors.Is(err, tool.ErrToolDisabled) {
 				status = http.StatusBadRequest
 			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				status = http.StatusGatewayTimeout
+			}
 			writeJSON(w, status, resp)
 			return
 		}

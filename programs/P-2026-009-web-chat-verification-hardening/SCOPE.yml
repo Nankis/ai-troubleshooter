@@ -1,0 +1,14 @@
+program: P-2026-009-web-chat-verification-hardening
+level: Full
+include:
+  - internal/gateway/**
+  - docs/gateway-security.md
+  - programs/P-2026-009-web-chat-verification-hardening/**
+  - verification only: local Web Chat and MySQL smoke
+exclude:
+  - real Lark/Feishu bot credentials
+  - real business downstream APIs
+  - committed secrets
+secret_policy:
+  - API keys, tokens and MySQL passwords must remain in env only.
+  - Run secret scan before commit and push.

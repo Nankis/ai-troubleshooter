@@ -75,7 +75,11 @@ GATEWAY_TOOL_QPS=20
 
 默认值会覆盖一期单个 case 在同一秒内连续调用 5 个左右工具的 burst；超过限制返回 `429`。多实例部署时建议用公司 API Gateway、Envoy、Redis 或 service mesh 做分布式限流。
 
-### 6. 控制面 API 鉴权
+### 6. 网关级超时
+
+Gateway 会为每次工具 handler 调用创建超时上下文。超过 `DEFAULT_TOOL_TIMEOUT_SECONDS` 后，HTTP 入口返回 `504 Gateway Timeout`，本次调用写入工具审计，不再继续等待下游服务。
+
+### 7. 控制面 API 鉴权
 
 root cause 回填、feedback、knowledge 查询、case/process 这类控制面接口不走 Lark 入口信任，生产环境必须启用内部 Bearer 鉴权：
 
@@ -95,7 +99,7 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 - `GET /knowledge`
 - case API / decision worker 的 `POST /cases`、`POST /cases/{id}/process`
 
-### 7. 生产配置 fail-closed
+### 8. 生产配置 fail-closed
 
 `APP_ENV=prod` 时，以下配置缺失会启动失败：
 
@@ -108,7 +112,7 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 
 其中 `LARK_*` 只对暴露 Lark 入口的服务强制校验；Gateway 与控制面 API 分别按服务入口校验。
 
-### 8. 审计与脱敏
+### 9. 审计与脱敏
 
 每次工具调用都会记录：
 
