@@ -75,9 +75,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ToolSpec"
+        knowledge_candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeCandidate"
         max_tool_calls:
           type: integer
           default: 10
+    KnowledgeCandidate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        confidence:
+          type: number
+        observed_case_count:
+          type: integer
+        requires_realtime_check:
+          type: boolean
+        source:
+          type: string
+        summary:
+          type: string
     ToolPlan:
       type: object
       required: [tool_name, reason, arguments]
@@ -89,13 +109,14 @@ components:
         arguments:
           type: object
           additionalProperties: true
-    DecisionResponse:
+    AgentReport:
       type: object
-      required: [action, reason, missing_fields, tool_plan, confidence]
+      required: [agent_name, action, reason]
       properties:
+        agent_name:
+          type: string
         action:
           type: string
-          enum: [ask_user, invoke_tools, need_human]
         reason:
           type: string
         missing_fields:
@@ -106,5 +127,64 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ToolPlan"
+        knowledge_source:
+          type: string
         confidence:
           type: number
+        observations:
+          type: array
+          items:
+            type: string
+        risks:
+          type: array
+          items:
+            type: string
+    VerificationReport:
+      type: object
+      required: [accepted, reason]
+      properties:
+        accepted:
+          type: boolean
+        reason:
+          type: string
+        checks:
+          type: array
+          items:
+            type: string
+        violations:
+          type: array
+          items:
+            type: string
+        tool_budget:
+          type: integer
+        tool_count:
+          type: integer
+    DecisionResponse:
+      type: object
+      required: [action, reason, missing_fields, tool_plan, confidence, agent_reports]
+      properties:
+        action:
+          type: string
+          enum: [ask_user, invoke_tools, answer_from_knowledge, need_human]
+        reason:
+          type: string
+        missing_fields:
+          type: array
+          items:
+            type: string
+        tool_plan:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolPlan"
+        knowledge_source:
+          type: string
+        confidence:
+          type: number
+        agent_reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentReport"
+        verification:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/VerificationReport"

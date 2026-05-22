@@ -98,6 +98,29 @@ class ToolPlan:
 
 
 @dataclass(slots=True)
+class AgentReport:
+    agent_name: str
+    action: str
+    reason: str
+    missing_fields: list[str] = field(default_factory=list)
+    tool_plan: list[ToolPlan] = field(default_factory=list)
+    knowledge_source: str = ""
+    confidence: float = 0.0
+    observations: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class VerificationReport:
+    accepted: bool
+    reason: str
+    checks: list[str] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
+    tool_budget: int = 0
+    tool_count: int = 0
+
+
+@dataclass(slots=True)
 class DecisionResponse:
     action: str
     reason: str
@@ -105,6 +128,8 @@ class DecisionResponse:
     tool_plan: list[ToolPlan] = field(default_factory=list)
     knowledge_source: str = ""
     confidence: float = 0.0
+    agent_reports: list[AgentReport] = field(default_factory=list)
+    verification: VerificationReport | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

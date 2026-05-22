@@ -1,6 +1,8 @@
 # AI 决策日志与查询限制
 
-本系统不允许 Agent 在生产里无限自主循环。Decision Layer 采用“有限工具计划”：先分类、抽取字段、检查必要字段，信息足够后只执行一轮有上限的只读工具查询，再输出需要人工确认的排查结论。当前 Go `decisionbaseline` 和目标 Python `decision-engine` 都必须遵守同一套限制。
+本系统不允许 Agent 在生产里无限自主循环。Decision Layer 采用“有限工具计划”：先分类、抽取字段、检查必要字段，信息足够后只执行一轮有上限的只读工具查询，再输出需要人工确认的排查结论。当前 Go `decisionbaseline` 和 Python `decision-engine` 都必须遵守同一套限制。
+
+Python `decision-engine` 的 Agent Team 也遵守同一规则：Supervisor 负责路由，Knowledge Agent 判断历史经验是否可直接复用，Kline / Asset Agent 只生成 Gateway 只读工具计划，Verifier 最后统一做预算、去重、可用工具过滤和失败收敛。
 
 ## 决策日志
 
@@ -10,6 +12,7 @@
 - `extract_entities`：抽取了哪些字段。
 - `required_fields_check`：为什么追问用户或为什么开始排查。
 - `decide_next_action`：为什么选择这些工具。
+- `agent_team_report`：Python Agent Team 中 Supervisor / Specialist / Verifier 的中间判断和拒绝原因。
 - `tool_invocation`：每次工具调用的入参摘要、返回状态、summary、tool call id。
 - `tool_query_stopped`：达到失败上限后为什么停止继续查下游。
 - `summarize_findings`：如何基于有限证据生成结论。

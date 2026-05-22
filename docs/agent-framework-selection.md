@@ -2,7 +2,7 @@
 
 ## 结论
 
-一期本地 MVP 继续使用轻量有限状态编排，不立即引入 LangGraph / LangChain 作为运行时强依赖。
+一期本地 MVP 继续使用轻量有限状态编排，不立即引入 LangGraph / LangChain 作为运行时强依赖。Python `apps/decision-engine` 已实现轻量 Agent Team 基线：Supervisor、Kline Agent、Asset Agent、Knowledge Agent 和 Verifier。
 
 目标形态仍然是 Python `apps/decision-engine` 承接 Agent Orchestrator。当前 Go `decisionbaseline` 只用于本地 smoke/fallback，并复用同一套限制：必要字段检查、平台经验优先、有限工具计划、Gateway 只读调用、决策日志和停止条件。
 
@@ -22,6 +22,7 @@
 - Agent loop 不无限循环：单 case 有总超时、工具数上限、工具失败上限。
 - 工具不是模型自由决定后直连：只能调用 Gateway 已注册只读工具。
 - 经验优先，但不盲信：高置信经验可直接返回，必须记录来源和原因；低置信或需实时状态时查 Gateway。
+- Supervisor 只负责路由和收敛，不直接查询下游；Kline / Asset specialist 只生成只读工具计划；Verifier 是最终出口。
 - 所有关键决策写入 `tb_troubleshoot_ai_decision_log`。
 - 模型 provider 通过 OpenAI-compatible 接口接入，Qwen/DashScope 不需要 SDK。
 

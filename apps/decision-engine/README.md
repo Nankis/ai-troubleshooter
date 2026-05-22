@@ -10,6 +10,19 @@ This service is intentionally small for Phase 1:
 - It can run locally with the Go Gateway deployed elsewhere.
 - It is the target home for orchestration logic; Go `internal/decisionbaseline` is only a local fallback.
 
+Current orchestration shape:
+
+- `Supervisor` routes each request by issue domain and requires every final answer to pass `Verifier`.
+- `Knowledge Agent` checks platform experience first. It can answer directly only when confidence is high, observed cases are enough, and realtime validation is not required.
+- `Kline Agent` plans bounded K-line readonly tools after `symbol`、`interval`、`abnormal_time`、`issue_type` are present.
+- `Asset Agent` plans bounded asset readonly tools after user/account, `asset_symbol`、`abnormal_time`、`issue_type` are present.
+- `Verifier` deduplicates tool plans, filters unavailable tools, caps tool count, and converts unsafe plans into `need_human`.
+
+The HTTP response keeps the old top-level fields (`action`、`reason`、`tool_plan`) and adds:
+
+- `agent_reports`: per-agent route, skip, ask, plan, or knowledge decision.
+- `verification`: final verifier checks, violations, budget, and accepted flag.
+
 Run locally:
 
 ```bash

@@ -1,0 +1,22 @@
+program: P-2026-010-agent-team-decision-engine
+name: "Agent Team Decision Engine"
+level: "Full"
+phase: "complete"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "Task 4"
+tasks:
+  - id: task-1
+    name: "梳理现有 Python 决策层和 Program 边界"
+    status: done
+  - id: task-2
+    name: "实现 Supervisor / Specialist / Verifier"
+    status: done
+  - id: task-3
+    name: "补单测和接口文档"
+    status: done
+  - id: task-4
+    name: "验证、提交和推送"
+    status: done

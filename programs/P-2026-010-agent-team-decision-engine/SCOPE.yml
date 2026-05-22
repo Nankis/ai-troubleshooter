@@ -1,0 +1,17 @@
+allowed_paths:
+  - apps/decision-engine/**
+  - api/openapi/decision-engine.yaml
+  - docs/agent-framework-selection.md
+  - docs/decision-logging-and-limits.md
+  - README.md
+  - programs/P-2026-010-agent-team-decision-engine/**
+
+forbidden_paths:
+  - internal/gateway/**
+  - internal/decisionbaseline/**
+  - internal/worker/**
+  - migrations/**
+
+notes:
+  - "保持 Go Gateway 不动；本 Program 只增强 Python decision-engine。"
+  - "如果需要修改 Go 侧调用链，必须另开 Program。"

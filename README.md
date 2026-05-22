@@ -340,7 +340,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - `LARK_PLATFORM` 默认 `lark`，自动使用 `https://open.larksuite.com`；设为 `feishu` 时自动使用 `https://open.feishu.cn`；`LARK_API_BASE_URL` 可显式覆盖，适合公司代理网关。
 - Lark/Feishu 图片消息下载：从消息 `content` 中提取 `image_key`，通过消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
 - 多模型链路：默认复用主 LLM 的图片能力；只有显式配置 `VISION_*` 时才启用独立视觉模型，适合用 Qwen-VL 先识别截图。
-- Python Decision Engine 骨架：`apps/decision-engine` 已提供有限工具计划 API、Gateway client、OpenAPI 草案和单元测试。
+- Python Decision Engine：`apps/decision-engine` 已提供 Supervisor + Kline Agent + Asset Agent + Knowledge Agent + Verifier 的有限工具计划 API、Gateway client、OpenAPI 草案和单元测试。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
@@ -578,7 +578,7 @@ Decision Layer 不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Decision runner 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
-- Supervisor + Specialist Agents 这类 agents team 是决策层演进方向，不是一期开箱依赖；引入时应放在 Python decision-engine 内，并继续通过 Gateway 获取生产证据。
+- Supervisor + Specialist Agents 已在 Python decision-engine 内提供轻量规则基线；生产查询仍必须通过 Gateway 获取只读证据，真实 LLM 多 agent 推理和更复杂状态图可后续演进。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 - Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 
