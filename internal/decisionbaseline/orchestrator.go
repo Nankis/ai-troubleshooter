@@ -1,4 +1,4 @@
-package orchestrator
+package decisionbaseline
 
 import (
 	"context"
@@ -27,14 +27,16 @@ type Config struct {
 	MaxInvestigationSeconds int
 }
 
-type Orchestrator struct {
+// Runner is the Go phase-0 decision baseline used for local smoke tests and
+// fallback. The target Agent orchestration lives in apps/decision-engine.
+type Runner struct {
 	store caseflow.Store
 	llm   llm.LLMClient
 	tools ToolClient
 	cfg   Config
 }
 
-func New(store caseflow.Store, llmClient llm.LLMClient, toolClient ToolClient, cfg Config) *Orchestrator {
+func New(store caseflow.Store, llmClient llm.LLMClient, toolClient ToolClient, cfg Config) *Runner {
 	if cfg.AgentID == "" {
 		cfg.AgentID = "business-troubleshooter-v1"
 	}
@@ -47,10 +49,10 @@ func New(store caseflow.Store, llmClient llm.LLMClient, toolClient ToolClient, c
 	if cfg.MaxInvestigationSeconds <= 0 {
 		cfg.MaxInvestigationSeconds = 120
 	}
-	return &Orchestrator{store: store, llm: llmClient, tools: toolClient, cfg: cfg}
+	return &Runner{store: store, llm: llmClient, tools: toolClient, cfg: cfg}
 }
 
-func (o *Orchestrator) ProcessCase(parent context.Context, caseID int64) (result caseflow.ProcessResult, err error) {
+func (o *Runner) ProcessCase(parent context.Context, caseID int64) (result caseflow.ProcessResult, err error) {
 	ctx := parent
 	cancel := func() {}
 	if _, ok := ctx.Deadline(); !ok && o.cfg.MaxInvestigationSeconds > 0 {
@@ -76,7 +78,7 @@ func (o *Orchestrator) ProcessCase(parent context.Context, caseID int64) (result
 			Case:          c,
 			Investigation: inv,
 			DecisionType:  "process_failure",
-			Reason:        "orchestrator stopped and finalized the case",
+			Reason:        "baseline decision runner stopped and finalized the case",
 			Output:        map[string]any{"error": reason},
 			Status:        status,
 			Err:           err,
@@ -381,7 +383,7 @@ func (e skipErr) Error() string {
 	return "processing skipped"
 }
 
-func (o *Orchestrator) recordDecision(ctx context.Context, record decisionRecord) {
+func (o *Runner) recordDecision(ctx context.Context, record decisionRecord) {
 	if record.Case == nil {
 		return
 	}
@@ -412,7 +414,7 @@ func (o *Orchestrator) recordDecision(ctx context.Context, record decisionRecord
 	})
 }
 
-func (o *Orchestrator) claimForProcessing(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
+func (o *Runner) claimForProcessing(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
 	claimed, err := o.transition(ctx, c, caseflow.StatusReadyToInvestigate)
 	if err == nil {
 		return claimed, nil
@@ -427,7 +429,7 @@ func (o *Orchestrator) claimForProcessing(ctx context.Context, c *caseflow.Case)
 	return nil, err
 }
 
-func (o *Orchestrator) refreshProcessingClaim(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
+func (o *Runner) refreshProcessingClaim(ctx context.Context, c *caseflow.Case) (*caseflow.Case, error) {
 	refreshed, err := o.store.UpdateCase(ctx, c.ID, c.Version, func(next *caseflow.Case) error {
 		next.Status = caseflow.StatusReadyToInvestigate
 		return nil
@@ -452,7 +454,7 @@ func (o *Orchestrator) refreshProcessingClaim(ctx context.Context, c *caseflow.C
 	return nil, err
 }
 
-func (o *Orchestrator) skipProcessing(ctx context.Context, c *caseflow.Case, reason string) caseflow.ProcessResult {
+func (o *Runner) skipProcessing(ctx context.Context, c *caseflow.Case, reason string) caseflow.ProcessResult {
 	o.recordDecision(ctx, decisionRecord{
 		Case:         c,
 		DecisionType: "process_skipped",
@@ -469,7 +471,7 @@ func (o *Orchestrator) skipProcessing(ctx context.Context, c *caseflow.Case, rea
 	}
 }
 
-func (o *Orchestrator) failRunningCase(ctx context.Context, c *caseflow.Case, inv *caseflow.Investigation, reason string) {
+func (o *Runner) failRunningCase(ctx context.Context, c *caseflow.Case, inv *caseflow.Investigation, reason string) {
 	if inv != nil {
 		_, _ = o.store.FinishInvestigation(ctx, inv.ID, "failed", reason, nil)
 	}
@@ -493,7 +495,7 @@ func (o *Orchestrator) failRunningCase(ctx context.Context, c *caseflow.Case, in
 	}
 }
 
-func (o *Orchestrator) transition(ctx context.Context, c *caseflow.Case, next caseflow.Status) (*caseflow.Case, error) {
+func (o *Runner) transition(ctx context.Context, c *caseflow.Case, next caseflow.Status) (*caseflow.Case, error) {
 	if !caseflow.CanTransition(c.Status, next) {
 		return nil, fmt.Errorf("invalid case transition %s -> %s", c.Status, next)
 	}

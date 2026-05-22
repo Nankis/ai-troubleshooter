@@ -13,7 +13,7 @@
 ## EV-T3-PROD-VALIDATION
 
 - 状态：PASS
-- 证据：`internal/config/validation_test.go` 覆盖 Gateway、Control API、Lark prod fail-closed；手工验证 `APP_ENV=prod go run ./cmd/investigation-gateway`、`./cmd/orchestrator`、`./cmd/lark-bot` 在缺少安全配置时退出并报告 invalid config。
+- 证据：`internal/config/validation_test.go` 覆盖 Gateway、Control API、Lark prod fail-closed；手工验证 `APP_ENV=prod go run ./cmd/investigation-gateway`、`./cmd/baseline-orchestrator`、`./cmd/lark-bot` 在缺少安全配置时退出并报告 invalid config。
 
 ## EV-T4-POLICY
 

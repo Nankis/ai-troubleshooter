@@ -10,15 +10,15 @@
 - 验收：
   - memory/mysql store 均支持决策日志写入与查询。
 
-## Task 3: [x] Orchestrator 记录决策过程
+## Task 3: [x] Decision runner 记录决策过程
 
-- 文件：`internal/orchestrator/*`
+- 文件：`internal/decisionbaseline/*`
 - 验收：
   - 分类、实体抽取、字段检查、工具计划、工具调用、总结都写日志。
 
 ## Task 4: [x] 超时和查询限制
 
-- 文件：`internal/orchestrator/*`、`internal/config/*`
+- 文件：`internal/decisionbaseline/*`、`internal/config/*`
 - 验收：
   - case 级 timeout。
   - tool call 上限。

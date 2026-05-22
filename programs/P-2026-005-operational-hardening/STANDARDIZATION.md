@@ -15,4 +15,4 @@
 1. 在 `CreateCaseInput` 中填入 `Source` 和 `MessageID`。
 2. 入口 handler 先调用 `FindCaseByMessageID`。
 3. 重复事件返回已有 `case_no`，不发布新队列事件。
-4. Orchestrator 依赖 `process_skipped` 保护重复 worker。
+4. Decision runner 依赖 `process_skipped` 保护重复 worker。

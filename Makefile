@@ -2,7 +2,7 @@ GO ?= go
 GOFMT ?= gofmt
 PYTHON ?= python3.13
 
-.PHONY: fmt test test-go test-python dev gateway decision-engine
+.PHONY: fmt test test-go test-python dev gateway baseline-orchestrator decision-engine
 
 fmt:
 	$(GOFMT) -w $$(find . -name '*.go')
@@ -20,6 +20,9 @@ dev:
 
 gateway:
 	$(GO) run ./cmd/investigation-gateway
+
+baseline-orchestrator:
+	$(GO) run ./cmd/baseline-orchestrator
 
 decision-engine:
 	cd apps/decision-engine && $(PYTHON) -m decision_engine

@@ -12,16 +12,16 @@ import (
 
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/decisionbaseline"
 	"github.com/Nankis/ai-troubleshooter/internal/gateway"
 	"github.com/Nankis/ai-troubleshooter/internal/httpauth"
 	"github.com/Nankis/ai-troubleshooter/internal/llm"
-	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
 	"github.com/Nankis/ai-troubleshooter/internal/storage"
 )
 
 func main() {
 	cfg := config.LoadFromEnv()
-	if err := cfg.ValidateForOrchestrator(); err != nil {
+	if err := cfg.ValidateForBaselineOrchestrator(); err != nil {
 		log.Fatal(err)
 	}
 	openedStore, err := storage.Open(context.Background(), cfg.Database)
@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	orch := orchestrator.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), orchestrator.Config{
+	runner := decisionbaseline.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), decisionbaseline.Config{
 		AgentID:                 "business-troubleshooter-v1",
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,
@@ -73,7 +73,7 @@ func main() {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "case id must be numeric in this service"})
 			return
 		}
-		result, err := orch.ProcessCase(r.Context(), id)
+		result, err := runner.ProcessCase(r.Context(), id)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
@@ -82,7 +82,7 @@ func main() {
 	}))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
-	log.Printf("orchestrator listening on http://localhost%s", addr)
+	log.Printf("baseline-orchestrator listening on http://localhost%s", addr)
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)

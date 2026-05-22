@@ -15,7 +15,7 @@ tasks:
     name: "Lark 事件幂等"
     status: done
   - id: task-3
-    name: "Orchestrator 重复处理保护"
+    name: "Decision runner 重复处理保护"
     status: done
   - id: task-4
     name: "决策日志快照脱敏"

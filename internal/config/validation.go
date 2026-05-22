@@ -55,7 +55,7 @@ func (cfg Config) ValidateForDevServer() error {
 	)
 }
 
-func (cfg Config) ValidateForOrchestrator() error {
+func (cfg Config) ValidateForBaselineOrchestrator() error {
 	return combineValidation(
 		cfg.ValidateForControlAPI(),
 		cfg.ValidateForGateway(),

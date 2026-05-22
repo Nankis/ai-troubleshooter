@@ -15,6 +15,7 @@ LARK_VERIFICATION_TOKEN=xxx
 LARK_ENCRYPT_KEY=xxx
 LARK_ALLOWED_CHAT_IDS=oc_xxx,oc_yyy
 
+# LLM/Vision 属于 Agent 平台统一配置，不要求业务方提供。
 LLM_PROVIDER=openai_compatible
 LLM_BASE_URL=https://llm-gateway.example.internal/v1
 LLM_API_KEY=xxx
@@ -68,13 +69,13 @@ MAX_INVESTIGATION_SECONDS=120
 - adapter 不提供写操作，不透传 SQL。
 - Gateway HTTP 鉴权已开启：`GATEWAY_AUTH_ENABLED=true`。
 - Gateway Bearer token 通过密钥系统注入，不写入 Git 或镜像。
-- 调用 Gateway 的 orchestrator/worker 已使用与 `agent_id` 绑定的 token。
+- 调用 Gateway 的 decision-engine/worker 已使用与 `agent_id` 绑定的 token。
 - Gateway 上游入口已做内网 ACL、Ingress allowlist 或 service mesh 策略。
 - 控制面 API 已开启内部 Bearer 鉴权：`CONTROL_API_AUTH_ENABLED=true`。
-- root cause、feedback、knowledge、orchestrator case/process API 仅允许内部系统或已授权 owner 调用。
+- root cause、feedback、knowledge、case/process API 仅允许内部系统或已授权 owner 调用。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
 - 数据库已依次执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql`、`migrations/003_ai_decision_logs.sql` 和 `migrations/004_case_idempotency.sql`，DSN 必须包含 `parseTime=true`。
-- `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tb_troubleshoot_tool_call_audit`，orchestrator 会把 AI 决策写入 `tb_troubleshoot_ai_decision_log`。
+- `DB_DSN` 已提供给 Agent 平台服务，用于持久化 case、knowledge、tool audit 和 AI decision logs；Gateway 会把工具审计写入 `tb_troubleshoot_tool_call_audit`，Decision runner 会把 AI 决策写入 `tb_troubleshoot_ai_decision_log`。业务 adapter 不需要提供这套平台库。
 - MySQL schema 已检查：表名 `tb_troubleshoot_*`，`uid VARCHAR(128)` 兼容字符串用户 ID，时间字段统一 `create_time/update_time`，`status TINYINT` 只表示行状态，业务状态使用 `case_status`、`decision_status`、`knowledge_status` 等字段。
 - `MAX_TOOL_CALLS_PER_CASE`、`MAX_TOOL_FAILURES_PER_CASE`、`MAX_INVESTIGATION_SECONDS` 已按业务下游承载能力设置。
 - Lark/飞书重复投递已验证：同一个 `source + message_id` 重放只返回已有 `case_no`，不重复入队、不重复查下游。

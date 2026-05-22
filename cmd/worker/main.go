@@ -8,9 +8,9 @@ import (
 	"syscall"
 
 	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/decisionbaseline"
 	"github.com/Nankis/ai-troubleshooter/internal/gateway"
 	"github.com/Nankis/ai-troubleshooter/internal/llm"
-	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
 	"github.com/Nankis/ai-troubleshooter/internal/queue"
 	"github.com/Nankis/ai-troubleshooter/internal/storage"
 	"github.com/Nankis/ai-troubleshooter/internal/worker"
@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	orch := orchestrator.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), orchestrator.Config{
+	runner := decisionbaseline.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), decisionbaseline.Config{
 		AgentID:                 "business-troubleshooter-v1",
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,
@@ -43,7 +43,7 @@ func main() {
 		MaxToolFailuresPerCase:  cfg.Limits.MaxToolFailuresPerCase,
 		MaxInvestigationSeconds: cfg.Limits.MaxInvestigationSeconds,
 	})
-	pool := worker.NewPool(q, orch, cfg.Limits.WorkerConcurrency)
+	pool := worker.NewPool(q, runner, cfg.Limits.WorkerConcurrency)
 	pool.Start(ctx)
 	log.Printf("worker started with memory queue; use cmd/dev-server for an end-to-end local loop")
 	<-ctx.Done()

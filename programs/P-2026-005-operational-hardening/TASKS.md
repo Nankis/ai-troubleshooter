@@ -11,16 +11,16 @@
   - 重复 `message_id` 返回已有 case。
   - 不重复 publish queue event。
 
-## Task 3: [x] Orchestrator 重复处理保护
+## Task 3: [x] Decision runner 重复处理保护
 
-- 文件：`internal/orchestrator/*`、`internal/caseflow/state.go`
+- 文件：`internal/decisionbaseline/*`、`internal/caseflow/state.go`
 - 验收：
   - 仅入口状态允许开始处理。
   - 重复处理写入 `process_skipped`。
 
 ## Task 4: [x] 决策日志快照脱敏
 
-- 文件：`internal/orchestrator/*`
+- 文件：`internal/decisionbaseline/*`
 - 验收：
   - 决策日志快照不出现手机号、token、api key 明文。
 

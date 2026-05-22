@@ -1,18 +1,18 @@
 # ai-troubleshooter
 
-一期业务工单排障 Agent 平台。当前仓库采用 monorepo：Go 1.24+ 负责 Lark/飞书入口、Gateway、worker 和一期 baseline；Python 3.13 决策层放在 `apps/decision-engine`，用于逐步承接多模型编排、RAG 和本地代码辅助排查生态。
+一期业务工单排障 Agent 平台。当前仓库采用 monorepo：Go 1.24+ 负责 Lark/飞书入口、Gateway、worker、Case API 和平台数据落库；Python 3.13 决策层放在 `apps/decision-engine`，负责 Agent 编排、多模型、RAG 和本地代码辅助排查生态。Go 里只保留 `decisionbaseline` 作为 phase-0 本地 fallback，不作为目标决策层。
 
 ## 为什么做这个
 
 线上业务问题经常从客服工单、Lark 群、截图和简短描述进入研发排查流程。典型输入并不完整，比如“余额变少了”“K线不对”“数据不对”，人工排查需要反复追问、查日志、查缓存、核对业务数据和外部交易所。这个项目的目标不是替代 SRE 平台，也不是让 Agent 自动修复生产，而是先把“用户反馈类业务故障”的排查过程 case 化、工具化、审计化，并逐步沉淀成可复用经验库。
 
-一期先把生产可控性放在第一位：Agent 可以推理和编排，但不能直接拥有生产权限；所有查询必须走受控网关；所有工具只读；所有调用留审计；信息不足时先问人。
+一期先把生产可控性放在第一位：Agent 可以推理和编排，但不能直接拥有生产权限；所有业务生产证据查询必须走受控网关；所有工具只读；所有调用留审计；信息不足时先问人。
 
 ## 一期范围
 
 - Lark 群消息创建排障 case，默认优先支持 Lark 国际版，同时兼容飞书中国站。
 - Agent 先做分类、实体抽取和必要字段检查，信息不足时追问。
-- 信息足够后通过 Tool Server / Query Gateway 调用只读工具。
+- 信息足够后由 Decision Engine 规划有限工具，通过 Investigation Gateway 调用业务只读证据接口。
 - 工具调用默认 deny，只有注册 agent、授权 scope、启用工具才可执行。
 - 每次工具调用写 audit，返回前统一脱敏。
 - K线/行情异常和资产/余额异常先接 mock connector，后续替换真实只读 API。
@@ -21,9 +21,11 @@
 
 ### 1. Agent 不可信，Gateway 可信
 
-Agent 负责理解问题、抽取字段、判断是否需要追问、决定调用哪些工具和总结证据。但 Agent 不直接连接生产 DB、Redis、日志系统或业务服务。所有生产查询都必须经过 Investigation Gateway。
+Agent 负责理解问题、抽取字段、判断是否需要追问、决定调用哪些工具和总结证据。但 Agent 不直接连接生产 DB、Redis、日志系统或业务服务。所有业务生产查询都必须经过 Investigation Gateway。
 
-Gateway 是生产只读查询门禁，负责：
+平台自己的 case、消息、AI 决策日志、工具审计和知识沉淀属于 Agent 平台数据，不属于业务方提供的查询源，也不需要通过 Gateway 当成下游接口访问。
+
+Gateway 是业务生产只读查询门禁，负责：
 
 - 校验 agent 身份和授权 scope。
 - 校验 Lark 用户、群和工具权限。
@@ -61,18 +63,18 @@ NEW
 
 Lark Bot 只负责接收事件、创建 case、发送即时回复和投递队列，不做复杂推理，也不查生产。Agent Worker 从队列消费 case event，用 worker pool 并发处理多个客服问题。队列目前是内存实现，接口已经抽象，后续替换为 Redis Stream。
 
-### 5. Tool Server 和 Query Gateway 一期合并，边界不混
+### 5. Investigation Gateway 只做业务只读工具门禁
 
-TRD 里 Tool Server 和 Query Gateway 是两个逻辑层。一期为了更快跑通，在 `investigation-gateway` 进程内同时实现：
+TRD 里 Tool Server 和 Query Gateway 是两个逻辑层；这里的 Query Gateway 只指“业务生产证据查询门禁”，不是平台数据访问入口。一期为了更快跑通，在 `investigation-gateway` 进程内同时实现业务只读工具门禁：
 
 - Tool Registry：注册工具描述、入参 schema、scope、handler。
 - Tool Invoke API：`GET /tools` 和 `POST /tools/{tool_name}/invoke`。
 - Policy Engine：默认拒绝，只允许注册 agent 和授权 scope。
-- Audit：记录每次工具调用。
+- Audit：记录每次业务只读工具调用。
 - Masking：返回前脱敏。
 - Connectors：对接业务只读 API、日志、缓存、外部交易所。
 
-代码层面仍然保持包边界，后续可以把 Tool Server 和 Query Gateway 拆成两个服务，或者补 MCP adapter。
+Gateway 不负责查询平台数据。平台 MySQL 由 Case Layer、Decision Engine 和审计 sink 按平台内部权限访问；Gateway 只保护“查业务生产证据”这条边界。代码层面仍然保持包边界，后续可以把 Tool Server 和 Gateway 拆成两个服务，或者补 MCP adapter。
 
 ### 6. 业务接入优先只读 API
 
@@ -86,7 +88,7 @@ Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 
 
 ### 7. 每次排查都沉淀
 
-一期数据表围绕 case、实体、消息、investigation、tool audit、root cause、knowledge item 设计。即使 AI 没查准，也要保留原始问题、抽取字段、调用过程、AI 判断和人工最终根因。失败样本同样是后续优化 prompt、工具和知识库的材料。
+一期数据表围绕 case、实体、消息、investigation、tool audit、root cause、knowledge item 设计。这些表是 Agent 平台自己的沉淀，不要求业务方提供。即使 AI 没查准，也要保留原始问题、抽取字段、调用过程、AI 判断和人工最终根因。失败样本同样是后续优化 prompt、工具和知识库的材料。
 
 ## 一期部署架构
 
@@ -100,39 +102,36 @@ flowchart LR
   subgraph Agent["排障 Agent 平台"]
     Intake["Channel Adapter<br/>验签 / 解密 / 下载图片"]
     Case["Case API + Queue<br/>幂等 / 状态机 / 消息"]
-    Brain["Decision Engine<br/>Go baseline 或 Python"]
-    Gateway["Investigation Gateway<br/>鉴权 / Scope / 限流 / 超时 / 审计 / 脱敏"]
-  end
-
-  subgraph Company["业务方提供"]
-    APIs["Readonly APIs<br/>行情 / 资产 / 日志 / 缓存"]
-    LLM["LLM / Vision Provider<br/>主模型可复用图片能力"]
-  end
-
-  subgraph Data["平台数据"]
-    MySQL["MySQL<br/>tb_troubleshoot_*"]
+    Brain["Python Decision Engine<br/>编排 / 追问 / 工具预算 / 总结"]
+    Gateway["Investigation Gateway<br/>业务只读工具门禁"]
+    Model["LLM / Vision Provider<br/>平台统一配置"]
+    Data["Platform Data<br/>MySQL tb_troubleshoot_*"]
     Knowledge["经验沉淀<br/>root cause -> knowledge"]
+  end
+
+  subgraph Business["业务方提供"]
+    APIs["Readonly Business APIs<br/>行情 / 资产 / 日志 / 缓存"]
   end
 
   Chat --> Intake
   Web --> Intake
   Intake --> Case
+  Case --> Data
   Case --> Brain
-  Brain --> LLM
+  Brain --> Model
+  Brain --> Data
   Brain --> Gateway
   Gateway --> APIs
-  Case --> MySQL
-  Brain --> MySQL
-  Gateway --> MySQL
-  MySQL --> Knowledge
+  Data --> Knowledge
   Knowledge --> Brain
 ```
 
-业务方开箱接入时只需要补三件事：
+业务方开箱接入时只需要补两类东西：
 
-- 配好 Lark/飞书机器人，或启用 Web Chat 入口。
-- 按 [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md) 提供只读 API adapter。
-- 配好 MySQL、LLM/Vision、Gateway token 和控制面 token。
+- 输入入口配置：Lark/飞书机器人，或启用 Web Chat。
+- 业务只读证据接口：按 [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md) 封装 readonly adapter。
+
+平台方负责统一提供 MySQL、LLM/Vision、Gateway token、控制面 token、审计和知识沉淀配置。如果业务方选择私有化部署整套平台，这些配置由部署方填写，但它们仍属于 Agent 平台配置，不属于业务 adapter 接口。
 
 向量库、发布记录、本地代码查看、多 Agent workflow 都不是一期部署前置条件；这些演进能力记录在 [架构决策记录](docs/architecture-decisions.md)。
 
@@ -181,12 +180,12 @@ sequenceDiagram
 | Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
 | Web Chat 入口 | 预留 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口。 |
 | Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
-| Decision Layer | Go baseline + Python 3.13 skeleton | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询生产证据。 |
-| Investigation Gateway | 已实现 | 生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册。 |
+| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询业务生产证据。 |
+| Investigation Gateway | 已实现 | 业务生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册；不是平台数据访问入口。 |
 | Business Adapters | mock + HTTP 规范 | 对接业务只读 API、日志、缓存、外部交易所等证据源。 |
 | Knowledge / RAG | SQL/tag/keyword first | 首发不强依赖向量库，后续按评测效果接 pgvector/Qdrant/Milvus。 |
 
-本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时可以拆成 `lark-bot`、`orchestrator` / `decision-engine`、`worker`、`investigation-gateway` 四类服务。
+本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时建议拆成 `lark-bot`、`case-api/worker`、`decision-engine`、`investigation-gateway` 四类服务。`cmd/baseline-orchestrator` 只保留给本地 smoke 或兼容 fallback，不作为目标生产编排服务。
 
 ## 目录
 
@@ -194,16 +193,16 @@ sequenceDiagram
 apps/
   decision-engine/        Python 3.13 决策层服务，后续承接多模型/RAG/workflow
 cmd/
+  baseline-orchestrator/   Go phase-0 决策 fallback，不是目标决策层
   dev-server/              本地一体化调试入口
   lark-bot/                Lark 事件入口
-  orchestrator/            Agent 编排服务
-  worker/                  case event worker
-  investigation-gateway/   Tool Server + Query Gateway
+  worker/                  case event worker，后续可调用 Python decision-engine
+  investigation-gateway/   业务只读工具门禁
 internal/
   caseflow/                case 模型、状态机、内存 store
+  decisionbaseline/         Go phase-0 有限工具计划 fallback
   lark/                    Lark 事件 handler 和消息发送抽象
   llm/                     LLM 抽象和规则型本地实现
-  orchestrator/            case 处理主流程
   queue/                   可替换队列接口和内存实现
   tool/                    Tool Spec、Registry、Invocation 模型
   gateway/                 Tool API、policy、audit、masking、connector 编排
@@ -246,9 +245,9 @@ docs/                      TRD 摘要与一期说明
 - LLMClient 抽象和规则型本地实现。
 - AI 决策日志：分类、实体抽取、字段检查、工具计划、工具调用、总结、失败原因、重复处理跳过原因、陈旧处理中状态收敛原因均可审计，快照写入前会统一脱敏。
 - Case 级排查超时、工具调用总数上限和工具失败上限，避免查不到问题时持续打下游。
-- Orchestrator 处理前先认领 case；重复 worker、重复事件或终态 case 会安全跳过，不再查询下游；陈旧处理中状态会恢复或失败收敛。
+- Decision runner 处理前先认领 case；重复 worker、重复事件或终态 case 会安全跳过，不再查询下游；陈旧处理中状态会恢复或失败收敛。
 - Tool Registry 和内部 Tool Invoke API。
-- Query Gateway 默认拒绝策略、scope 校验、参数边界控制。
+- Investigation Gateway 默认拒绝策略、scope 校验、参数边界控制。
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
 - 控制面 API Bearer 鉴权，生产环境缺少关键安全配置时 fail-closed。
 - Audit sink、MySQL tool audit 持久化和脱敏。
@@ -430,9 +429,9 @@ go test ./...
 
 平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计持久化和返回脱敏。
 
-root cause、feedback、knowledge、orchestrator case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
+root cause、feedback、knowledge、case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
-Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `tb_troubleshoot_ai_decision_log`，快照入库前脱敏，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。MySQL 表遵循 `tb_` 前缀、`create_time/update_time`、`status TINYINT` 行状态和 `*_status` 业务状态；`uid` 使用 `VARCHAR(128)`，兼容数字 UID、字符串 UID 和 Lark/飞书外部用户 ID。Lark 入口用 `source + message_id` 幂等去重，Orchestrator 处理前先认领 case，重复事件或重复 worker 只记录 `process_skipped`，不会重复打下游；陈旧处理中状态会恢复或失败收敛。
+Decision Layer 不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `tb_troubleshoot_ai_decision_log`，快照入库前脱敏，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。MySQL 表遵循 `tb_` 前缀、`create_time/update_time`、`status TINYINT` 行状态和 `*_status` 业务状态；`uid` 使用 `VARCHAR(128)`，兼容数字 UID、字符串 UID 和 Lark/飞书外部用户 ID。Lark 入口用 `source + message_id` 幂等去重，Decision runner 处理前先认领 case，重复事件或重复 worker 只记录 `process_skipped`，不会重复打下游；陈旧处理中状态会恢复或失败收敛。
 
 部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
 
@@ -441,7 +440,7 @@ Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - Redis Stream、真实日志/DB/Redis connector 尚未接入，已保留接口。
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
-- Orchestrator 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
+- Decision runner 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 - Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 

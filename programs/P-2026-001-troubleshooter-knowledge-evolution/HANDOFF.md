@@ -19,7 +19,7 @@
 
 ## 待完成
 
-- 业务方提供测试 MySQL DSN 后，执行 migration 并跑持久化 smoke。
+- 平台部署方提供测试 MySQL DSN 后，执行 migration 并跑持久化 smoke。
 
 ## 阻塞
 

@@ -6,7 +6,7 @@
 
 ## Task 2: [x] 控制面 API 鉴权
 
-- 文件：`internal/httpauth/*`、`cmd/dev-server/*`、`cmd/orchestrator/*`
+- 文件：`internal/httpauth/*`、`cmd/dev-server/*`、`cmd/baseline-orchestrator/*`
 - 验收：
   - 未带 token 返回 401。
   - token 正确才允许访问 case/knowledge/root-cause/feedback 控制面接口。

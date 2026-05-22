@@ -8,7 +8,7 @@
 
 ### 背景
 
-当前决策层主要由 Go orchestrator 实现，适合把一期闭环跑通，也方便和 Gateway、store、worker 放在一个进程里验证。但后续如果要让智能体更聪明，决策层会越来越依赖 Python 生态：
+Agent 编排本质上属于决策层：分类、追问、工具预算、工具计划、证据总结、停止条件和本地代码辅助排查都应由同一个决策层负责。仓库里曾经用 Go baseline runner 把一期闭环快速跑通，这块现在降级为 `internal/decisionbaseline`，只用于本地 smoke、fallback 和兼容验证。目标决策层统一放到 Python，因为后续如果要让智能体更聪明，会越来越依赖 Python 生态：
 
 - 多模型编排，例如 Qwen-VL 识图，GPT/Claude 做文本推理。
 - RAG、embedding、rerank、prompt template、eval dataset。
@@ -18,7 +18,7 @@
 
 ### 决策
 
-决策层迁移目标是 Python 3.13 服务。当前仓库已先落地 `apps/decision-engine` 骨架，负责逐步承接：
+决策层迁移目标是 Python 3.13 服务。`apps/decision-engine` 是目标 Agent Orchestrator，负责逐步承接：
 
 - case intake 后的分类、实体抽取、必要字段判断。
 - 历史经验检索和相似 case 检索。
@@ -27,7 +27,7 @@
 - 总结证据、给出疑似原因和下一步建议。
 - 写入 AI 决策日志，保留为什么这样判断、为什么调用这些工具、为什么停止。
 
-Gateway、业务 connector、安全鉴权、审计、限流、脱敏、只读工具注册继续保持稳定，不因为决策层语言切换而改变安全边界。
+Gateway、业务 connector、安全鉴权、审计、限流、脱敏、只读工具注册继续保持稳定，不因为决策层语言切换而改变安全边界。平台 MySQL、知识库和 LLM/Vision provider 属于 Agent 平台自己的运行依赖；业务方只提供 readonly business APIs/adapters。
 
 目标边界：
 
@@ -39,31 +39,34 @@ flowchart TB
     Web["Web Chat / 图片上传"]
   end
 
-  subgraph Intake["Channel Adapters"]
-    LarkBot["lark-bot<br/>/lark/events /feishu/events"]
-    WebAdapter["web-chat adapter"]
+  subgraph Platform["排障 Agent 平台"]
+    subgraph Intake["Channel Adapters"]
+      LarkBot["lark-bot<br/>/lark/events /feishu/events"]
+      WebAdapter["web-chat adapter"]
+    end
+
+    subgraph CaseLayer["Case Layer"]
+      CaseAPI["Case API<br/>case / message / idempotency"]
+      Queue["Queue<br/>memory now / Redis Stream later"]
+      Store["Platform Data<br/>MySQL tb_troubleshoot_*"]
+      Knowledge["Knowledge<br/>SQL first, vector later"]
+    end
+
+    subgraph Brain["Decision Layer"]
+      PyEngine["Python 3.13 Decision Engine<br/>Agent Orchestrator"]
+      Retriever["Knowledge Retriever / RAG"]
+      LocalCode["Local Code Inspector<br/>last resort"]
+      Model["LLM / Vision Provider<br/>platform config"]
+    end
+
+    subgraph Gateway["Investigation Gateway"]
+      Policy["auth / scope / rate limit"]
+      Audit["timeout / audit / masking"]
+      Registry["readonly tool registry"]
+    end
   end
 
-  subgraph CaseLayer["Case Layer"]
-    CaseAPI["Case API<br/>case / message / idempotency"]
-    Queue["Queue<br/>memory now / Redis Stream later"]
-    Store["MySQL<br/>tb_troubleshoot_*"]
-  end
-
-  subgraph Brain["Decision Layer"]
-    GoOrch["Go orchestrator<br/>baseline / fallback"]
-    PyEngine["Python 3.13 Decision Engine<br/>target"]
-    Retriever["Knowledge Retriever / RAG<br/>SQL first, vector later"]
-    LocalCode["Local Code Inspector<br/>last resort"]
-  end
-
-  subgraph Gateway["Investigation Gateway"]
-    Policy["auth / scope / rate limit"]
-    Audit["timeout / audit / masking"]
-    Registry["readonly tool registry"]
-  end
-
-  subgraph Downstream["下游只读证据源"]
+  subgraph Business["业务方提供"]
     APIs["Company readonly APIs"]
     Logs["logs / cache / external exchange"]
     Deploy["deploy records<br/>reserved"]
@@ -76,20 +79,19 @@ flowchart TB
   WebAdapter --> CaseAPI
   CaseAPI --> Store
   CaseAPI --> Queue
-  Queue --> GoOrch
-  Queue -. migration target .-> PyEngine
-  GoOrch --> Retriever
+  Queue --> PyEngine
   PyEngine --> Retriever
+  PyEngine --> Model
+  PyEngine --> Store
   PyEngine -. last resort .-> LocalCode
-  GoOrch --> Policy
   PyEngine --> Policy
   Policy --> Audit
   Audit --> Registry
   Registry --> APIs
   Registry --> Logs
   Registry -. reserved .-> Deploy
-  Policy --> Store
-  Audit --> Store
+  Knowledge --> Retriever
+  Audit -. tool audit sink .-> Store
 ```
 
 ### 约束
@@ -97,16 +99,18 @@ flowchart TB
 - Python 决策层不能直接访问生产 DB、Redis、日志平台或业务服务。
 - Python 决策层只能通过 Gateway 调用已注册的只读工具。
 - Gateway 返回给决策层的数据必须已经过权限校验、限流、timeout 和脱敏。
+- 平台数据、知识库和 LLM/Vision 由 Agent 平台统一提供；业务方不需要提供平台 MySQL 或模型接口。
+- 业务方只需要提供业务只读 adapter，例如行情、资产、日志、缓存和发布记录等证据源。
 - 决策层可以本地运行用于开发、联调和评测；稳定后应部署到受控环境。
 - 本地代码查看只是最后手段，输出应标记为 `suspected_code_bug`，不能直接当作最终根因。
 - 任何决策链路都必须保留 tool call budget、model call budget、case timeout 和 decision logs。
 
 ### 迁移方式
 
-第一阶段不推翻 Go 实现，先把 Go orchestrator 当作 baseline：
+第一阶段不推翻 Go 闭环，先把 Go `decisionbaseline` 当作 fallback：
 
 1. 定义 Python Decision Engine 的输入输出协议，并在 `api/openapi/decision-engine.yaml` 固化。
-2. Go orchestrator 保留为 fallback 或 compatibility mode。
+2. Go `decisionbaseline` 保留为 fallback 或 compatibility mode，不作为目标生产编排服务。
 3. Python 决策层读取 Gateway `/tools` 或 tool catalog，不读取 Gateway 源码作为运行时依据。
 4. 灰度时使用 `mode=mock`、`mode=staging`、`mode=prod-shadow` 三种模式。
 5. 稳定后再把 case 处理入口切到 Python 决策层。

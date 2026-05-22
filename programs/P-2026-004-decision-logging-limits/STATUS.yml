@@ -15,7 +15,7 @@ tasks:
     name: "决策日志模型和持久化"
     status: done
   - id: task-3
-    name: "Orchestrator 记录决策过程"
+    name: "Decision runner 记录决策过程"
     status: done
   - id: task-4
     name: "超时和查询限制"

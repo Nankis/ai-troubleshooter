@@ -8,7 +8,7 @@
 
 - Lark 事件按 `source + message_id` 幂等去重。
 - MySQL 通过唯一索引兜住并发重复创建。
-- Orchestrator 处理前先认领 case，重复触发只记录跳过原因，不再打下游。
+- Decision runner 处理前先认领 case，重复触发只记录跳过原因，不再打下游。
 - 陈旧处理中状态能恢复或失败收敛，避免 worker 崩溃后永久卡住。
 - AI 决策日志快照写入前统一脱敏。
 - 补齐文档、迁移和单测。

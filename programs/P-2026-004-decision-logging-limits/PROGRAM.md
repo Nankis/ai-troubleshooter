@@ -7,7 +7,7 @@
 ## 目标
 
 - 持久化 AI 决策日志，记录 decision type、reason、input/output snapshot、selected tools、latency、status 和 error。
-- 给 orchestrator 增加 case 级超时、工具调用上限、工具失败上限。
+- 给 Decision runner 增加 case 级超时、工具调用上限、工具失败上限。
 - 发生超时或内部错误时把 case 和 investigation 安全收敛到 `FAILED`，并写入决策日志。
 - 更新 DDL、配置、README 和部署文档。
 

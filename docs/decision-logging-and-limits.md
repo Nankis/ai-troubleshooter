@@ -1,6 +1,6 @@
 # AI 决策日志与查询限制
 
-本系统不允许 Agent 在生产里无限自主循环。Orchestrator 采用“有限工具计划”：先分类、抽取字段、检查必要字段，信息足够后只执行一轮有上限的只读工具查询，再输出需要人工确认的排查结论。
+本系统不允许 Agent 在生产里无限自主循环。Decision Layer 采用“有限工具计划”：先分类、抽取字段、检查必要字段，信息足够后只执行一轮有上限的只读工具查询，再输出需要人工确认的排查结论。当前 Go `decisionbaseline` 和目标 Python `decision-engine` 都必须遵守同一套限制。
 
 ## 决策日志
 
@@ -67,16 +67,16 @@ Lark/飞书平台可能因为网络抖动或业务接口超时重复投递同一
 - 已接收的事件返回 `202`，响应包含 `duplicate=true` 和已有 `case_no`，不再重复入队。
 - MySQL 通过 `migrations/004_case_idempotency.sql` 增加唯一索引，防并发重复创建。
 
-Worker 侧也有第二道保护：Orchestrator 只允许 `NEW`、`NEED_MORE_INFO`、`WAITING_USER_REPLY` 进入处理，并会先把 case 认领到 `READY_TO_INVESTIGATE`。如果重复 worker、重复事件或终态 case 再次触发处理，系统写入 `process_skipped` 决策日志并返回当前状态，不会再次调用下游工具。
+Worker 侧也有第二道保护：Decision runner 只允许 `NEW`、`NEED_MORE_INFO`、`WAITING_USER_REPLY` 进入处理，并会先把 case 认领到 `READY_TO_INVESTIGATE`。如果重复 worker、重复事件或终态 case 再次触发处理，系统写入 `process_skipped` 决策日志并返回当前状态，不会再次调用下游工具。
 
-为了避免 worker 崩溃后 case 永久卡住，Orchestrator 使用 `MAX_INVESTIGATION_SECONDS * 2` 作为陈旧窗口，最小 60 秒：
+为了避免 worker 崩溃后 case 永久卡住，Decision runner 使用 `MAX_INVESTIGATION_SECONDS * 2` 作为陈旧窗口，最小 60 秒：
 
 - `READY_TO_INVESTIGATE` 超过窗口会被重新认领并继续处理。
 - `INVESTIGATING` 或 `WAITING_TOOL_RESULT` 超过窗口会写入 `process_stale_timeout`，并收敛为 `FAILED`，避免后台任务无限占用处理中状态。
 
 ## 失败收敛
 
-如果分类、实体抽取、工具计划、工具调用或总结阶段发生不可恢复错误，orchestrator 会：
+如果分类、实体抽取、工具计划、工具调用或总结阶段发生不可恢复错误，Decision runner 会：
 
 1. 写入 `process_failure` 决策日志。
 2. 如果 investigation 已创建，将 investigation 标记为 `failed`。

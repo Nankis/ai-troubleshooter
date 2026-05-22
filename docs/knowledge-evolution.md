@@ -142,7 +142,7 @@ LIMIT 20;
 
 ## API
 
-以下接口在 `cmd/dev-server` 的一体化服务中已实现。生产拆分时建议放到 `agent-orchestrator` 或单独 case API 服务。
+以下接口在 `cmd/dev-server` 的一体化服务中已实现。生产拆分时建议放到 Agent 平台的 case API 服务，由 Python decision-engine 读取并写回决策结果。
 
 ### 查询 case
 

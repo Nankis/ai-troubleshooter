@@ -1,6 +1,6 @@
 # Gateway 安全与鉴权边界
 
-Investigation Gateway 是生产只读查询的安全边界。Agent、worker、Lark bot 都不应直接访问生产 DB、Redis、日志平台或业务服务，所有工具调用必须经过 Gateway。
+Investigation Gateway 是业务生产只读查询的安全边界。Agent、worker、Lark bot 都不应直接访问生产 DB、Redis、日志平台或业务服务，所有工具调用必须经过 Gateway。平台自己的 case、审计、知识库 MySQL 不属于业务生产证据源，由 Agent 平台服务按内部权限访问。
 
 ## 已内置能力
 
@@ -74,7 +74,7 @@ GATEWAY_TOOL_QPS=20
 
 ### 6. 控制面 API 鉴权
 
-root cause 回填、feedback、knowledge 查询、orchestrator case/process 这类控制面接口不走 Lark 入口信任，生产环境必须启用内部 Bearer 鉴权：
+root cause 回填、feedback、knowledge 查询、case/process 这类控制面接口不走 Lark 入口信任，生产环境必须启用内部 Bearer 鉴权：
 
 ```bash
 CONTROL_API_AUTH_ENABLED=true
@@ -90,7 +90,7 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 - `GET /cases/{case_no}/feedback`
 - `GET /cases/{case_no}/evolution-runs`
 - `GET /knowledge`
-- orchestrator 服务的 `POST /cases`、`POST /cases/{id}/process`
+- case API / decision worker 的 `POST /cases`、`POST /cases/{id}/process`
 
 ### 7. 生产配置 fail-closed
 
@@ -127,7 +127,7 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 这些能力建议放在平台基础设施或公司网关层：
 
 - mTLS 或 service mesh 身份认证。
-- 仅允许 orchestrator/worker 所在网段访问 Gateway。
+- 仅允许 decision-engine/worker 所在网段访问 Gateway。
 - Secret Manager 注入 Gateway token，不写入 Git、镜像或明文配置。
 - 控制面 token 与 Gateway token 分开管理，root cause 回填入口只给可信内部系统或业务 owner。
 - 统一 WAF/API Gateway 访问日志。

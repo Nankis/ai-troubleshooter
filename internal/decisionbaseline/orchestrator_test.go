@@ -1,4 +1,4 @@
-package orchestrator
+package decisionbaseline
 
 import (
 	"context"
@@ -24,13 +24,13 @@ func TestProcessCaseRecordsDecisionsAndStopsAfterToolFailureLimit(t *testing.T) 
 		t.Fatal(err)
 	}
 	toolClient := &fakeToolClient{err: errors.New("downstream unavailable")}
-	orch := New(store, fakeLLM{}, toolClient, Config{
+	runner := New(store, fakeLLM{}, toolClient, Config{
 		MaxToolCallsPerCase:     10,
 		MaxToolFailuresPerCase:  1,
 		MaxInvestigationSeconds: 5,
 	})
 
-	result, err := orch.ProcessCase(ctx, c.ID)
+	result, err := runner.ProcessCase(ctx, c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestProcessCaseRecordsDecisionsAndStopsAfterToolFailureLimit(t *testing.T) 
 		t.Fatalf("decision snapshots were not masked as expected: %s", logBlob)
 	}
 
-	second, err := orch.ProcessCase(ctx, c.ID)
+	second, err := runner.ProcessCase(ctx, c.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestProcessCaseTimeoutFailsCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	orch := New(store, fakeLLM{waitForContext: true}, &fakeToolClient{}, Config{
+	runner := New(store, fakeLLM{waitForContext: true}, &fakeToolClient{}, Config{
 		MaxToolCallsPerCase:     10,
 		MaxToolFailuresPerCase:  1,
 		MaxInvestigationSeconds: 120,
@@ -90,7 +90,7 @@ func TestProcessCaseTimeoutFailsCase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
-	_, err = orch.ProcessCase(ctx, c.ID)
+	_, err = runner.ProcessCase(ctx, c.ID)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline exceeded, got %v", err)
 	}

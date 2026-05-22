@@ -15,12 +15,12 @@ import (
 
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 	"github.com/Nankis/ai-troubleshooter/internal/config"
+	"github.com/Nankis/ai-troubleshooter/internal/decisionbaseline"
 	"github.com/Nankis/ai-troubleshooter/internal/evolution"
 	"github.com/Nankis/ai-troubleshooter/internal/gateway"
 	"github.com/Nankis/ai-troubleshooter/internal/httpauth"
 	"github.com/Nankis/ai-troubleshooter/internal/lark"
 	"github.com/Nankis/ai-troubleshooter/internal/llm"
-	"github.com/Nankis/ai-troubleshooter/internal/orchestrator"
 	"github.com/Nankis/ai-troubleshooter/internal/queue"
 	"github.com/Nankis/ai-troubleshooter/internal/storage"
 	"github.com/Nankis/ai-troubleshooter/internal/vision"
@@ -47,7 +47,7 @@ func main() {
 		log.Fatal(err)
 	}
 	evolver := evolution.NewService(store)
-	orch := orchestrator.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), orchestrator.Config{
+	runner := decisionbaseline.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), decisionbaseline.Config{
 		AgentID:                 "business-troubleshooter-v1",
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,
@@ -55,7 +55,7 @@ func main() {
 		MaxToolFailuresPerCase:  cfg.Limits.MaxToolFailuresPerCase,
 		MaxInvestigationSeconds: cfg.Limits.MaxInvestigationSeconds,
 	})
-	pool := worker.NewPool(q, orch, cfg.Limits.WorkerConcurrency)
+	pool := worker.NewPool(q, runner, cfg.Limits.WorkerConcurrency)
 	pool.Start(ctx)
 
 	var messenger lark.Messenger

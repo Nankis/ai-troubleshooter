@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: AI Troubleshooter Decision Engine
+  title: AI Troubleshooter Decision Engine / Agent Orchestrator
   version: 0.1.0
 paths:
   /healthz:
@@ -11,7 +11,7 @@ paths:
           description: ok
   /v1/decisions/plan:
     post:
-      summary: Create a bounded readonly tool plan for a case
+      summary: Create a bounded readonly tool plan for a case; this is the target Agent orchestration surface
       requestBody:
         required: true
         content:

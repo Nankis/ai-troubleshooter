@@ -1,6 +1,6 @@
 # Decision Engine
 
-Python 3.13 decision layer for the troubleshooting agent.
+Python 3.13 decision layer and target Agent orchestrator for the troubleshooting agent.
 
 This service is intentionally small for Phase 1:
 
@@ -8,6 +8,7 @@ This service is intentionally small for Phase 1:
 - It only plans readonly tool calls that must go through Investigation Gateway.
 - It keeps explicit budgets for tool calls and missing-field follow-up.
 - It can run locally with the Go Gateway deployed elsewhere.
+- It is the target home for orchestration logic; Go `internal/decisionbaseline` is only a local fallback.
 
 Run locally:
 
@@ -37,4 +38,3 @@ curl -s localhost:19092/v1/decisions/plan \
     }
   }'
 ```
-
