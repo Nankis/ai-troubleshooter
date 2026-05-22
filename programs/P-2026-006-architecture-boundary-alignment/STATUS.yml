@@ -1,0 +1,28 @@
+program: P-2026-006-architecture-boundary-alignment
+name: "Architecture boundary alignment"
+level: "Full"
+phase: "done"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "complete"
+tasks:
+  - id: task-1
+    name: "建立 Program"
+    status: done
+  - id: task-2
+    name: "修正平台和业务边界"
+    status: done
+  - id: task-3
+    name: "调整 Go baseline 命名和 worker 依赖"
+    status: done
+  - id: task-4
+    name: "同步 README、ADR 和部署文档"
+    status: done
+  - id: task-5
+    name: "验证并推送 main"
+    status: done
+  - id: task-6
+    name: "补齐防复发机制"
+    status: done

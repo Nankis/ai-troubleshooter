@@ -1,0 +1,21 @@
+program: P-2026-006-architecture-boundary-alignment
+allowed_paths:
+  - AGENTS.md
+  - README.md
+  - Makefile
+  - api/openapi/**
+  - apps/decision-engine/**
+  - cmd/**
+  - docs/**
+  - internal/config/**
+  - internal/decisionbaseline/**
+  - internal/worker/**
+  - programs/README.md
+  - programs/P-2026-006-architecture-boundary-alignment/**
+  - docs/LESSONS.md
+forbidden_paths:
+  - .env
+  - "**/*secret*"
+requires_approval:
+  - production deploy
+notes: "记录架构边界、决策层归属和 Program 追加规则；旧 Program 不再回写。"

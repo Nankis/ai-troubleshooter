@@ -218,6 +218,7 @@ docs/                      TRD 摘要与一期说明
 
 关键文档：
 
+- [AI Agent 入口规则](AGENTS.md)
 - [架构决策记录](docs/architecture-decisions.md)
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
 - [Python 决策层接口草案](api/openapi/decision-engine.yaml)
@@ -226,6 +227,8 @@ docs/                      TRD 摘要与一期说明
 - [部署检查清单](docs/deployment-checklist.md)
 - [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
 - [ai-workflow 开发规范接入](docs/ai-workflow.md)
+- [开发复盘记录](docs/LESSONS.md)
+- [Program 工作流说明](programs/README.md)
 
 ## 已实现能力
 
