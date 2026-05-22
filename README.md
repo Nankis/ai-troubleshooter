@@ -1,6 +1,6 @@
 # ai-troubleshooter
 
-一期业务工单排障 Agent 平台。当前仓库采用 monorepo：Go 1.24+ 负责 Lark/飞书入口、Gateway、worker、Case API 和平台数据落库；Python 3.13 决策层放在 `apps/decision-engine`，负责 Agent 编排、多模型、RAG 和本地代码辅助排查生态。Go 里只保留 `decisionbaseline` 作为 phase-0 本地 fallback，不作为目标决策层。
+一期业务工单排障 Agent 平台。当前仓库采用 monorepo：Go 1.24+ 负责 Lark/飞书入口、Gateway、worker、Case API 和平台数据落库；Python 3.13 决策层放在 `apps/decision-engine`，当前提供有限工具计划 API，后续承接 Agent 编排、多模型、RAG 和本地代码辅助排查生态。Go 里只保留 `decisionbaseline` 作为 phase-0 本地 fallback，不作为目标决策层。
 
 ## 为什么做这个
 
@@ -244,9 +244,9 @@ sequenceDiagram
 | 组件 | 当前状态 | 职责 |
 | --- | --- | --- |
 | Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
-| Web Chat 入口 | 预留 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口。 |
+| Web Chat 入口 | 已实现 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口，支持本地 mock Gateway 排障验证。 |
 | Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
-| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、经验评分、追问、有限工具计划和总结；只能通过 Gateway 查询业务生产证据。 |
+| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、经验评分、追问、有限工具计划和总结；未来承接 Supervisor + Specialist Agents 编排；只能通过 Gateway 查询业务生产证据。 |
 | Platform Knowledge | SQL/tag/keyword first | 平台侧历史 case、root cause、SOP 和 knowledge item；首发不强依赖向量库。 |
 | Investigation Gateway | 已实现 | 业务生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册；不是平台数据访问入口。 |
 | Business Services / Adapters | mock + HTTP 规范 | 注册并提供业务只读能力，服务自身访问自己的 DB，Agent 不直接对 DB。 |
@@ -256,8 +256,12 @@ sequenceDiagram
 ## 目录
 
 ```text
+.github/
+  workflows/                CI：Go / Python / secret scan
+api/
+  openapi/                  Case、Decision Engine、Investigation Gateway OpenAPI 草案
 apps/
-  decision-engine/        Python 3.13 决策层服务，后续承接多模型/RAG/workflow
+  decision-engine/         Python 3.13 决策层服务，后续承接多模型/RAG/workflow
 cmd/
   baseline-orchestrator/   Go phase-0 决策 fallback，不是目标决策层
   dev-server/              本地一体化调试入口
@@ -265,38 +269,62 @@ cmd/
   worker/                  case event worker，后续可调用 Python decision-engine
   investigation-gateway/   业务只读工具门禁
 internal/
+  audit/                   工具调用审计 sink
   caseflow/                case 模型、状态机、内存 store
+  chatplatform/            Lark / 飞书平台差异封装
+  config/                  环境变量配置和生产 fail-closed 校验
+  connectors/              K线、资产、日志 mock / HTTP readonly connector
   decisionbaseline/         Go phase-0 有限工具计划 fallback
-  lark/                    Lark 事件 handler 和消息发送抽象
-  llm/                     LLM 抽象和规则型本地实现
-  queue/                   可替换队列接口和内存实现
-  tool/                    Tool Spec、Registry、Invocation 模型
+  evolution/               root cause 回填后的经验自进化逻辑
   gateway/                 Tool API、policy、audit、masking、connector 编排
-  policy/                  默认拒绝策略
-  audit/                   工具调用审计
+  httpauth/                控制面 Bearer 鉴权
+  lark/                    Lark 事件 handler 和消息发送抽象
+  llm/                     LLM 抽象、规则 fallback、OpenAI-compatible client
   masking/                 脱敏
-  connectors/              K线、资产、日志 mock connector
-api/openapi/               HTTP API 草案
+  policy/                  默认拒绝策略
+  queue/                   可替换队列接口和内存实现
+  ratelimit/               固定窗口限流
+  storage/mysql/           MySQL store 和 tool audit 持久化
+  tool/                    Tool Spec、Registry、Invocation 模型
+  vision/                  图片 OCR / 视觉识别抽象和 OpenAI-compatible client
+  webchat/                 内置 Web Chat API handler
+  worker/                  case event worker pool
 configs/                   配置样例
+deploy/                    Docker Compose 示例
+docs/                      架构、安全、接入、验证和经验沉淀文档
+githooks/                  pre-commit / pre-push secret scan hook 模板
 migrations/                MySQL 初始化表
-docs/                      TRD 摘要与一期说明
+programs/                  可恢复任务记录、证据、复盘和交付结果
+scripts/                   MySQL migration、secret scan、hook 安装脚本
+web/                       内置 Web Chat 静态页面和 Go embed
 ```
 
-关键文档：
+## 文档地图
 
-- [AI Agent 入口规则](AGENTS.md)
-- [架构决策记录](docs/architecture-decisions.md)
-- [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
-- [Python 决策层接口草案](api/openapi/decision-engine.yaml)
-- [Gateway 安全与鉴权边界](docs/gateway-security.md)
-- [AI 决策日志与查询限制](docs/decision-logging-and-limits.md)
-- [部署检查清单](docs/deployment-checklist.md)
-- [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
-- [Agent 决策层框架选择](docs/agent-framework-selection.md)
-- [ai-workflow 开发规范接入](docs/ai-workflow.md)
-- [开发复盘记录](docs/LESSONS.md)
-- [验证结果记录规范](docs/VERIFICATION.md)
-- [Program 工作流说明](programs/README.md)
+| 文档 | 用途 |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | AI Agent 进入仓库后的工作规则、Program 规则、验证和提交约束。 |
+| [docs/architecture-decisions.md](docs/architecture-decisions.md) | 架构边界、部署图、流程图、平台数据和业务 Gateway 分界。 |
+| [docs/ai-connector-integration.md](docs/ai-connector-integration.md) | 业务方只读接口接入规范，定义接口命名、参数、返回、错误和 adapter 规则。 |
+| [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
+| [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
+| [docs/knowledge-evolution.md](docs/knowledge-evolution.md) | root cause 回填、经验沉淀、knowledge item 和自进化逻辑。 |
+| [docs/agent-framework-selection.md](docs/agent-framework-selection.md) | Python 决策层框架选择，记录 LangGraph / LangChain 等后续迁移触发条件。 |
+| [docs/deployment-checklist.md](docs/deployment-checklist.md) | 公司级部署检查清单，覆盖配置、安全、数据库、观测和回滚。 |
+| [docs/ai-workflow.md](docs/ai-workflow.md) | 本项目接入 ai-workflow / Program 机制的编码规范。 |
+| [docs/VERIFICATION.md](docs/VERIFICATION.md) | 验证结果记录规范，要求 Evidence 索引、命令验证和覆盖映射。 |
+| [docs/LESSONS.md](docs/LESSONS.md) | 开发复盘和防复发规则。 |
+| [docs/phase1.md](docs/phase1.md) | 一期实现说明和历史上下文。 |
+| [apps/decision-engine/README.md](apps/decision-engine/README.md) | Python Decision Engine 本地启动和 plan API smoke。 |
+| [api/openapi/decision-engine.yaml](api/openapi/decision-engine.yaml) | Python 决策层 HTTP API 草案。 |
+| [api/openapi/investigation-gateway.yaml](api/openapi/investigation-gateway.yaml) | Gateway 工具调用 API 草案。 |
+| [api/openapi/case-knowledge-api.yaml](api/openapi/case-knowledge-api.yaml) | Case、root cause、feedback、knowledge 控制面 API 草案。 |
+| [programs/README.md](programs/README.md) | Program 工作流、证据、复盘和长任务恢复规则。 |
+
+最新完成的 Program：
+
+- [P-2026-008 Web Chat Local Agent MVP](programs/P-2026-008-web-chat-local-agent-mvp/RESULT.md)：内置 Web Chat、MySQL 本地落库、Qwen/Qwen-VL smoke、secret hook。
+- [P-2026-009 Web Chat Verification Hardening](programs/P-2026-009-web-chat-verification-hardening/RESULT.md)：补充 Web 多场景验证、Gateway 输出脱敏和超时 504 单测。
 
 ## 已实现能力
 
@@ -547,6 +575,7 @@ Decision Layer 不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Decision runner 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
+- Supervisor + Specialist Agents 这类 agents team 是决策层演进方向，不是一期开箱依赖；引入时应放在 Python decision-engine 内，并继续通过 Gateway 获取生产证据。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 - Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 
