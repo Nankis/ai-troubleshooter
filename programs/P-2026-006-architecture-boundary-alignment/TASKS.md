@@ -36,3 +36,11 @@
   - 根入口规则明确“不要回写旧 Program”。
   - `docs/LESSONS.md` 记录 `program-history-rewrite` 错误和防复发规则。
   - `programs/README.md` 明确新需求、新架构调整、新错误复盘要新建 Program。
+
+## Task 7: [x] 补齐验证结果规范
+
+- 文件：`docs/VERIFICATION.md`、`AGENTS.md`、`programs/README.md`、当前 Program
+- 验收：
+  - 明确 Evidence 索引、命令验证、覆盖映射、未验证项和已知噪音。
+  - 明确 Result 必须包含验证摘要、验收覆盖、commit 和残留风险。
+  - 当前 Program 的 `EVIDENCE.md` / `RESULT.md` 按新格式补齐。

@@ -13,6 +13,7 @@ allowed_paths:
   - programs/README.md
   - programs/P-2026-006-architecture-boundary-alignment/**
   - docs/LESSONS.md
+  - docs/VERIFICATION.md
 forbidden_paths:
   - .env
   - "**/*secret*"

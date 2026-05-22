@@ -19,6 +19,7 @@
 - 让 worker 依赖 `CaseProcessor` 接口，为后续切 Python decision-engine 留出结构位置。
 - 补齐 README、ADR、部署、安全、决策限制等文档中的边界表述。
 - 借鉴 `game` 仓库的 Program/LESSONS 防踩坑机制，补齐本仓库的入口规则、Program 说明和错误复盘。
+- 借鉴 `game` 仓库的验证结果写法，补齐 Evidence/Result 的标准模板。
 
 ## 非目标
 
@@ -34,3 +35,4 @@
 - Go baseline 改为 `cmd/baseline-orchestrator` 和 `internal/decisionbaseline`。
 - `make test`、`go vet ./...`、`git diff --check` 和 GitHub Actions CI 通过。
 - 仓库包含 `AGENTS.md`、`programs/README.md` 和 `docs/LESSONS.md`，并记录本次 `program-history-rewrite` 错误。
+- 仓库包含 `docs/VERIFICATION.md`，明确 Full 级 Program 的验证结果记录格式。

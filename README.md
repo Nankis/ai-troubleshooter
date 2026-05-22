@@ -228,6 +228,7 @@ docs/                      TRD 摘要与一期说明
 - [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
 - [ai-workflow 开发规范接入](docs/ai-workflow.md)
 - [开发复盘记录](docs/LESSONS.md)
+- [验证结果记录规范](docs/VERIFICATION.md)
 - [Program 工作流说明](programs/README.md)
 
 ## 已实现能力

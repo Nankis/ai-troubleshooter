@@ -26,3 +26,6 @@ tasks:
   - id: task-6
     name: "补齐防复发机制"
     status: done
+  - id: task-7
+    name: "补齐验证结果规范"
+    status: done

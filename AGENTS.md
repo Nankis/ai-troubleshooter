@@ -17,6 +17,7 @@
    - `docs/decision-logging-and-limits.md`
    - `docs/ai-connector-integration.md`
    - `docs/LESSONS.md`
+   - `docs/VERIFICATION.md`
 3. 若用户指定 Program，读取该 Program 的 `STATUS.yml`、`PROGRAM.md`、`SCOPE.yml`、`TASKS.md` 和 `EVIDENCE.md`。
 4. 若用户未指定 Program，先判断当前任务等级：
    - Tiny：查询状态、修 typo、单文件小文案，可不建 Program。
@@ -37,11 +38,13 @@
 - 平台数据、知识库、AI 决策日志、工具审计和 LLM/Vision provider 属于 Agent 平台边界；业务方只提供 readonly business APIs/adapters。
 - Python `apps/decision-engine` 是目标 Agent Orchestrator；Go `internal/decisionbaseline` 只能作为本地 smoke/fallback。
 - 完成、暂停、切换方向时，把状态写回当前 Program 文档，不依赖聊天线程保存上下文。
+- Full 级任务的验证结果必须按 `docs/VERIFICATION.md` 写入 `EVIDENCE.md` 和 `RESULT.md`，包括 Evidence 索引、命令验证、覆盖映射、未验证项和已知噪音。
 
 ## Git 提交与推送
 
 - 完成一个 Full/大需求或可验收里程碑后，默认自己完成 commit 和 push。
 - 提交前至少运行 `git diff --check`；涉及 Go/Python 代码时运行 `make test`，必要时加 `go vet ./...`。
+- 验证结果要写入当前 Program，不能只写在聊天最终回复里。
 - 提交信息优先带 Program ID，说明主要变更和验证结果。
 - 工作树有不属于本任务的脏改动时，只 stage 本任务相关文件。
 
@@ -56,4 +59,5 @@
 任务暂停，写 HANDOFF
 任务完成，写 RESULT
 错误复盘，写 ERRORS 和 docs/LESSONS.md
+验证结果，写 EVIDENCE 和 RESULT
 ```

@@ -7,3 +7,5 @@
 - 后续每个独立需求、新架构调整或较大修正都新增 Program；旧 Program 保留历史上下文，不为新命名或新边界反复回写。
 - 每次用户指出 AI 自身流程错误，必须写入当前 Program 的 `ERRORS.md`，并同步沉淀到 `docs/LESSONS.md` 的反复错误计数器。
 - 新任务启动时先读 `AGENTS.md` 和 `docs/LESSONS.md`；命中历史错误场景时，先按复盘规则设计方案，再改文件。
+- Full 级 Program 的 `EVIDENCE.md` 必须包含 Evidence 索引、命令验证、覆盖映射、未验证项和已知噪音。
+- Full 级 Program 的 `RESULT.md` 必须包含结果摘要、变更范围、任务完成情况、验证摘要、验收覆盖、commit 和残留风险。

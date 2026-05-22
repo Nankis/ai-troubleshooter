@@ -23,3 +23,7 @@
 ## D6：引入 LESSONS 反复错误计数器
 
 借鉴 `game` 仓库的 `cocos-project/docs/LESSONS.md`，本仓库新增 `docs/LESSONS.md`。以后用户指出流程错误或重复错误时，必须写入反复错误计数器，并在后续任务启动时先检查。
+
+## D7：引入验证结果标准模板
+
+借鉴 `game` 仓库的 Evidence/Result 写法，本仓库新增 `docs/VERIFICATION.md`。以后 Full 级 Program 不允许只写“测试通过”，必须记录 Evidence 索引、命令验证、覆盖映射、未验证项、已知噪音和 Result 验收覆盖。
