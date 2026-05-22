@@ -16,7 +16,7 @@ Current orchestration shape:
 - `Knowledge Agent` checks platform experience first. It can answer directly only when confidence is high, observed cases are enough, and realtime validation is not required.
 - `Kline Agent` plans bounded K-line readonly tools after `symbol`、`interval`、`abnormal_time`、`issue_type` are present.
 - `Asset Agent` plans bounded asset readonly tools after user/account, `asset_symbol`、`abnormal_time`、`issue_type` are present.
-- `Local Code Agent` is debug-only. It can inspect an allowlisted local repo only when Gateway evidence is insufficient and `debug_local_code=true`.
+- `Local Code Agent` is debug-only. It can inspect an allowlisted local repo only when Gateway evidence is insufficient and `debug_local_code=true`; evidence includes keyword hits, language-structure symbols, and bounded call graph edges.
 - `Verifier` deduplicates tool plans, filters unavailable tools, caps tool count, and converts unsafe plans into `need_human`.
 
 The HTTP response keeps the old top-level fields (`action`、`reason`、`tool_plan`) and adds:
@@ -49,7 +49,12 @@ Gateway / adapter may provide `service_name`、`repo_hint`、`suspect_area`, but
 }
 ```
 
-The response action is `local_code_inspection`. Evidence contains only relative file paths, matched terms, and line numbers; no source snippets are returned.
+The response action is `local_code_inspection`. Evidence contains only relative file paths, matched terms, symbols, call edges, and line numbers; no source snippets are returned. The built-in analyzer is intentionally lightweight:
+
+- Python uses stdlib AST for classes, functions, and calls.
+- Java / Go / TypeScript / JavaScript use language-aware structure scanning for classes/functions/methods and bounded call edges.
+- `analysis_modes` reports which layers contributed: `keyword`, `language_structure_tree`, `symbol_index`, `call_graph`.
+- The analyzer interface is dependency-light today; it can later be replaced with tree-sitter, LSP, or LSIF without changing the Local Code Agent safety contract.
 
 Run locally:
 

@@ -183,7 +183,17 @@ class DecisionEngineTest(unittest.TestCase):
             source_file.parent.mkdir(parents=True)
             source_file.write_text(
                 "class RecommendationJob {\n"
-                "  void run() { String mealDataFingerprint = \"stale\"; }\n"
+                "  void run() {\n"
+                "    foodService.generateDailyFoodRecommendWithFingerprint(uid, meals);\n"
+                "    String mealDataFingerprint = \"stale\";\n"
+                "  }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            impl_file = repo / "src/main/java/com/example/FoodServiceImpl.java"
+            impl_file.write_text(
+                "class FoodServiceImpl {\n"
+                "  boolean generateDailyFoodRecommendWithFingerprint(Long uid, List meals) { return true; }\n"
                 "}\n",
                 encoding="utf-8",
             )
@@ -223,9 +233,56 @@ class DecisionEngineTest(unittest.TestCase):
             local_report = response.agent_reports[-1]
             self.assertEqual(local_report.agent_name, "local_code_agent")
             self.assertEqual(local_report.evidence[0]["file_path"], "src/main/java/com/example/RecommendationJob.java")
+            evidence_text = str(local_report.evidence)
+            self.assertIn("symbols", evidence_text)
+            self.assertIn("call_edges", evidence_text)
+            self.assertIn("generateDailyFoodRecommendWithFingerprint", evidence_text)
+            self.assertIn("analysis_modes=keyword,language_structure_tree,symbol_index,call_graph", local_report.observations)
             self.assertNotIn("application-prod.yml", str(local_report.evidence))
             self.assertNotIn("should_not_be_returned", str(local_report.evidence))
             self.assertIn("no_source_snippets", response.verification.checks)
+
+    def test_local_code_debug_uses_python_ast_calls(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir)
+            source_file = repo / "service.py"
+            source_file.write_text(
+                "class RecommendationService:\n"
+                "    def run(self):\n"
+                "        return generate_daily_food_recommend()\n"
+                "\n"
+                "def generate_daily_food_recommend():\n"
+                "    return True\n",
+                encoding="utf-8",
+            )
+            inspector = LocalCodeInspector(
+                repos={
+                    "health-food": LocalRepoConfig(
+                        service_name="health-food",
+                        repo_path=repo,
+                        allowed_globs=("**/*.py",),
+                    )
+                }
+            )
+            engine = DecisionEngine(SupervisorAgentTeam(local_code_agent=LocalCodeAgent(inspector)))
+
+            response = engine.plan(
+                DecisionRequest(
+                    case=CaseSnapshot(case_no="case_python_code", issue_domain="health_food"),
+                    entities={
+                        "debug_local_code": "true",
+                        "gateway_evidence_status": "insufficient",
+                        "service_name": "health-food",
+                        "suspect_area": "generate_daily_food_recommend",
+                    },
+                )
+            )
+
+            self.assertEqual(response.action, "local_code_inspection")
+            evidence_text = str(response.agent_reports[-1].evidence)
+            self.assertIn("RecommendationService.run", evidence_text)
+            self.assertIn("generate_daily_food_recommend", evidence_text)
+            self.assertIn("call_edges", evidence_text)
 
     def test_local_code_debug_requires_gateway_insufficient_status(self) -> None:
         inspector = LocalCodeInspector(repos={})

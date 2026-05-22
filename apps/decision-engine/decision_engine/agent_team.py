@@ -186,6 +186,9 @@ class LocalCodeAgent:
             f"status={result.status}",
             f"scanned_files={result.scanned_files}",
             f"skipped_denied_files={result.skipped_denied_files}",
+            f"symbol_count={result.symbol_count}",
+            f"call_edge_count={result.call_edge_count}",
+            f"analysis_modes={','.join(result.analysis_modes) or 'none'}",
         ]
         if result.status == "matched":
             return AgentReport(

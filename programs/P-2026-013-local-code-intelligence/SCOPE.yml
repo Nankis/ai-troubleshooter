@@ -1,0 +1,11 @@
+allowed_paths:
+  - apps/decision-engine/**
+  - programs/P-2026-013-local-code-intelligence/**
+
+forbidden_paths:
+  - internal/gateway/**
+  - migrations/**
+
+notes:
+  - "Local Code Agent 只允许 debug-only 使用。"
+  - "输出只能包含相对路径、符号、行号、调用边，不返回源码片段。"
