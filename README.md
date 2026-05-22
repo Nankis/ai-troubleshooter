@@ -133,6 +133,7 @@ docs/                      TRD 摘要与一期说明
 
 关键文档：
 
+- [架构决策记录](docs/architecture-decisions.md)
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
 - [Gateway 安全与鉴权边界](docs/gateway-security.md)
 - [AI 决策日志与查询限制](docs/decision-logging-and-limits.md)
