@@ -1,16 +1,25 @@
 GO ?= go
 GOFMT ?= gofmt
+PYTHON ?= python3.13
 
-.PHONY: fmt test dev gateway
+.PHONY: fmt test test-go test-python dev gateway decision-engine
 
 fmt:
 	$(GOFMT) -w $$(find . -name '*.go')
 
-test:
+test: test-go test-python
+
+test-go:
 	$(GO) test ./...
+
+test-python:
+	PYTHONPATH=apps/decision-engine $(PYTHON) -m unittest discover -s apps/decision-engine/tests -p 'test_*.py'
 
 dev:
 	$(GO) run ./cmd/dev-server
 
 gateway:
 	$(GO) run ./cmd/investigation-gateway
+
+decision-engine:
+	cd apps/decision-engine && $(PYTHON) -m decision_engine

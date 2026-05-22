@@ -1,0 +1,10 @@
+[project]
+name = "ai-troubleshooter-decision-engine"
+version = "0.1.0"
+description = "Python decision layer for ai-troubleshooter"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+

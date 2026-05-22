@@ -1,6 +1,6 @@
 # ai-troubleshooter
 
-一期业务工单排障 Agent 平台。当前仓库先用 Go 1.24+ 跑通只读、权限可控、可审计的 MVP 主链路；后续决策层按架构决策迁移到 Python 3.13，方便接入多模型编排、RAG 和本地代码辅助排查生态。
+一期业务工单排障 Agent 平台。当前仓库采用 monorepo：Go 1.24+ 负责 Lark/飞书入口、Gateway、worker 和一期 baseline；Python 3.13 决策层放在 `apps/decision-engine`，用于逐步承接多模型编排、RAG 和本地代码辅助排查生态。
 
 ## 为什么做这个
 
@@ -111,7 +111,7 @@ flowchart TB
 
   subgraph Brain["Decision Layer"]
     GoOrch["Go orchestrator<br/>current baseline"]
-    PyEngine["Python 3.13 Decision Engine<br/>planned target"]
+    PyEngine["Python 3.13 Decision Engine<br/>apps/decision-engine"]
     Retriever["Knowledge Retriever / RAG<br/>Phase 0: SQL + tag + keyword<br/>Future: vector index"]
     LocalCode["Local Code Inspector<br/>last resort"]
   end
@@ -193,7 +193,7 @@ sequenceDiagram
 | Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
 | Web Chat 入口 | 预留 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口。 |
 | Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
-| Decision Layer | Go baseline，计划迁移 Python 3.13 | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询生产证据。 |
+| Decision Layer | Go baseline + Python 3.13 skeleton | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询生产证据。 |
 | Investigation Gateway | 已实现 | 生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册。 |
 | Business Adapters | mock + HTTP 规范 | 对接业务只读 API、日志、缓存、外部交易所等证据源。 |
 | Knowledge / RAG | SQL/tag/keyword first | 首发不强依赖向量库，后续按评测效果接 pgvector/Qdrant/Milvus。 |
@@ -203,6 +203,8 @@ sequenceDiagram
 ## 目录
 
 ```text
+apps/
+  decision-engine/        Python 3.13 决策层服务，后续承接多模型/RAG/workflow
 cmd/
   dev-server/              本地一体化调试入口
   lark-bot/                Lark 事件入口
@@ -231,6 +233,7 @@ docs/                      TRD 摘要与一期说明
 
 - [架构决策记录](docs/architecture-decisions.md)
 - [AI 接入规范：业务只读接口封装](docs/ai-connector-integration.md)
+- [Python 决策层接口草案](api/openapi/decision-engine.yaml)
 - [Gateway 安全与鉴权边界](docs/gateway-security.md)
 - [AI 决策日志与查询限制](docs/decision-logging-and-limits.md)
 - [部署检查清单](docs/deployment-checklist.md)
@@ -274,7 +277,7 @@ docs/                      TRD 摘要与一期说明
 
 ## 本地启动
 
-需要 Go 1.24 或更高版本，并确保 `go` 与 `gofmt` 在 PATH 中。后续 Python Decision Engine 使用 Python 3.13：
+需要 Go 1.24 或更高版本，并确保 `go` 与 `gofmt` 在 PATH 中。Python Decision Engine 使用 Python 3.13：
 
 ```bash
 go version
@@ -286,6 +289,13 @@ make test
 
 ```bash
 go run ./cmd/dev-server
+```
+
+启动 Python 决策层：
+
+```bash
+cd apps/decision-engine
+python3.13 -m decision_engine --host 127.0.0.1 --port 19092
 ```
 
 模拟 Lark 事件：

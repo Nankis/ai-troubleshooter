@@ -1,0 +1,110 @@
+openapi: 3.0.3
+info:
+  title: AI Troubleshooter Decision Engine
+  version: 0.1.0
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: ok
+  /v1/decisions/plan:
+    post:
+      summary: Create a bounded readonly tool plan for a case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+      responses:
+        "200":
+          description: decision plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionResponse"
+components:
+  schemas:
+    CaseSnapshot:
+      type: object
+      required: [case_no]
+      properties:
+        case_no:
+          type: string
+        uid:
+          type: string
+        source:
+          type: string
+        reporter_user_id:
+          type: string
+        chat_id:
+          type: string
+        issue_domain:
+          type: string
+        issue_type:
+          type: string
+        original_text:
+          type: string
+        ocr_text:
+          type: string
+    ToolSpec:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        required_scope:
+          type: string
+        max_time_range_minutes:
+          type: integer
+        max_limit:
+          type: integer
+    DecisionRequest:
+      type: object
+      required: [case]
+      properties:
+        case:
+          $ref: "#/components/schemas/CaseSnapshot"
+        entities:
+          type: object
+          additionalProperties:
+            type: string
+        available_tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolSpec"
+        max_tool_calls:
+          type: integer
+          default: 10
+    ToolPlan:
+      type: object
+      required: [tool_name, reason, arguments]
+      properties:
+        tool_name:
+          type: string
+        reason:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+    DecisionResponse:
+      type: object
+      required: [action, reason, missing_fields, tool_plan, confidence]
+      properties:
+        action:
+          type: string
+          enum: [ask_user, invoke_tools, need_human]
+        reason:
+          type: string
+        missing_fields:
+          type: array
+          items:
+            type: string
+        tool_plan:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolPlan"
+        confidence:
+          type: number

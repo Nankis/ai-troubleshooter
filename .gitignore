@@ -5,3 +5,5 @@ dist/
 tmp/
 coverage.out
 *.log
+__pycache__/
+*.pyc

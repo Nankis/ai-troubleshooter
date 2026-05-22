@@ -18,7 +18,7 @@
 
 ### 决策
 
-决策层后续迁移为 Python 3.13 服务，负责：
+决策层迁移目标是 Python 3.13 服务。当前仓库已先落地 `apps/decision-engine` 骨架，负责逐步承接：
 
 - case intake 后的分类、实体抽取、必要字段判断。
 - 历史经验检索和相似 case 检索。
@@ -57,7 +57,7 @@ Lark / Feishu / Web Chat
 
 第一阶段不推翻 Go 实现，先把 Go orchestrator 当作 baseline：
 
-1. 定义 Python Decision Engine 的输入输出协议。
+1. 定义 Python Decision Engine 的输入输出协议，并在 `api/openapi/decision-engine.yaml` 固化。
 2. Go orchestrator 保留为 fallback 或 compatibility mode。
 3. Python 决策层读取 Gateway `/tools` 或 tool catalog，不读取 Gateway 源码作为运行时依据。
 4. 灰度时使用 `mode=mock`、`mode=staging`、`mode=prod-shadow` 三种模式。
