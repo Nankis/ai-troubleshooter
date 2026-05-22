@@ -52,7 +52,17 @@ func (c *OpenAICompatibleClient) ClassifyIssue(ctx context.Context, input CaseIn
 	err := c.completeJSON(ctx, "请将工单分类为业务域和问题类型，只输出 JSON。业务域只能是 kline、asset 或空字符串。", map[string]any{
 		"case": input.Case,
 	}, &out)
-	return IssueClassification{IssueDomain: out.IssueDomain, IssueType: out.IssueType, Confidence: out.Confidence}, err
+	if err != nil || strings.TrimSpace(out.IssueDomain) == "" || out.Confidence <= 0 {
+		ruleResult, ruleErr := NewRuleBasedClient().ClassifyIssue(ctx, input)
+		if ruleErr != nil {
+			return IssueClassification{IssueDomain: out.IssueDomain, IssueType: out.IssueType, Confidence: out.Confidence}, err
+		}
+		if strings.TrimSpace(out.IssueType) != "" && strings.TrimSpace(ruleResult.IssueType) == "" {
+			ruleResult.IssueType = out.IssueType
+		}
+		return ruleResult, nil
+	}
+	return IssueClassification{IssueDomain: out.IssueDomain, IssueType: out.IssueType, Confidence: out.Confidence}, nil
 }
 
 func (c *OpenAICompatibleClient) ExtractEntities(ctx context.Context, input CaseInput) (ExtractedEntities, error) {
@@ -77,7 +87,10 @@ func (c *OpenAICompatibleClient) ExtractEntities(ctx context.Context, input Case
 		}
 		entities = append(entities, caseflow.Entity{Type: item.Type, Value: item.Value, Source: "llm", Confidence: &conf})
 	}
-	return ExtractedEntities{Entities: entities}, err
+	if err != nil || len(entities) == 0 {
+		return NewRuleBasedClient().ExtractEntities(ctx, input)
+	}
+	return ExtractedEntities{Entities: entities}, nil
 }
 
 func (c *OpenAICompatibleClient) DecideNextAction(ctx context.Context, state caseflow.Case, entities map[string]string, tools []string) (NextAction, error) {
@@ -93,7 +106,10 @@ func (c *OpenAICompatibleClient) DecideNextAction(ctx context.Context, state cas
 		"entities":        entities,
 		"available_tools": tools,
 	}, &out)
-	return NextAction{ToolNames: out.ToolNames, Reason: out.Reason}, err
+	if err != nil || len(out.ToolNames) == 0 {
+		return NewRuleBasedClient().DecideNextAction(ctx, state, entities, tools)
+	}
+	return NextAction{ToolNames: out.ToolNames, Reason: out.Reason}, nil
 }
 
 func defaultToolNames(issueDomain string) []string {
@@ -116,7 +132,10 @@ func (c *OpenAICompatibleClient) SummarizeFindings(ctx context.Context, state ca
 		"case":         state,
 		"observations": observations,
 	}, &out)
-	return InvestigationReport{Summary: out.Summary, Confidence: out.Confidence}, err
+	if err != nil || strings.TrimSpace(out.Summary) == "" {
+		return NewRuleBasedClient().SummarizeFindings(ctx, state, observations)
+	}
+	return InvestigationReport{Summary: out.Summary, Confidence: out.Confidence}, nil
 }
 
 func (c *OpenAICompatibleClient) completeJSON(ctx context.Context, instruction string, input any, out any) error {

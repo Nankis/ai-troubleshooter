@@ -110,6 +110,55 @@ func TestProcessCaseTimeoutFailsCase(t *testing.T) {
 	}
 }
 
+func TestProcessCaseCanAnswerFromHighConfidenceKnowledge(t *testing.T) {
+	ctx := context.Background()
+	store := caseflow.NewInMemoryStore()
+	c, err := store.CreateCase(ctx, caseflow.CreateCaseInput{
+		OriginalText: "BTCUSDT 1m K线价格不一致，异常时间 2026-05-21T20:00:00+08:00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertKnowledgeItem(ctx, caseflow.KnowledgeItem{
+		Title:                "Binance high price tolerance mismatch",
+		IssueDomain:          caseflow.DomainKline,
+		IssueType:            "价格不一致",
+		RecommendedStepsJSON: `["检查聚合精度","确认外部 high 值"]`,
+		Confidence:           0.93,
+		ObservedCaseCount:    3,
+		LastConfirmedReason:  "历史同类 case 已确认由聚合精度差异导致。",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	toolClient := &fakeToolClient{}
+	runner := New(store, fakeLLM{}, toolClient, Config{
+		MaxToolCallsPerCase:     10,
+		MaxToolFailuresPerCase:  1,
+		MaxInvestigationSeconds: 5,
+	})
+
+	result, err := runner.ProcessCase(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != caseflow.StatusNeedHumanConfirmation {
+		t.Fatalf("expected NEED_HUMAN_CONFIRMATION, got %s", result.Status)
+	}
+	if toolClient.calls != 0 {
+		t.Fatalf("expected knowledge answer to bypass tools, got %d calls", toolClient.calls)
+	}
+	if !strings.Contains(result.Reply, "命中平台历史经验") {
+		t.Fatalf("unexpected reply: %s", result.Reply)
+	}
+	logs, err := store.ListAIDecisionLogs(ctx, c.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDecision(logs, "knowledge_retrieval") {
+		t.Fatalf("expected knowledge_retrieval log, got %+v", logs)
+	}
+}
+
 type fakeLLM struct {
 	waitForContext bool
 }

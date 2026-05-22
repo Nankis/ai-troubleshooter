@@ -49,19 +49,43 @@ class ToolSpec:
 
 
 @dataclass(slots=True)
+class KnowledgeCandidate:
+    title: str
+    confidence: float = 0.0
+    observed_case_count: int = 0
+    requires_realtime_check: bool = False
+    source: str = ""
+    summary: str = ""
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "KnowledgeCandidate":
+        return cls(
+            title=str(value.get("title", "")),
+            confidence=float(value.get("confidence") or 0.0),
+            observed_case_count=int(value.get("observed_case_count") or 0),
+            requires_realtime_check=bool(value.get("requires_realtime_check") or False),
+            source=str(value.get("source", "")),
+            summary=str(value.get("summary", "")),
+        )
+
+
+@dataclass(slots=True)
 class DecisionRequest:
     case: CaseSnapshot
     entities: dict[str, str] = field(default_factory=dict)
     available_tools: list[ToolSpec] = field(default_factory=list)
+    knowledge_candidates: list[KnowledgeCandidate] = field(default_factory=list)
     max_tool_calls: int = 10
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "DecisionRequest":
         raw_tools = value.get("available_tools") or []
+        raw_knowledge = value.get("knowledge_candidates") or []
         return cls(
             case=CaseSnapshot.from_dict(value.get("case") or {}),
             entities={str(k): str(v) for k, v in (value.get("entities") or {}).items()},
             available_tools=[ToolSpec.from_dict(v) for v in raw_tools if isinstance(v, dict)],
+            knowledge_candidates=[KnowledgeCandidate.from_dict(v) for v in raw_knowledge if isinstance(v, dict)],
             max_tool_calls=int(value.get("max_tool_calls") or 10),
         )
 
@@ -79,8 +103,8 @@ class DecisionResponse:
     reason: str
     missing_fields: list[str] = field(default_factory=list)
     tool_plan: list[ToolPlan] = field(default_factory=list)
+    knowledge_source: str = ""
     confidence: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

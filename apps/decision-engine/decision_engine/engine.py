@@ -41,6 +41,15 @@ class DecisionEngine:
                 confidence=0.6,
             )
 
+        knowledge = self._best_knowledge(request)
+        if knowledge is not None:
+            return DecisionResponse(
+                action="answer_from_knowledge",
+                reason="平台历史经验置信度高，且不需要实时生产状态验证；直接返回前必须写 AI 决策日志。",
+                knowledge_source=knowledge.source or knowledge.title,
+                confidence=knowledge.confidence,
+            )
+
         selected_tools = self._select_tools(request)
         if not selected_tools:
             return DecisionResponse(
@@ -83,3 +92,15 @@ class DecisionEngine:
             arguments=args,
         )
 
+    def _best_knowledge(self, request: DecisionRequest):
+        candidates = sorted(
+            request.knowledge_candidates,
+            key=lambda item: (item.confidence, item.observed_case_count),
+            reverse=True,
+        )
+        if not candidates:
+            return None
+        best = candidates[0]
+        if best.confidence >= 0.88 and best.observed_case_count >= 2 and not best.requires_realtime_check:
+            return best
+        return None

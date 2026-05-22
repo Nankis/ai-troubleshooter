@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Troubleshooter Web Chat</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #18202f;
+      --muted: #687386;
+      --line: #dfe5ee;
+      --accent: #1769e0;
+      --accent-dark: #0d4ea8;
+      --ok: #0f8a57;
+      --warn: #b66a00;
+      --shadow: 0 18px 50px rgba(22, 34, 51, 0.10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 1px;
+      min-height: 100vh;
+    }
+    .main, .side {
+      background: var(--panel);
+    }
+    .main {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0;
+    }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 {
+      font-size: 20px;
+      line-height: 1.2;
+      margin: 0;
+      letter-spacing: 0;
+    }
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--ok);
+    }
+    .messages {
+      padding: 24px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg {
+      max-width: 860px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-shadow: 0 6px 18px rgba(22, 34, 51, 0.04);
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #eef5ff;
+      border-color: #cfe1fb;
+    }
+    .msg.agent {
+      align-self: flex-start;
+      background: #fff;
+    }
+    .msg.system {
+      align-self: center;
+      background: #f7fafc;
+      color: var(--muted);
+      box-shadow: none;
+      max-width: 720px;
+    }
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 16px 24px 20px;
+      display: grid;
+      gap: 12px;
+      background: #fbfcff;
+    }
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      max-height: 180px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font: inherit;
+      line-height: 1.5;
+      outline: none;
+      background: #fff;
+    }
+    textarea:focus, input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(23, 105, 224, 0.12);
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .upload {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font: inherit;
+      font-weight: 650;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-dark); }
+    button.secondary {
+      color: var(--text);
+      background: #eef2f7;
+    }
+    button.secondary:hover { background: #e3e9f2; }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .58;
+    }
+    .side {
+      border-left: 1px solid var(--line);
+      padding: 20px;
+      overflow: auto;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+      background: #fff;
+    }
+    .panel h2 {
+      font-size: 14px;
+      margin: 0 0 10px;
+      color: var(--muted);
+      letter-spacing: 0;
+      font-weight: 700;
+    }
+    dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: 94px minmax(0, 1fr);
+      gap: 8px 10px;
+      font-size: 13px;
+    }
+    dt { color: var(--muted); }
+    dd { margin: 0; word-break: break-word; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #edf6f2;
+      color: var(--ok);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .pill.warn {
+      background: #fff6e8;
+      color: var(--warn);
+    }
+    .list {
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .item {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+    .item:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    @media (max-width: 940px) {
+      .shell { grid-template-columns: 1fr; }
+      .side { border-left: 0; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="main">
+      <header>
+        <div>
+          <h1>AI Troubleshooter</h1>
+          <div class="small">本地排障工作台</div>
+        </div>
+        <div class="status"><span class="dot"></span><span id="runStatus">ready</span></div>
+      </header>
+
+      <section class="messages" id="messages">
+        <div class="msg system">等待输入生产问题。</div>
+      </section>
+
+      <form class="composer" id="chatForm">
+        <textarea id="message" name="message" placeholder="输入排障问题，例如：用户 user_123 的 USDT 余额在 2026-05-21 20:00 变少了"></textarea>
+        <div class="row">
+          <label class="upload">
+            <input id="images" name="images" type="file" accept="image/*" multiple>
+            <span>上传截图，可多张</span>
+          </label>
+          <div class="row">
+            <button class="secondary" type="button" id="newCase">新 case</button>
+            <button type="submit" id="send">发送并排查</button>
+          </div>
+        </div>
+      </form>
+    </main>
+
+    <aside class="side">
+      <div class="panel">
+        <h2>Case</h2>
+        <dl id="caseMeta">
+          <dt>case_no</dt><dd>-</dd>
+          <dt>status</dt><dd>-</dd>
+          <dt>domain</dt><dd>-</dd>
+          <dt>type</dt><dd>-</dd>
+        </dl>
+      </div>
+      <div class="panel">
+        <h2>Tool Calls</h2>
+        <div class="list" id="toolCalls"><div class="small">暂无</div></div>
+      </div>
+      <div class="panel">
+        <h2>Decision Logs</h2>
+        <div class="list" id="decisionLogs"><div class="small">暂无</div></div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const form = document.getElementById("chatForm");
+    const send = document.getElementById("send");
+    const statusEl = document.getElementById("runStatus");
+    const messages = document.getElementById("messages");
+    const messageEl = document.getElementById("message");
+    const imagesEl = document.getElementById("images");
+    const caseMeta = document.getElementById("caseMeta");
+    const decisionLogs = document.getElementById("decisionLogs");
+    const toolCalls = document.getElementById("toolCalls");
+    let currentCaseNo = "";
+
+    document.getElementById("newCase").addEventListener("click", () => {
+      currentCaseNo = "";
+      caseMeta.innerHTML = "<dt>case_no</dt><dd>-</dd><dt>status</dt><dd>-</dd><dt>domain</dt><dd>-</dd><dt>type</dt><dd>-</dd>";
+      decisionLogs.innerHTML = "<div class=\"small\">暂无</div>";
+      toolCalls.innerHTML = "<div class=\"small\">暂无</div>";
+      appendMessage("system", "已切换到新 case。");
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = messageEl.value.trim();
+      if (!text && imagesEl.files.length === 0) return;
+      appendMessage("user", text || "[上传截图]");
+      const data = new FormData();
+      data.append("message", text);
+      if (currentCaseNo) data.append("case_no", currentCaseNo);
+      for (const file of imagesEl.files) data.append("images", file);
+      setBusy(true);
+      try {
+        const response = await fetch("/web/api/chat", { method: "POST", body: data });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "request failed");
+        currentCaseNo = payload.case.case_no;
+        appendMessage("agent", payload.reply || "没有返回内容");
+        renderMeta(payload);
+        renderDecisionLogs(payload.ai_decision_logs || []);
+        renderToolCalls(payload.tool_call_ids || [], payload.ai_decision_logs || []);
+        messageEl.value = "";
+        imagesEl.value = "";
+      } catch (error) {
+        appendMessage("system", "请求失败：" + error.message);
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    function setBusy(value) {
+      send.disabled = value;
+      statusEl.textContent = value ? "investigating" : "ready";
+    }
+
+    function appendMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      div.textContent = text;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function renderMeta(payload) {
+      const c = payload.case || {};
+      const status = c.status || "-";
+      caseMeta.innerHTML = `
+        <dt>case_no</dt><dd>${escapeHTML(c.case_no || "-")}</dd>
+        <dt>status</dt><dd><span class="pill ${status === "NEED_HUMAN_CONFIRMATION" ? "" : "warn"}">${escapeHTML(status)}</span></dd>
+        <dt>domain</dt><dd>${escapeHTML(c.issue_domain || "-")}</dd>
+        <dt>type</dt><dd>${escapeHTML(c.issue_type || "-")}</dd>
+      `;
+    }
+
+    function renderDecisionLogs(items) {
+      if (!items.length) {
+        decisionLogs.innerHTML = "<div class=\"small\">暂无</div>";
+        return;
+      }
+      decisionLogs.innerHTML = items.slice(-8).reverse().map((item) => `
+        <div class="item">
+          <strong>${escapeHTML(item.decision_type || "-")}</strong>
+          <div class="small">${escapeHTML(item.status || "-")} · ${escapeHTML(item.reason || "")}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderToolCalls(ids, logs) {
+      const toolLogs = logs.filter((item) => item.decision_type === "tool_invocation");
+      if (!ids.length && !toolLogs.length) {
+        toolCalls.innerHTML = "<div class=\"small\">暂无</div>";
+        return;
+      }
+      toolCalls.innerHTML = toolLogs.map((item) => `
+        <div class="item">
+          <strong>${escapeHTML(selectedTool(item) || "tool")}</strong>
+          <div class="small">${escapeHTML(item.status || "-")} · ${escapeHTML(item.reason || "")}</div>
+        </div>
+      `).join("") || ids.map((id) => `<div class="item">${escapeHTML(id)}</div>`).join("");
+    }
+
+    function selectedTool(item) {
+      try {
+        const arr = JSON.parse(item.selected_tools_json || "[]");
+        return Array.isArray(arr) ? arr.join(", ") : "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function escapeHTML(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
+  </script>
+</body>
+</html>

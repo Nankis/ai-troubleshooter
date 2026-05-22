@@ -1,0 +1,31 @@
+program: P-2026-008-web-chat-local-agent-mvp
+name: "Web Chat Local Agent MVP"
+level: "Full"
+phase: "complete"
+status: "done"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "Task 7"
+tasks:
+  - id: task-1
+    name: "建立 Program 和安全边界"
+    status: done
+  - id: task-2
+    name: "Web Chat 页面和 API"
+    status: done
+  - id: task-3
+    name: "MySQL 本地迁移和落库验证"
+    status: done
+  - id: task-4
+    name: "Agent 决策层和 Qwen 本地运行配置"
+    status: done
+  - id: task-5
+    name: "Secret scan 和 git hook"
+    status: done
+  - id: task-6
+    name: "验证闭环"
+    status: done
+  - id: task-7
+    name: "回写并提交推送"
+    status: done

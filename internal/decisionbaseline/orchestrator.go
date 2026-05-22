@@ -217,6 +217,69 @@ func (o *Runner) ProcessCase(parent context.Context, caseID int64) (result casef
 		}, nil
 	}
 
+	knowledgeItems, knowledgeErr := o.store.ListKnowledgeItems(ctx, caseflow.KnowledgeFilter{
+		IssueDomain: c.IssueDomain,
+		IssueType:   c.IssueType,
+		Status:      "active",
+		Limit:       3,
+	})
+	if knowledgeErr == nil && len(knowledgeItems) > 0 {
+		top := knowledgeItems[0]
+		direct := shouldAnswerFromKnowledge(c, top)
+		o.recordDecision(ctx, decisionRecord{
+			Case:         c,
+			DecisionType: "knowledge_retrieval",
+			Reason:       "retrieve platform knowledge before querying downstream business tools",
+			Input:        map[string]any{"issue_domain": c.IssueDomain, "issue_type": c.IssueType},
+			Output: map[string]any{
+				"matched":                 true,
+				"top_knowledge_item_id":   top.ID,
+				"top_knowledge_title":     top.Title,
+				"confidence":              top.Confidence,
+				"observed_case_count":     top.ObservedCaseCount,
+				"answer_directly":         direct,
+				"requires_realtime_check": requiresRealtimeEvidence(c),
+			},
+			Status: "success",
+		})
+		if direct {
+			c, err = o.transition(ctx, c, caseflow.StatusInvestigating)
+			if err != nil {
+				return caseflow.ProcessResult{}, err
+			}
+			invValue, err := o.store.CreateInvestigation(ctx, caseflow.Investigation{
+				CaseID:            c.ID,
+				AgentID:           o.cfg.AgentID,
+				AgentVersion:      "phase1-mvp",
+				ModelProvider:     o.cfg.ModelProvider,
+				ModelName:         o.cfg.ModelName,
+				Status:            "running",
+				InitialHypothesis: "high-confidence platform knowledge matched",
+			})
+			if err != nil {
+				return caseflow.ProcessResult{}, err
+			}
+			inv = &invValue
+			reply := buildKnowledgeReply(c.CaseNo, top)
+			_, _ = o.store.FinishInvestigation(ctx, inv.ID, "finished", reply, &top.Confidence)
+			_, _ = o.store.AddMessage(ctx, caseflow.Message{CaseID: c.ID, Role: "agent", Content: reply})
+			c, err = o.transition(ctx, c, caseflow.StatusNeedHumanConfirmation)
+			if err != nil {
+				return caseflow.ProcessResult{}, err
+			}
+			return caseflow.ProcessResult{CaseID: c.ID, CaseNo: c.CaseNo, Status: c.Status, Reply: reply}, nil
+		}
+	} else if knowledgeErr != nil {
+		o.recordDecision(ctx, decisionRecord{
+			Case:         c,
+			DecisionType: "knowledge_retrieval",
+			Reason:       "platform knowledge retrieval failed; continue with bounded gateway tools",
+			Input:        map[string]any{"issue_domain": c.IssueDomain, "issue_type": c.IssueType},
+			Status:       "failed",
+			Err:          knowledgeErr,
+		})
+	}
+
 	c, err = o.transition(ctx, c, caseflow.StatusReadyToInvestigate)
 	if err != nil {
 		return caseflow.ProcessResult{}, err
@@ -520,6 +583,40 @@ func buildMissingInfoReply(caseNo string, missing []string) string {
 	return fmt.Sprintf("[%s] 还需要补充 %d 个关键信息：\n%s", caseNo, len(missing), strings.Join(questions, "\n"))
 }
 
+func shouldAnswerFromKnowledge(c *caseflow.Case, item caseflow.KnowledgeItem) bool {
+	if item.Confidence < 0.88 {
+		return false
+	}
+	if item.ObservedCaseCount < 2 {
+		return false
+	}
+	return !requiresRealtimeEvidence(c)
+}
+
+func requiresRealtimeEvidence(c *caseflow.Case) bool {
+	text := strings.ToLower(c.IssueType + " " + c.OriginalText + " " + c.OCRText)
+	if containsAny(text, "当前", "现在", "实时", "余额", "资产", "冻结", "充值", "提现", "延迟", "超时", "失败", "报错") {
+		return true
+	}
+	return false
+}
+
+func buildKnowledgeReply(caseNo string, item caseflow.KnowledgeItem) string {
+	lines := []string{
+		"[" + caseNo + "] 命中平台历史经验，先给出高置信排查建议：",
+		"",
+		"经验：" + item.Title,
+	}
+	if item.LastConfirmedReason != "" {
+		lines = append(lines, "历史确认根因："+item.LastConfirmedReason)
+	}
+	if item.RecommendedStepsJSON != "" {
+		lines = append(lines, "建议步骤："+item.RecommendedStepsJSON)
+	}
+	lines = append(lines, "", "说明：本结论来自平台经验库，仍建议业务 owner 根据当前现场确认最终根因。")
+	return strings.Join(lines, "\n")
+}
+
 func humanField(field string) string {
 	switch field {
 	case "symbol":
@@ -692,4 +789,13 @@ func fallback(v string, def string) string {
 		return v
 	}
 	return def
+}
+
+func containsAny(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
 }

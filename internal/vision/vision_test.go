@@ -96,7 +96,7 @@ func TestNewFromConfigsExplicitVisionOverridesLLM(t *testing.T) {
 	client := NewFromConfigs(config.VisionConfig{
 		Provider: "qwen_openai_compatible",
 		BaseURL:  "https://dashscope.example/compatible-mode/v1",
-		APIKey:   "vision_key",
+		APIKey:   "dummy-vision-key",
 		Model:    "qwen-vl",
 	}, config.LLMConfig{
 		Provider: "openai_compatible",
@@ -108,7 +108,7 @@ func TestNewFromConfigsExplicitVisionOverridesLLM(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenAICompatibleClient, got %T", client)
 	}
-	if got.baseURL != "https://dashscope.example/compatible-mode/v1/chat/completions" || got.apiKey != "vision_key" || got.model != "qwen-vl" {
+	if got.baseURL != "https://dashscope.example/compatible-mode/v1/chat/completions" || got.apiKey != "dummy-vision-key" || got.model != "qwen-vl" {
 		t.Fatalf("vision config should override llm config: %+v", got)
 	}
 }

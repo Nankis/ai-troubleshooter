@@ -1,7 +1,7 @@
 import unittest
 
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
-from decision_engine.models import ToolSpec
+from decision_engine.models import KnowledgeCandidate, ToolSpec
 
 
 class DecisionEngineTest(unittest.TestCase):
@@ -70,7 +70,56 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual(response.action, "ask_user")
         self.assertEqual(response.missing_fields[0], "user_id_or_account_id")
 
+    def test_high_confidence_knowledge_can_answer_directly(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_1", issue_domain="kline"),
+                entities={
+                    "symbol": "BTCUSDT",
+                    "interval": "1m",
+                    "abnormal_time": "2026-05-21T20:00:00+08:00",
+                    "issue_type": "known_sop",
+                },
+                knowledge_candidates=[
+                    KnowledgeCandidate(
+                        title="历史 SOP",
+                        confidence=0.93,
+                        observed_case_count=3,
+                        requires_realtime_check=False,
+                        source="knowledge:1",
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(response.action, "answer_from_knowledge")
+        self.assertEqual(response.knowledge_source, "knowledge:1")
+
+    def test_realtime_knowledge_still_invokes_tools(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_1", issue_domain="kline"),
+                entities={
+                    "symbol": "BTCUSDT",
+                    "interval": "1m",
+                    "abnormal_time": "2026-05-21T20:00:00+08:00",
+                    "issue_type": "price_mismatch",
+                },
+                knowledge_candidates=[
+                    KnowledgeCandidate(
+                        title="历史 SOP",
+                        confidence=0.94,
+                        observed_case_count=4,
+                        requires_realtime_check=True,
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+
 
 if __name__ == "__main__":
     unittest.main()
-

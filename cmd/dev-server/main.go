@@ -24,6 +24,7 @@ import (
 	"github.com/Nankis/ai-troubleshooter/internal/queue"
 	"github.com/Nankis/ai-troubleshooter/internal/storage"
 	"github.com/Nankis/ai-troubleshooter/internal/vision"
+	"github.com/Nankis/ai-troubleshooter/internal/webchat"
 	"github.com/Nankis/ai-troubleshooter/internal/worker"
 )
 
@@ -79,7 +80,15 @@ func main() {
 		MaxImages:     cfg.Vision.MaxImagesPerMessage,
 		MaxImageBytes: cfg.Vision.MaxImageBytes,
 	})
+	visionClient := vision.NewFromConfigs(cfg.Vision, cfg.LLM)
+	webChat := webchat.New(store, runner, visionClient, webchat.Options{
+		MaxImages:     cfg.Vision.MaxImagesPerMessage,
+		MaxImageBytes: int64(cfg.Vision.MaxImageBytes),
+	})
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", webChat.ServeIndex)
+	mux.HandleFunc("/web", webChat.ServeIndex)
+	mux.HandleFunc("/web/api/chat", webChat.ServeChat)
 	mux.Handle("/lark/events", larkHandler)
 	mux.Handle("/feishu/events", larkHandler)
 	mux.Handle("/tools", gw)

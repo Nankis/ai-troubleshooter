@@ -173,12 +173,12 @@ func classifyKlineType(text string) string {
 	switch {
 	case containsAny(text, "不显示"):
 		return "不显示"
-	case containsAny(text, "延迟"):
-		return "延迟"
 	case containsAny(text, "成交量"):
 		return "成交量不一致"
 	case containsAny(text, "最高", "最低", "high", "low"):
 		return "最高最低不一致"
+	case containsAny(text, "延迟"):
+		return "延迟"
 	case containsAny(text, "不一致", "不对", "价格"):
 		return "价格不一致"
 	default:
@@ -212,10 +212,25 @@ func firstTime(text string) string {
 			if t, err := time.Parse(time.RFC3339, match); err == nil {
 				return t.Format(time.RFC3339)
 			}
-			return strings.ReplaceAll(match, " ", "T") + "+08:00"
+			return normalizeLocalTime(match)
 		}
 	}
 	return ""
+}
+
+func normalizeLocalTime(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), " ", "T")
+	if value == "" {
+		return ""
+	}
+	timePart := value
+	if parts := strings.SplitN(value, "T", 2); len(parts) == 2 {
+		timePart = parts[1]
+	}
+	if strings.Count(timePart, ":") == 1 {
+		value += ":00"
+	}
+	return value + "+08:00"
 }
 
 func firstMatch(text string, pattern string) string {

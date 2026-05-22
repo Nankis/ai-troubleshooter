@@ -46,3 +46,35 @@ func TestOpenAICompatibleClientClassifiesIssue(t *testing.T) {
 		t.Fatalf("unexpected classification: %+v", got)
 	}
 }
+
+func TestRuleBasedClientNormalizesMinutePrecisionTime(t *testing.T) {
+	client := NewRuleBasedClient()
+	got, err := client.ExtractEntities(context.Background(), CaseInput{Case: caseflow.Case{
+		OriginalText: "BTCUSDT 1m 在 2026-05-21 20:03 最高价和 Binance 不一致",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entity := range got.Entities {
+		if entity.Type == "abnormal_time" {
+			if entity.Value != "2026-05-21T20:03:00+08:00" {
+				t.Fatalf("unexpected abnormal_time %q", entity.Value)
+			}
+			return
+		}
+	}
+	t.Fatalf("abnormal_time not extracted: %+v", got.Entities)
+}
+
+func TestRuleBasedClientPrefersHighMismatchOverPossibleDelay(t *testing.T) {
+	client := NewRuleBasedClient()
+	got, err := client.ClassifyIssue(context.Background(), CaseInput{Case: caseflow.Case{
+		OCRText: "Issue: high price mismatch. 可能原因包括数据同步延迟或数据源问题。",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IssueType != "最高最低不一致" {
+		t.Fatalf("unexpected issue type: %+v", got)
+	}
+}

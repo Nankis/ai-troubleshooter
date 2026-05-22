@@ -2,7 +2,7 @@ GO ?= go
 GOFMT ?= gofmt
 PYTHON ?= python3.13
 
-.PHONY: fmt test test-go test-python dev gateway baseline-orchestrator decision-engine
+.PHONY: fmt test test-go test-python dev gateway baseline-orchestrator decision-engine migrate-mysql secret-scan install-hooks
 
 fmt:
 	$(GOFMT) -w $$(find . -name '*.go')
@@ -26,3 +26,12 @@ baseline-orchestrator:
 
 decision-engine:
 	cd apps/decision-engine && $(PYTHON) -m decision_engine
+
+migrate-mysql:
+	scripts/mysql-migrate.sh
+
+secret-scan:
+	$(PYTHON) scripts/secret-scan.py --mode all
+
+install-hooks:
+	scripts/install-git-hooks.sh

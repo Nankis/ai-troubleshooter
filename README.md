@@ -292,6 +292,7 @@ docs/                      TRD 摘要与一期说明
 - [AI 决策日志与查询限制](docs/decision-logging-and-limits.md)
 - [部署检查清单](docs/deployment-checklist.md)
 - [经验沉淀与自进化闭环](docs/knowledge-evolution.md)
+- [Agent 决策层框架选择](docs/agent-framework-selection.md)
 - [ai-workflow 开发规范接入](docs/ai-workflow.md)
 - [开发复盘记录](docs/LESSONS.md)
 - [验证结果记录规范](docs/VERIFICATION.md)
@@ -301,6 +302,7 @@ docs/                      TRD 摘要与一期说明
 
 - Go + Python monorepo 和一期目录结构。
 - 本地一体化 `dev-server`。
+- 内置 Web Chat：`GET /` 或 `/web` 打开本地聊天页，`POST /web/api/chat` 支持文字和图片上传，自动创建/继续 case 并返回 Agent 排查结果。
 - Lark / 飞书事件入口：`POST /lark/events` 和 `POST /feishu/events`，支持本地模拟 payload 和 Lark/Feishu v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
 - Lark encrypted callback：配置 `LARK_ENCRYPT_KEY` 后只接受密文回调，先解密 `encrypt` 回调体，再验 token 和处理 challenge / message。
@@ -332,6 +334,40 @@ docs/                      TRD 摘要与一期说明
 - 事件幂等索引 migration。
 - OpenAPI 草案。
 - 单元测试覆盖状态机、policy、masking、tool registry、HTTP connector envelope、Lark payload、知识自进化。
+
+## 本地 Web Chat 启动
+
+1. 准备本地 MySQL，并通过环境变量传入连接信息，不要写入仓库文件。
+2. 执行迁移：
+
+```bash
+MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PASSWORD="$LOCAL_MYSQL_PASSWORD" MYSQL_DATABASE=ai_troubleshooter make migrate-mysql
+```
+
+3. 启动服务：
+
+```bash
+export DB_DSN="$LOCAL_DB_DSN"
+export CONNECTOR_MODE=mock
+export LLM_PROVIDER=openai_compatible
+export LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+export LLM_MODEL=qwen-plus
+export LLM_API_KEY="$DASHSCOPE_API_KEY"
+export VISION_PROVIDER=qwen_openai_compatible
+export VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+export VISION_MODEL=qwen-vl-plus
+export VISION_API_KEY="$DASHSCOPE_API_KEY"
+make dev
+```
+
+4. 浏览器打开 `http://localhost:8080/`，输入问题或上传截图。
+
+所有 key、token、MySQL 密码都只允许通过环境变量传入。提交和推送前请安装本地 hook：
+
+```bash
+make install-hooks
+make secret-scan
+```
 
 ## 本地启动
 

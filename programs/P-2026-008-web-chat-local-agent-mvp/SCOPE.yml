@@ -1,0 +1,32 @@
+program: P-2026-008-web-chat-local-agent-mvp
+allowed_paths:
+  - AGENTS.md
+  - Makefile
+  - README.md
+  - cmd/dev-server/**
+  - internal/**
+  - apps/decision-engine/**
+  - web/**
+  - scripts/**
+  - githooks/**
+  - migrations/**
+  - docs/**
+  - programs/P-2026-008-web-chat-local-agent-mvp/**
+forbidden_paths:
+  - .env
+  - ".env*"
+  - "**/*secret*"
+  - "**/*credential*"
+  - "**/*private*"
+  - programs/P-2026-001-troubleshooter-knowledge-evolution/**
+  - programs/P-2026-002-gateway-security-hardening/**
+  - programs/P-2026-003-framework-readiness-hardening/**
+  - programs/P-2026-004-decision-logging-limits/**
+  - programs/P-2026-005-operational-hardening/**
+  - programs/P-2026-006-architecture-boundary-alignment/**
+  - programs/P-2026-007-user-drawn-architecture-flow/**
+requires_approval:
+  - production deploy
+  - push secrets
+  - destructive database operation
+notes: "本轮允许下载依赖和本地运行 MySQL/Go/Python；禁止提交任何 API key、密码、token。"
