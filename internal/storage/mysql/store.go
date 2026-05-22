@@ -60,10 +60,10 @@ func (s *Store) CreateCase(ctx context.Context, input caseflow.CreateCaseInput) 
 
 	tmpNo := fmt.Sprintf("case_pending_%d", now.UnixNano())
 	res, err := tx.ExecContext(ctx, `
-INSERT INTO cases
-(case_no, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text, status, priority, timezone, created_at, updated_at, version)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-		tmpNo, source, nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
+INSERT INTO tb_troubleshoot_case
+(case_no, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text, case_status, priority, timezone, create_time, update_time, version)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+		tmpNo, fallback(input.UID, input.ReporterUserID), source, nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
 		nullableString(input.ReporterUserID), nullableString(input.OriginalText), nullableString(input.OCRText),
 		caseflow.StatusNew, "normal", tz, now, now)
 	if err != nil {
@@ -78,7 +78,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 		return nil, err
 	}
 	caseNo := fmt.Sprintf("case_%s_%06d", now.Format("20060102"), id)
-	if _, err := tx.ExecContext(ctx, `UPDATE cases SET case_no = ? WHERE id = ?`, caseNo, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE tb_troubleshoot_case SET case_no = ? WHERE id = ?`, caseNo, id); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -126,11 +126,11 @@ func (s *Store) UpdateCase(ctx context.Context, id int64, expectedVersion int64,
 	next.Version++
 	next.UpdatedAt = time.Now()
 	if _, err := tx.ExecContext(ctx, `
-UPDATE cases
-SET source = ?, chat_id = ?, thread_id = ?, message_id = ?, reporter_user_id = ?, original_text = ?, ocr_text = ?,
-    issue_domain = ?, issue_type = ?, status = ?, priority = ?, timezone = ?, occurred_at = ?, updated_at = ?, closed_at = ?, version = ?
+UPDATE tb_troubleshoot_case
+SET uid = ?, source = ?, chat_id = ?, thread_id = ?, message_id = ?, reporter_user_id = ?, original_text = ?, ocr_text = ?,
+    issue_domain = ?, issue_type = ?, case_status = ?, priority = ?, timezone = ?, occurred_at = ?, update_time = ?, closed_at = ?, version = ?
 WHERE id = ?`,
-		next.Source, nullableString(next.ChatID), nullableString(next.ThreadID), nullableString(next.MessageID), nullableString(next.ReporterUserID),
+		next.UID, next.Source, nullableString(next.ChatID), nullableString(next.ThreadID), nullableString(next.MessageID), nullableString(next.ReporterUserID),
 		nullableString(next.OriginalText), nullableString(next.OCRText), nullableString(next.IssueDomain), nullableString(next.IssueType),
 		next.Status, next.Priority, next.Timezone, nullableTime(next.OccurredAt), next.UpdatedAt, nullableTime(next.ClosedAt), next.Version, id); err != nil {
 		return nil, err
@@ -151,14 +151,14 @@ func (s *Store) AddEntities(ctx context.Context, caseID int64, entities []casefl
 			continue
 		}
 		var count int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM case_entities WHERE case_id = ? AND entity_type = ? AND entity_value = ?`, caseID, entity.Type, entity.Value).Scan(&count); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM tb_troubleshoot_case_entity WHERE case_id = ? AND entity_type = ? AND entity_value = ?`, caseID, entity.Type, entity.Value).Scan(&count); err != nil {
 			return err
 		}
 		if count > 0 {
 			continue
 		}
 		_, err := s.db.ExecContext(ctx, `
-INSERT INTO case_entities (case_id, entity_type, entity_value, source, confidence, created_at)
+INSERT INTO tb_troubleshoot_case_entity (case_id, entity_type, entity_value, source, confidence, create_time)
 VALUES (?, ?, ?, ?, ?, ?)`,
 			caseID, entity.Type, entity.Value, fallback(entity.Source, "llm"), nullableFloat(entity.Confidence), now)
 		if err != nil {
@@ -169,7 +169,7 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 }
 
 func (s *Store) ListEntities(ctx context.Context, caseID int64) ([]caseflow.Entity, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, case_id, entity_type, entity_value, source, confidence, created_at FROM case_entities WHERE case_id = ? ORDER BY id`, caseID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, case_id, entity_type, entity_value, source, confidence, create_time FROM tb_troubleshoot_case_entity WHERE case_id = ? ORDER BY id`, caseID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,9 +192,9 @@ func (s *Store) ListEntities(ctx context.Context, caseID int64) ([]caseflow.Enti
 func (s *Store) AddMessage(ctx context.Context, msg caseflow.Message) (caseflow.Message, error) {
 	now := time.Now()
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO case_messages (case_id, role, lark_message_id, content, content_type, created_at)
+INSERT INTO tb_troubleshoot_case_message (case_id, role, platform_message_id, content, content_type, create_time)
 VALUES (?, ?, ?, ?, ?, ?)`,
-		msg.CaseID, msg.Role, nullableString(msg.LarkMessageID), msg.Content, fallback(msg.ContentType, "text"), now)
+		msg.CaseID, msg.Role, nullableString(msg.PlatformMessageID), msg.Content, fallback(msg.ContentType, "text"), now)
 	if err != nil {
 		return caseflow.Message{}, err
 	}
@@ -208,7 +208,7 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 }
 
 func (s *Store) ListMessages(ctx context.Context, caseID int64) ([]caseflow.Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, case_id, role, lark_message_id, content, content_type, created_at FROM case_messages WHERE case_id = ? ORDER BY id`, caseID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, case_id, role, platform_message_id, content, content_type, create_time FROM tb_troubleshoot_case_message WHERE case_id = ? ORDER BY id`, caseID)
 	if err != nil {
 		return nil, err
 	}
@@ -216,11 +216,11 @@ func (s *Store) ListMessages(ctx context.Context, caseID int64) ([]caseflow.Mess
 	out := []caseflow.Message{}
 	for rows.Next() {
 		var msg caseflow.Message
-		var larkMessageID sql.NullString
-		if err := rows.Scan(&msg.ID, &msg.CaseID, &msg.Role, &larkMessageID, &msg.Content, &msg.ContentType, &msg.CreatedAt); err != nil {
+		var platformMessageID sql.NullString
+		if err := rows.Scan(&msg.ID, &msg.CaseID, &msg.Role, &platformMessageID, &msg.Content, &msg.ContentType, &msg.CreatedAt); err != nil {
 			return nil, err
 		}
-		msg.LarkMessageID = nullStringValue(larkMessageID)
+		msg.PlatformMessageID = nullStringValue(platformMessageID)
 		out = append(out, msg)
 	}
 	return out, rows.Err()
@@ -235,8 +235,8 @@ func (s *Store) CreateInvestigation(ctx context.Context, inv caseflow.Investigat
 	defer rollback(tx)
 	tmpNo := fmt.Sprintf("inv_pending_%d", now.UnixNano())
 	res, err := tx.ExecContext(ctx, `
-INSERT INTO investigations
-(investigation_no, case_id, agent_id, agent_version, model_provider, model_name, status, initial_hypothesis, started_at, created_at, updated_at)
+INSERT INTO tb_troubleshoot_investigation
+(investigation_no, case_id, agent_id, agent_version, model_provider, model_name, investigation_status, initial_hypothesis, started_at, create_time, update_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		tmpNo, inv.CaseID, inv.AgentID, nullableString(inv.AgentVersion), nullableString(inv.ModelProvider), nullableString(inv.ModelName),
 		fallback(inv.Status, "running"), nullableString(inv.InitialHypothesis), now, now, now)
@@ -248,7 +248,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		return caseflow.Investigation{}, err
 	}
 	invNo := fmt.Sprintf("inv_%s_%06d", now.Format("20060102"), id)
-	if _, err := tx.ExecContext(ctx, `UPDATE investigations SET investigation_no = ? WHERE id = ?`, invNo, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE tb_troubleshoot_investigation SET investigation_no = ? WHERE id = ?`, invNo, id); err != nil {
 		return caseflow.Investigation{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -268,7 +268,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 func (s *Store) FinishInvestigation(ctx context.Context, id int64, status string, summary string, confidence *float64) (caseflow.Investigation, error) {
 	now := time.Now()
 	_, err := s.db.ExecContext(ctx, `
-UPDATE investigations SET status = ?, final_summary = ?, confidence = ?, finished_at = ?, updated_at = ? WHERE id = ?`,
+UPDATE tb_troubleshoot_investigation SET investigation_status = ?, final_summary = ?, confidence = ?, finished_at = ?, update_time = ? WHERE id = ?`,
 		status, nullableString(summary), nullableFloat(confidence), now, now, id)
 	if err != nil {
 		return caseflow.Investigation{}, err
@@ -285,8 +285,8 @@ func (s *Store) AddAIDecisionLog(ctx context.Context, item caseflow.AIDecisionLo
 		item.Status = "success"
 	}
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO ai_decision_logs
-(case_id, investigation_id, agent_id, decision_type, reason, input_snapshot_json, output_snapshot_json, selected_tools_json, status, latency_ms, error_message, created_at)
+INSERT INTO tb_troubleshoot_ai_decision_log
+(case_id, investigation_id, agent_id, decision_type, reason, input_snapshot_json, output_snapshot_json, selected_tools_json, decision_status, latency_ms, error_message, create_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.CaseID,
 		nullableInt64(item.InvestigationID),
@@ -315,8 +315,8 @@ func (s *Store) ListAIDecisionLogs(ctx context.Context, caseID int64, limit int)
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, case_id, investigation_id, agent_id, decision_type, reason, input_snapshot_json, output_snapshot_json,
-       selected_tools_json, status, latency_ms, error_message, created_at
-FROM ai_decision_logs
+       selected_tools_json, decision_status, latency_ms, error_message, create_time
+FROM tb_troubleshoot_ai_decision_log
 WHERE case_id = ?
 ORDER BY id DESC
 LIMIT ?`, caseID, limit)
@@ -347,10 +347,10 @@ func (s *Store) UpsertRootCause(ctx context.Context, rootCause caseflow.RootCaus
 		rootCause.ConfirmedAt = now
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO root_causes
+INSERT INTO tb_troubleshoot_root_cause
 (case_id, ai_predicted_reason, human_confirmed_reason, root_cause_category, owner_service, owner_team,
  is_cache_issue, is_data_sync_issue, is_external_source_issue, is_frontend_display_issue, is_user_misunderstanding,
- fix_action, prevention_action, confirmed_by, confirmed_at, created_at, updated_at)
+ fix_action, prevention_action, confirmed_by, confirmed_at, create_time, update_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
  ai_predicted_reason = VALUES(ai_predicted_reason),
@@ -367,7 +367,7 @@ ON DUPLICATE KEY UPDATE
  prevention_action = VALUES(prevention_action),
  confirmed_by = VALUES(confirmed_by),
  confirmed_at = VALUES(confirmed_at),
- updated_at = VALUES(updated_at)`,
+ update_time = VALUES(update_time)`,
 		rootCause.CaseID, nullableString(rootCause.AIPredictedReason), rootCause.HumanConfirmedReason, rootCause.RootCauseCategory,
 		nullableString(rootCause.OwnerService), nullableString(rootCause.OwnerTeam), rootCause.IsCacheIssue, rootCause.IsDataSyncIssue,
 		rootCause.IsExternalSourceIssue, rootCause.IsFrontendDisplayIssue, rootCause.IsUserMisunderstanding,
@@ -383,16 +383,16 @@ func (s *Store) GetRootCause(ctx context.Context, caseID int64) (caseflow.RootCa
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, case_id, ai_predicted_reason, human_confirmed_reason, root_cause_category, owner_service, owner_team,
        is_cache_issue, is_data_sync_issue, is_external_source_issue, is_frontend_display_issue, is_user_misunderstanding,
-       fix_action, prevention_action, confirmed_by, confirmed_at, created_at, updated_at
-FROM root_causes WHERE case_id = ?`, caseID)
+       fix_action, prevention_action, confirmed_by, confirmed_at, create_time, update_time
+FROM tb_troubleshoot_root_cause WHERE case_id = ?`, caseID)
 	return scanRootCause(row)
 }
 
 func (s *Store) AddCaseFeedback(ctx context.Context, feedback caseflow.CaseFeedback) (caseflow.CaseFeedback, error) {
 	now := time.Now()
 	res, err := s.db.ExecContext(ctx, `
-INSERT INTO case_feedbacks
-(case_id, rating, ai_useful, wrong_conclusion, missing_key_information, missing_tools_json, comment, created_by, created_at)
+INSERT INTO tb_troubleshoot_case_feedback
+(case_id, rating, ai_useful, wrong_conclusion, missing_key_information, missing_tools_json, comment, created_by, create_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		feedback.CaseID, nullableInt(feedback.Rating), feedback.AIUseful, feedback.WrongConclusion, nullableString(feedback.MissingKeyInformation),
 		nullableString(feedback.MissingToolsJSON), nullableString(feedback.Comment), nullableString(feedback.CreatedBy), now)
@@ -407,8 +407,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
 func (s *Store) ListCaseFeedback(ctx context.Context, caseID int64) ([]caseflow.CaseFeedback, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, case_id, rating, ai_useful, wrong_conclusion, missing_key_information, missing_tools_json, comment, created_by, created_at
-FROM case_feedbacks WHERE case_id = ? ORDER BY id`, caseID)
+SELECT id, case_id, rating, ai_useful, wrong_conclusion, missing_key_information, missing_tools_json, comment, created_by, create_time
+FROM tb_troubleshoot_case_feedback WHERE case_id = ? ORDER BY id`, caseID)
 	if err != nil {
 		return nil, err
 	}
@@ -484,14 +484,14 @@ func (s *Store) ListKnowledgeItems(ctx context.Context, filter caseflow.Knowledg
 		args = append(args, filter.RootCauseCategory)
 	}
 	if filter.Status != "" {
-		conds = append(conds, "status = ?")
+		conds = append(conds, "knowledge_status = ?")
 		args = append(args, filter.Status)
 	}
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	query += " WHERE " + strings.Join(conds, " AND ") + " ORDER BY updated_at DESC LIMIT ?"
+	query += " WHERE " + strings.Join(conds, " AND ") + " ORDER BY update_time DESC LIMIT ?"
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -518,8 +518,8 @@ func (s *Store) CreateKnowledgeEvolutionRun(ctx context.Context, run caseflow.Kn
 	defer rollback(tx)
 	tmpNo := fmt.Sprintf("ke_pending_%d", now.UnixNano())
 	res, err := tx.ExecContext(ctx, `
-INSERT INTO knowledge_evolution_runs
-(run_no, case_id, knowledge_item_id, trigger_type, input_snapshot_json, output_summary, decision, created_knowledge_item, updated_knowledge_item, error_message, created_at)
+INSERT INTO tb_troubleshoot_knowledge_evolution_run
+(run_no, case_id, knowledge_item_id, trigger_type, input_snapshot_json, output_summary, decision, created_knowledge_item, updated_knowledge_item, error_message, create_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		tmpNo, run.CaseID, nullableInt64(run.KnowledgeItemID), run.TriggerType, run.InputSnapshotJSON, nullableString(run.OutputSummary),
 		run.Decision, run.CreatedKnowledgeItem, run.UpdatedKnowledgeItem, nullableString(run.ErrorMessage), now)
@@ -531,7 +531,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		return caseflow.KnowledgeEvolutionRun{}, err
 	}
 	runNo := fmt.Sprintf("ke_%s_%06d", now.Format("20060102"), id)
-	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_evolution_runs SET run_no = ? WHERE id = ?`, runNo, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE tb_troubleshoot_knowledge_evolution_run SET run_no = ? WHERE id = ?`, runNo, id); err != nil {
 		return caseflow.KnowledgeEvolutionRun{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -546,8 +546,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 func (s *Store) ListKnowledgeEvolutionRuns(ctx context.Context, caseID int64) ([]caseflow.KnowledgeEvolutionRun, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, run_no, case_id, knowledge_item_id, trigger_type, input_snapshot_json, output_summary, decision,
-       created_knowledge_item, updated_knowledge_item, error_message, created_at
-FROM knowledge_evolution_runs WHERE case_id = ? ORDER BY id`, caseID)
+       created_knowledge_item, updated_knowledge_item, error_message, create_time
+FROM tb_troubleshoot_knowledge_evolution_run WHERE case_id = ? ORDER BY id`, caseID)
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +564,8 @@ FROM knowledge_evolution_runs WHERE case_id = ? ORDER BY id`, caseID)
 }
 
 func caseSelect() string {
-	return `SELECT id, case_no, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text,
-issue_domain, issue_type, status, priority, timezone, occurred_at, created_at, updated_at, closed_at, version FROM cases`
+	return `SELECT id, case_no, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text,
+issue_domain, issue_type, case_status, priority, timezone, occurred_at, create_time, update_time, closed_at, version FROM tb_troubleshoot_case`
 }
 
 type scanner interface {
@@ -574,12 +574,13 @@ type scanner interface {
 
 func scanCase(row scanner) (*caseflow.Case, error) {
 	var c caseflow.Case
-	var chatID, threadID, messageID, reporterUserID, originalText, ocrText, issueDomain, issueType sql.NullString
+	var uid, chatID, threadID, messageID, reporterUserID, originalText, ocrText, issueDomain, issueType sql.NullString
 	var occurredAt, closedAt sql.NullTime
-	if err := row.Scan(&c.ID, &c.CaseNo, &c.Source, &chatID, &threadID, &messageID, &reporterUserID, &originalText, &ocrText,
+	if err := row.Scan(&c.ID, &c.CaseNo, &uid, &c.Source, &chatID, &threadID, &messageID, &reporterUserID, &originalText, &ocrText,
 		&issueDomain, &issueType, &c.Status, &c.Priority, &c.Timezone, &occurredAt, &c.CreatedAt, &c.UpdatedAt, &closedAt, &c.Version); err != nil {
 		return nil, normalizeNotFound(err)
 	}
+	c.UID = nullStringValue(uid)
 	c.ChatID = nullStringValue(chatID)
 	c.ThreadID = nullStringValue(threadID)
 	c.MessageID = nullStringValue(messageID)
@@ -599,9 +600,9 @@ func scanCase(row scanner) (*caseflow.Case, error) {
 
 func (s *Store) getInvestigation(ctx context.Context, id int64) (caseflow.Investigation, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, investigation_no, case_id, agent_id, agent_version, model_provider, model_name, status, initial_hypothesis,
-       final_summary, confidence, started_at, finished_at, created_at, updated_at
-FROM investigations WHERE id = ?`, id)
+SELECT id, investigation_no, case_id, agent_id, agent_version, model_provider, model_name, investigation_status, initial_hypothesis,
+       final_summary, confidence, started_at, finished_at, create_time, update_time
+FROM tb_troubleshoot_investigation WHERE id = ?`, id)
 	var inv caseflow.Investigation
 	var agentVersion, modelProvider, modelName, initialHypothesis, finalSummary sql.NullString
 	var confidence sql.NullFloat64
@@ -680,7 +681,7 @@ func scanAIDecisionLogRows(rows *sql.Rows) (caseflow.AIDecisionLog, error) {
 func knowledgeSelect() string {
 	return `SELECT id, title, issue_domain, issue_type, typical_description, typical_ocr_features, required_fields_json,
 recommended_steps_json, common_causes_json, useful_tools_json, success_case_ids_json, failure_case_ids_json,
-confidence, status, observed_case_count, last_root_cause_category, last_confirmed_reason, last_evolved_at, created_at, updated_at FROM knowledge_items`
+confidence, knowledge_status, observed_case_count, last_root_cause_category, last_confirmed_reason, last_evolved_at, create_time, update_time FROM tb_troubleshoot_knowledge_item`
 }
 
 func scanKnowledgeItem(row scanner) (caseflow.KnowledgeItem, error) {
@@ -735,10 +736,10 @@ func scanEvolutionRunRows(rows *sql.Rows) (caseflow.KnowledgeEvolutionRun, error
 }
 
 func knowledgeInsertSQL() string {
-	return `INSERT INTO knowledge_items
+	return `INSERT INTO tb_troubleshoot_knowledge_item
 (title, issue_domain, issue_type, typical_description, typical_ocr_features, required_fields_json, recommended_steps_json,
- common_causes_json, useful_tools_json, success_case_ids_json, failure_case_ids_json, confidence, status, observed_case_count,
- last_root_cause_category, last_confirmed_reason, last_evolved_at, created_at, updated_at)
+ common_causes_json, useful_tools_json, success_case_ids_json, failure_case_ids_json, confidence, knowledge_status, observed_case_count,
+ last_root_cause_category, last_confirmed_reason, last_evolved_at, create_time, update_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 }
 
@@ -753,10 +754,10 @@ func knowledgeInsertArgs(item caseflow.KnowledgeItem, now time.Time) []any {
 }
 
 func knowledgeUpdateSQL() string {
-	return `UPDATE knowledge_items SET
+	return `UPDATE tb_troubleshoot_knowledge_item SET
 title = ?, issue_domain = ?, issue_type = ?, typical_description = ?, typical_ocr_features = ?, required_fields_json = ?,
 recommended_steps_json = ?, common_causes_json = ?, useful_tools_json = ?, success_case_ids_json = ?, failure_case_ids_json = ?,
-confidence = ?, status = ?, observed_case_count = ?, last_root_cause_category = ?, last_confirmed_reason = ?, last_evolved_at = ?, updated_at = ?
+confidence = ?, knowledge_status = ?, observed_case_count = ?, last_root_cause_category = ?, last_confirmed_reason = ?, last_evolved_at = ?, update_time = ?
 WHERE id = ?`
 }
 

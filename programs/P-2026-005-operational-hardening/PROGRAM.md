@@ -24,5 +24,5 @@
 - 同一 Lark `message_id` 重放只发布一次 case event。
 - 同一 case 二次 `ProcessCase` 不再触发工具调用。
 - 陈旧 `READY_TO_INVESTIGATE` 可重新认领，陈旧 `INVESTIGATING` / `WAITING_TOOL_RESULT` 会失败收敛。
-- `ai_decision_logs` 快照不包含手机号、token、api key 明文。
+- `tb_troubleshoot_ai_decision_log` 快照不包含手机号、token、api key 明文。
 - `make test`、`go vet ./...`、`go test -race ./...` 通过。

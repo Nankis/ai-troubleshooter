@@ -13,6 +13,7 @@ type Engine interface {
 type Request struct {
 	CaseID              string         `json:"case_id"`
 	AgentID             string         `json:"agent_id"`
+	CallerUserID        string         `json:"caller_user_id"`
 	LarkUserID          string         `json:"lark_user_id"`
 	ChatID              string         `json:"chat_id"`
 	ToolName            string         `json:"tool_name"`

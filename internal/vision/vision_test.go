@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Nankis/ai-troubleshooter/internal/config"
 )
 
 func TestLocalClientExtractsPrintableImageBytes(t *testing.T) {
@@ -68,5 +70,52 @@ func TestOpenAICompatibleClientSendsImageURLContent(t *testing.T) {
 	}
 	if got.ModelName != "qwen3-vl-plus" || !strings.Contains(got.OCRText, "BTCUSDT") {
 		t.Fatalf("unexpected analysis: %+v", got)
+	}
+}
+
+func TestNewFromConfigsDefaultsToLLMForVision(t *testing.T) {
+	client := NewFromConfigs(config.VisionConfig{Provider: "same_as_llm"}, config.LLMConfig{
+		Provider: "openai_compatible",
+		BaseURL:  "https://llm.example/v1",
+		APIKey:   "llm_key",
+		Model:    "gpt-4.1",
+	})
+	got, ok := client.(*OpenAICompatibleClient)
+	if !ok {
+		t.Fatalf("expected OpenAICompatibleClient, got %T", client)
+	}
+	if got.provider != "same_as_llm:openai_compatible" {
+		t.Fatalf("unexpected provider %s", got.provider)
+	}
+	if got.baseURL != "https://llm.example/v1/chat/completions" || got.apiKey != "llm_key" || got.model != "gpt-4.1" {
+		t.Fatalf("vision client did not inherit llm config: %+v", got)
+	}
+}
+
+func TestNewFromConfigsExplicitVisionOverridesLLM(t *testing.T) {
+	client := NewFromConfigs(config.VisionConfig{
+		Provider: "qwen_openai_compatible",
+		BaseURL:  "https://dashscope.example/compatible-mode/v1",
+		APIKey:   "vision_key",
+		Model:    "qwen-vl",
+	}, config.LLMConfig{
+		Provider: "openai_compatible",
+		BaseURL:  "https://llm.example/v1",
+		APIKey:   "llm_key",
+		Model:    "gpt-4.1",
+	})
+	got, ok := client.(*OpenAICompatibleClient)
+	if !ok {
+		t.Fatalf("expected OpenAICompatibleClient, got %T", client)
+	}
+	if got.baseURL != "https://dashscope.example/compatible-mode/v1/chat/completions" || got.apiKey != "vision_key" || got.model != "qwen-vl" {
+		t.Fatalf("vision config should override llm config: %+v", got)
+	}
+}
+
+func TestNewFromConfigsFallsBackToLocalForLocalLLM(t *testing.T) {
+	client := NewFromConfigs(config.VisionConfig{Provider: "same_as_llm"}, config.LLMConfig{Provider: "local_rules"})
+	if _, ok := client.(LocalClient); !ok {
+		t.Fatalf("expected LocalClient, got %T", client)
 	}
 }

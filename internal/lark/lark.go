@@ -131,6 +131,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c, err := h.store.CreateCase(r.Context(), caseflow.CreateCaseInput{
+		UID:            event.UserID,
 		Source:         source,
 		ChatID:         event.ChatID,
 		ThreadID:       event.ThreadID,
@@ -145,11 +146,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = h.store.AddMessage(r.Context(), caseflow.Message{
-		CaseID:        c.ID,
-		Role:          "user",
-		LarkMessageID: event.MessageID,
-		Content:       messageContent(event),
-		ContentType:   messageContentType(event),
+		CaseID:            c.ID,
+		Role:              "user",
+		PlatformMessageID: event.MessageID,
+		Content:           messageContent(event),
+		ContentType:       messageContentType(event),
 	})
 	if err := h.queue.Publish(r.Context(), queue.Event{Type: "case.created", CaseID: c.ID}); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})

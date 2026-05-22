@@ -4,7 +4,7 @@
 
 ## 决策日志
 
-每个 case 的关键 AI 决策都会写入 `ai_decision_logs`：
+每个 case 的关键 AI 决策都会写入 `tb_troubleshoot_ai_decision_log`：
 
 - `classify_issue`：为什么判断为某个业务域和问题类型。
 - `extract_entities`：抽取了哪些字段。

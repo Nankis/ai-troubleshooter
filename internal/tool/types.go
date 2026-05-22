@@ -26,12 +26,13 @@ type Spec struct {
 }
 
 type InvocationRequest struct {
-	CaseID     string         `json:"case_id"`
-	AgentID    string         `json:"agent_id"`
-	LarkUserID string         `json:"lark_user_id"`
-	ChatID     string         `json:"chat_id"`
-	ToolName   string         `json:"tool_name,omitempty"`
-	Arguments  map[string]any `json:"arguments"`
+	CaseID       string         `json:"case_id"`
+	AgentID      string         `json:"agent_id"`
+	CallerUserID string         `json:"caller_user_id,omitempty"`
+	LarkUserID   string         `json:"lark_user_id,omitempty"`
+	ChatID       string         `json:"chat_id"`
+	ToolName     string         `json:"tool_name,omitempty"`
+	Arguments    map[string]any `json:"arguments"`
 }
 
 type InvocationResponse struct {

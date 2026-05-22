@@ -28,4 +28,4 @@
 ## EV-T6-AUDIT-PERSISTENCE
 
 - 状态：PASS
-- 证据：`internal/storage/mysql/audit.go` 实现 MySQL audit sink；`storage.Open` 为 MySQL 返回持久化 audit sink，为本地 memory 返回 memory sink；Gateway 支持 `NewFromConfigWithAudit` 注入 audit sink；`migrations/001_initial.sql` 的 `tool_call_audits` 使用 `case_ref`/`investigation_ref` 与工具调用记录类型一致。
+- 证据：`internal/storage/mysql/audit.go` 实现 MySQL audit sink；`storage.Open` 为 MySQL 返回持久化 audit sink，为本地 memory 返回 memory sink；Gateway 支持 `NewFromConfigWithAudit` 注入 audit sink；`migrations/001_initial.sql` 的 `tb_troubleshoot_tool_call_audit` 使用 `case_ref`/`investigation_ref` 与工具调用记录类型一致。

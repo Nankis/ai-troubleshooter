@@ -287,12 +287,13 @@ func (o *Orchestrator) ProcessCase(parent context.Context, caseID int64) (result
 		args := buildToolArgs(name, c, entityMap)
 		stepStart = time.Now()
 		resp, err := o.tools.Invoke(ctx, tool.InvocationRequest{
-			CaseID:     c.CaseNo,
-			AgentID:    o.cfg.AgentID,
-			LarkUserID: c.ReporterUserID,
-			ChatID:     c.ChatID,
-			ToolName:   name,
-			Arguments:  args,
+			CaseID:       c.CaseNo,
+			AgentID:      o.cfg.AgentID,
+			CallerUserID: fallback(c.UID, c.ReporterUserID),
+			LarkUserID:   c.ReporterUserID,
+			ChatID:       c.ChatID,
+			ToolName:     name,
+			Arguments:    args,
 		})
 		toolCallIDs = append(toolCallIDs, resp.ToolCallID)
 		status := resp.Status

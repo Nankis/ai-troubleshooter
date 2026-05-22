@@ -12,15 +12,15 @@ func (s *Store) Record(ctx context.Context, record audit.Record) error {
 		record.CreatedAt = time.Now()
 	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO tool_call_audits
-(tool_call_id, case_ref, investigation_ref, agent_id, lark_user_id, tool_name, required_scope, arguments_summary,
- policy_decision, deny_reason, query_id, result_count, latency_ms, error_message, created_at)
+INSERT INTO tb_troubleshoot_tool_call_audit
+(tool_call_id, case_ref, investigation_ref, agent_id, caller_user_id, tool_name, required_scope, arguments_summary,
+ policy_decision, deny_reason, query_id, result_count, latency_ms, error_message, create_time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
  case_ref = VALUES(case_ref),
  investigation_ref = VALUES(investigation_ref),
  agent_id = VALUES(agent_id),
- lark_user_id = VALUES(lark_user_id),
+ caller_user_id = VALUES(caller_user_id),
  tool_name = VALUES(tool_name),
  required_scope = VALUES(required_scope),
  arguments_summary = VALUES(arguments_summary),
@@ -34,7 +34,7 @@ ON DUPLICATE KEY UPDATE
 		record.CaseID,
 		nullableString(record.InvestigationID),
 		record.AgentID,
-		nullableString(record.LarkUserID),
+		nullableString(fallback(record.CallerUserID, record.LarkUserID)),
 		record.ToolName,
 		nullableString(record.RequiredScope),
 		nullableString(record.ArgumentsSummary),

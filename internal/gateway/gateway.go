@@ -107,6 +107,7 @@ func (g *Gateway) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.
 	decision, err := g.policy.Authorize(ctx, policy.Request{
 		CaseID:              req.CaseID,
 		AgentID:             req.AgentID,
+		CallerUserID:        callerUserID(req),
 		LarkUserID:          req.LarkUserID,
 		ChatID:              req.ChatID,
 		ToolName:            spec.Name,
@@ -146,7 +147,7 @@ func (g *Gateway) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.
 	callCtx = connectors.ContextWithRequestMeta(callCtx, connectors.RequestMeta{
 		CaseID:       req.CaseID,
 		AgentID:      req.AgentID,
-		CallerUserID: req.LarkUserID,
+		CallerUserID: callerUserID(req),
 		ToolName:     spec.Name,
 		Timeout:      g.timeout,
 	})
@@ -250,7 +251,8 @@ func (g *Gateway) enforceRateLimits(req tool.InvocationRequest) error {
 	if !g.limits.agent.Allow("agent:"+req.AgentID, now) {
 		return ErrRateLimited
 	}
-	if req.LarkUserID != "" && !g.limits.user.Allow("user:"+req.LarkUserID, now) {
+	caller := callerUserID(req)
+	if caller != "" && !g.limits.user.Allow("user:"+caller, now) {
 		return ErrRateLimited
 	}
 	if !g.limits.tool.Allow("tool:"+req.ToolName, now) {
@@ -297,6 +299,7 @@ func (g *Gateway) recordAudit(ctx context.Context, req tool.InvocationRequest, s
 		ToolCallID:       toolCallID,
 		CaseID:           req.CaseID,
 		AgentID:          req.AgentID,
+		CallerUserID:     callerUserID(req),
 		LarkUserID:       req.LarkUserID,
 		ToolName:         spec.Name,
 		RequiredScope:    spec.RequiredScope,
@@ -309,6 +312,13 @@ func (g *Gateway) recordAudit(ctx context.Context, req tool.InvocationRequest, s
 		ErrorMessage:     errorMessage,
 		CreatedAt:        time.Now(),
 	})
+}
+
+func callerUserID(req tool.InvocationRequest) string {
+	if strings.TrimSpace(req.CallerUserID) != "" {
+		return strings.TrimSpace(req.CallerUserID)
+	}
+	return strings.TrimSpace(req.LarkUserID)
 }
 
 func argumentsSummary(args map[string]any) string {

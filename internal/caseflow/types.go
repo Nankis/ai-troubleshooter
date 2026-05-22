@@ -25,6 +25,7 @@ const (
 type Case struct {
 	ID             int64      `json:"id"`
 	CaseNo         string     `json:"case_no"`
+	UID            string     `json:"uid,omitempty"`
 	Source         string     `json:"source"`
 	ChatID         string     `json:"chat_id,omitempty"`
 	ThreadID       string     `json:"thread_id,omitempty"`
@@ -55,13 +56,13 @@ type Entity struct {
 }
 
 type Message struct {
-	ID            int64     `json:"id"`
-	CaseID        int64     `json:"case_id"`
-	Role          string    `json:"role"`
-	LarkMessageID string    `json:"lark_message_id,omitempty"`
-	Content       string    `json:"content"`
-	ContentType   string    `json:"content_type"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                int64     `json:"id"`
+	CaseID            int64     `json:"case_id"`
+	Role              string    `json:"role"`
+	PlatformMessageID string    `json:"platform_message_id,omitempty"`
+	Content           string    `json:"content"`
+	ContentType       string    `json:"content_type"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type Investigation struct {

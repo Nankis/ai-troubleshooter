@@ -43,7 +43,7 @@ func main() {
 		EncryptKey:        cfg.Lark.EncryptKey,
 		AllowedChatIDs:    cfg.Lark.AllowedChatIDs,
 	})
-	handler.SetImageProcessor(imageDownloader, vision.NewFromConfig(cfg.Vision), lark.ImageOptions{
+	handler.SetImageProcessor(imageDownloader, vision.NewFromConfigs(cfg.Vision, cfg.LLM), lark.ImageOptions{
 		MaxImages:     cfg.Vision.MaxImagesPerMessage,
 		MaxImageBytes: cfg.Vision.MaxImageBytes,
 	})

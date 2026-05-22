@@ -6,17 +6,18 @@
 
 核心表：
 
-- `root_causes`：人工确认的最终根因。
-- `case_feedbacks`：业务方对 AI 排障结果的反馈。
-- `knowledge_items`：可复用排障经验。
-- `knowledge_evolution_runs`：每次知识演进的运行记录。
-- `ai_decision_logs`：AI 分类、实体抽取、工具选择、工具调用、总结和失败收敛的决策轨迹。
+- `tb_troubleshoot_root_cause`：人工确认的最终根因。
+- `tb_troubleshoot_case_feedback`：业务方对 AI 排障结果的反馈。
+- `tb_troubleshoot_knowledge_item`：可复用排障经验。
+- `tb_troubleshoot_knowledge_evolution_run`：每次知识演进的运行记录。
+- `tb_troubleshoot_ai_decision_log`：AI 分类、实体抽取、工具选择、工具调用、总结和失败收敛的决策轨迹。
 
 DDL：
 
 - `migrations/001_initial.sql`
 - `migrations/002_knowledge_evolution.sql`
 - `migrations/003_ai_decision_logs.sql`
+- `migrations/004_case_idempotency.sql`
 
 ## 直接 SQL 示例
 
@@ -25,7 +26,7 @@ DDL：
 插入/更新人工根因：
 
 ```sql
-INSERT INTO root_causes (
+INSERT INTO tb_troubleshoot_root_cause (
   case_id,
   ai_predicted_reason,
   human_confirmed_reason,
@@ -36,8 +37,8 @@ INSERT INTO root_causes (
   prevention_action,
   confirmed_by,
   confirmed_at,
-  created_at,
-  updated_at
+  create_time,
+  update_time
 ) VALUES (
   ?,
   ?,
@@ -61,7 +62,7 @@ INSERT INTO root_causes (
   prevention_action = VALUES(prevention_action),
   confirmed_by = VALUES(confirmed_by),
   confirmed_at = VALUES(confirmed_at),
-  updated_at = VALUES(updated_at);
+  update_time = VALUES(update_time);
 ```
 
 查询某 case 的自进化结果：
@@ -75,8 +76,8 @@ SELECT
   k.title,
   k.confidence,
   k.observed_case_count
-FROM knowledge_evolution_runs r
-LEFT JOIN knowledge_items k ON k.id = r.knowledge_item_id
+FROM tb_troubleshoot_knowledge_evolution_run r
+LEFT JOIN tb_troubleshoot_knowledge_item k ON k.id = r.knowledge_item_id
 WHERE r.case_id = ?
 ORDER BY r.id DESC;
 ```
@@ -88,11 +89,11 @@ SELECT
   decision_type,
   reason,
   selected_tools_json,
-  status,
+  decision_status,
   latency_ms,
   error_message,
-  created_at
-FROM ai_decision_logs
+  create_time
+FROM tb_troubleshoot_ai_decision_log
 WHERE case_id = ?
 ORDER BY id;
 ```
@@ -110,11 +111,11 @@ SELECT
   observed_case_count,
   recommended_steps_json,
   useful_tools_json
-FROM knowledge_items
-WHERE status = 'active'
+FROM tb_troubleshoot_knowledge_item
+WHERE knowledge_status = 'active'
   AND issue_domain = ?
   AND (? IS NULL OR issue_type = ?)
-ORDER BY confidence DESC, observed_case_count DESC, updated_at DESC
+ORDER BY confidence DESC, observed_case_count DESC, update_time DESC
 LIMIT 20;
 ```
 
@@ -124,9 +125,9 @@ LIMIT 20;
 
 ```text
 业务 owner 回填 root cause
-  -> 写入 root_causes
-  -> 生成/更新 knowledge_items
-  -> 写入 knowledge_evolution_runs
+  -> 写入 tb_troubleshoot_root_cause
+  -> 生成/更新 tb_troubleshoot_knowledge_item
+  -> 写入 tb_troubleshoot_knowledge_evolution_run
   -> case 标记为 DONE
 ```
 
@@ -158,7 +159,7 @@ GET /cases/{case_no}
   "messages": [],
   "root_cause": {},
   "evolution_runs": [],
-  "ai_decision_logs": []
+  "tb_troubleshoot_ai_decision_log": []
 }
 ```
 
@@ -294,7 +295,7 @@ GET /knowledge?issue_domain=kline&issue_type=价格不一致&root_cause_category
    - 2-4 个 case：0.65
    - 5-9 个 case：0.78
    - 10 个及以上：0.90
-6. 每次演进都写 `knowledge_evolution_runs`，便于审计和回滚。
+6. 每次演进都写 `tb_troubleshoot_knowledge_evolution_run`，便于审计和回滚。
 
 ## 建议 root_cause_category 枚举
 

@@ -106,7 +106,7 @@ flowchart TB
   subgraph CaseLayer["Case Layer"]
     CaseAPI["Case API<br/>case / message / idempotency"]
     Queue["Queue<br/>memory now / Redis Stream later"]
-    Store["MySQL or Postgres<br/>cases / messages / decisions / audits / root causes"]
+    Store["MySQL<br/>tb_troubleshoot_*<br/>cases / decisions / audits / knowledge"]
   end
 
   subgraph Brain["Decision Layer"]
@@ -330,7 +330,7 @@ curl -s localhost:8080/tools/get_asset_snapshot/invoke \
   -d '{
     "case_id":"case_dev",
     "agent_id":"business-troubleshooter-v1",
-    "lark_user_id":"ou_dev",
+    "caller_user_id":"ou_dev",
     "chat_id":"oc_dev",
     "arguments":{"user_id":"user_123","asset_symbol":"USDT","at_time":"2026-05-21T20:00:00+08:00"}
   }'
@@ -348,9 +348,10 @@ OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。
 
-配置千问视觉识别：
+配置图片识别：
 
 ```bash
+# 默认 same_as_llm：复用主 LLM 配置。只有主模型不支持图片，或想单独使用千问等视觉模型时，才配置下面这些。
 VISION_PROVIDER=qwen_openai_compatible
 VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 VISION_API_KEY=replace-with-dashscope-key
@@ -359,7 +360,7 @@ VISION_MAX_IMAGES_PER_MESSAGE=3
 VISION_MAX_IMAGE_BYTES=10485760
 ```
 
-配置后，Lark/飞书图片消息会被下载、传给视觉模型识别，识别出的截图文字和客观现象会进入 `OCRText`，后续分类、实体抽取和工具编排会同时使用用户文本与图片识别结果。
+默认情况下，图片识别会复用主 LLM 的 OpenAI-compatible 配置；如果单独配置 `VISION_PROVIDER=qwen_openai_compatible` 等视觉 agent，才会切到独立视觉模型。Lark/飞书图片消息会被下载、传给视觉模型识别，识别出的截图文字和客观现象会进入 `OCRText`，后续分类、实体抽取和工具编排会同时使用用户文本与图片识别结果。
 
 配置文本推理模型：
 
@@ -432,7 +433,7 @@ go test ./...
 
 root cause、feedback、knowledge、orchestrator case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
-Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `ai_decision_logs`，快照入库前脱敏，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。Lark 入口用 `source + message_id` 幂等去重，Orchestrator 处理前先认领 case，重复事件或重复 worker 只记录 `process_skipped`，不会重复打下游；陈旧处理中状态会恢复或失败收敛。
+Agent 编排层不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 case 总耗时，`MAX_TOOL_CALLS_PER_CASE` 控制工具调用总数，`MAX_TOOL_FAILURES_PER_CASE` 控制连续失败后停止继续查下游。每个关键决策都会写入 `tb_troubleshoot_ai_decision_log`，快照入库前脱敏，可以复盘“为什么这么判断、为什么选这些工具、为什么停止”。MySQL 表遵循 `tb_` 前缀、`create_time/update_time`、`status TINYINT` 行状态和 `*_status` 业务状态；`uid` 使用 `VARCHAR(128)`，兼容数字 UID、字符串 UID 和 Lark/飞书外部用户 ID。Lark 入口用 `source + message_id` 幂等去重，Orchestrator 处理前先认领 case，重复事件或重复 worker 只记录 `process_skipped`，不会重复打下游；陈旧处理中状态会恢复或失败收敛。
 
 部署层仍建议加上 mTLS、内网 ACL、Ingress allowlist 或 service mesh 策略；多实例生产限流可接 Redis、Envoy 或公司 API Gateway，审计日志也建议落到统一日志或安全审计平台。
 

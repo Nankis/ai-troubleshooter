@@ -14,6 +14,7 @@ var (
 )
 
 type CreateCaseInput struct {
+	UID            string
 	Source         string
 	ChatID         string
 	ThreadID       string
@@ -121,6 +122,7 @@ func (s *InMemoryStore) CreateCase(ctx context.Context, input CreateCaseInput) (
 	c := &Case{
 		ID:             s.nextCaseID,
 		CaseNo:         fmt.Sprintf("case_%s_%06d", now.Format("20060102"), s.nextCaseID),
+		UID:            fallback(input.UID, input.ReporterUserID),
 		Source:         source,
 		ChatID:         input.ChatID,
 		ThreadID:       input.ThreadID,

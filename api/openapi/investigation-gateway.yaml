@@ -50,8 +50,13 @@ components:
           type: string
         agent_id:
           type: string
+        caller_user_id:
+          type: string
+          description: Preferred caller uid. Supports numeric or string ids.
         lark_user_id:
           type: string
+          deprecated: true
+          description: Backward-compatible Lark user id. Use caller_user_id for new integrations.
         chat_id:
           type: string
         arguments:

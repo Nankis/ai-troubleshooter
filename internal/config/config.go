@@ -135,10 +135,10 @@ func LoadFromEnv() Config {
 			MaxConcurrency: envInt("LLM_MAX_CONCURRENCY", 10),
 		},
 		Vision: VisionConfig{
-			Provider:            env("VISION_PROVIDER", "local_mock"),
+			Provider:            env("VISION_PROVIDER", "same_as_llm"),
 			BaseURL:             env("VISION_BASE_URL", ""),
 			APIKey:              env("VISION_API_KEY", ""),
-			Model:               env("VISION_MODEL", "qwen3-vl-plus"),
+			Model:               env("VISION_MODEL", ""),
 			TimeoutSeconds:      envInt("VISION_TIMEOUT_SECONDS", 30),
 			MaxImagesPerMessage: envInt("VISION_MAX_IMAGES_PER_MESSAGE", 3),
 			MaxImageBytes:       envInt("VISION_MAX_IMAGE_BYTES", 10*1024*1024),

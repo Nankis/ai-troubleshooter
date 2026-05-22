@@ -61,7 +61,7 @@ MAX_INVESTIGATION_SECONDS=120
 - Lark/飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
 - 配置 `LARK_ENCRYPT_KEY` 后，Lark/飞书入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
 - 如果需要识别截图，Lark/飞书应用必须具备读取消息资源/图片资源的权限，并配置 `LARK_APP_ID`、`LARK_APP_SECRET` 供系统下载图片。
-- 视觉模型建议独立配置：`VISION_PROVIDER=qwen_openai_compatible` 使用千问视觉识别图片，后续 `LLM_*` 仍可接 GPT/Claude 做文字推理。
+- 视觉识别默认 `VISION_PROVIDER=same_as_llm`，复用主 LLM；只有主模型不支持图片或需要更强 OCR 时，才单独配置 `VISION_PROVIDER=qwen_openai_compatible` 等视觉 agent。
 - 原图默认只在内存中短暂处理，不写入 MySQL；如需留存原图，必须接公司对象存储、保留周期和数据分级审批。
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
 - adapter 对所有底层查询设置 timeout、limit 和审计。
@@ -74,10 +74,11 @@ MAX_INVESTIGATION_SECONDS=120
 - root cause、feedback、knowledge、orchestrator case/process API 仅允许内部系统或已授权 owner 调用。
 - 所有敏感字段在 adapter 或 Gateway 返回前脱敏。
 - 数据库已依次执行 `migrations/001_initial.sql`、`migrations/002_knowledge_evolution.sql`、`migrations/003_ai_decision_logs.sql` 和 `migrations/004_case_idempotency.sql`，DSN 必须包含 `parseTime=true`。
-- `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tool_call_audits`，orchestrator 会把 AI 决策写入 `ai_decision_logs`。
+- `DB_DSN` 已提供给需要持久化 case、knowledge、tool audit 和 AI decision logs 的服务；Gateway 会把工具审计写入 `tb_troubleshoot_tool_call_audit`，orchestrator 会把 AI 决策写入 `tb_troubleshoot_ai_decision_log`。
+- MySQL schema 已检查：表名 `tb_troubleshoot_*`，`uid VARCHAR(128)` 兼容字符串用户 ID，时间字段统一 `create_time/update_time`，`status TINYINT` 只表示行状态，业务状态使用 `case_status`、`decision_status`、`knowledge_status` 等字段。
 - `MAX_TOOL_CALLS_PER_CASE`、`MAX_TOOL_FAILURES_PER_CASE`、`MAX_INVESTIGATION_SECONDS` 已按业务下游承载能力设置。
 - Lark/飞书重复投递已验证：同一个 `source + message_id` 重放只返回已有 `case_no`，不重复入队、不重复查下游。
-- `ai_decision_logs` 快照已验证脱敏：手机号、邮箱、token、secret、api key 不出现明文。
+- `tb_troubleshoot_ai_decision_log` 快照已验证脱敏：手机号、邮箱、token、secret、api key 不出现明文。
 - 业务 owner 已明确 root cause 回填责任人和推荐枚举。
 
 ## 本地 smoke test
@@ -166,7 +167,7 @@ curl -s localhost:19091/lark/events \
 - 信息不足 case 进入 `WAITING_USER_REPLY`。
 - 工具调用审计日志包含 tool name、case id、policy decision、query id。
 - 重复投递响应包含 `duplicate=true`，worker 不会产生第二轮工具调用。
-- 有图片时，`cases.ocr_text` 或 `/cases/{case_no}` 响应中的 `ocr_text` 包含视觉识别结果；下游工具选择会使用这些字段。
+- 有图片时，`tb_troubleshoot_case.ocr_text` 或 `/cases/{case_no}` 响应中的 `ocr_text` 包含视觉识别结果；下游工具选择会使用这些字段。
 
 根因回填与知识自进化：
 

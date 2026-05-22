@@ -12,6 +12,7 @@ type Record struct {
 	CaseID           string    `json:"case_id"`
 	InvestigationID  string    `json:"investigation_id,omitempty"`
 	AgentID          string    `json:"agent_id"`
+	CallerUserID     string    `json:"caller_user_id,omitempty"`
 	LarkUserID       string    `json:"lark_user_id,omitempty"`
 	ToolName         string    `json:"tool_name"`
 	RequiredScope    string    `json:"required_scope,omitempty"`
