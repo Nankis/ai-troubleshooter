@@ -1,6 +1,6 @@
 # ai-troubleshooter
 
-一期业务工单排障 Agent 平台。当前仓库按 TRD 建议的 Go 在线主链路组织，先跑通只读、权限可控、可审计的 MVP。
+一期业务工单排障 Agent 平台。当前仓库先用 Go 1.24+ 跑通只读、权限可控、可审计的 MVP 主链路；后续决策层按架构决策迁移到 Python 3.13，方便接入多模型编排、RAG 和本地代码辅助排查生态。
 
 ## 为什么做这个
 
@@ -90,19 +90,115 @@ Gateway 底层优先接业务服务提供的只读 API，而不是让 Agent 或 
 
 ## 总体架构
 
-```text
-Lark 群聊
-  -> lark-bot
-  -> queue
-  -> agent-worker
-  -> agent-orchestrator
-  -> investigation-gateway
-       -> policy / audit / masking / tool registry
-       -> readonly connectors
-       -> business services / logs / cache / external exchange
+```mermaid
+flowchart TB
+  subgraph Inputs["输入通道"]
+    Lark["Lark 群聊"]
+    Feishu["飞书群聊"]
+    Web["Web Chat / 图片上传<br/>planned"]
+  end
+
+  subgraph Intake["Channel Adapters"]
+    LarkBot["lark-bot<br/>/lark/events /feishu/events"]
+    WebAdapter["web-chat adapter<br/>planned"]
+  end
+
+  subgraph CaseLayer["Case Layer"]
+    CaseAPI["Case API<br/>case / message / idempotency"]
+    Queue["Queue<br/>memory now / Redis Stream later"]
+    Store["MySQL or Postgres<br/>cases / messages / decisions / audits / root causes"]
+  end
+
+  subgraph Brain["Decision Layer"]
+    GoOrch["Go orchestrator<br/>current baseline"]
+    PyEngine["Python 3.13 Decision Engine<br/>planned target"]
+    Retriever["Knowledge Retriever / RAG<br/>Phase 0: SQL + tag + keyword<br/>Future: vector index"]
+    LocalCode["Local Code Inspector<br/>last resort"]
+  end
+
+  subgraph Gateway["Investigation Gateway"]
+    Policy["auth / scope / rate limit"]
+    Audit["timeout / audit / masking"]
+    Registry["readonly tool registry"]
+  end
+
+  subgraph Downstream["下游只读证据源"]
+    Market["market readonly APIs"]
+    Asset["asset readonly APIs"]
+    Logs["logs / cache / external exchange"]
+    Deploy["deploy records<br/>reserved"]
+  end
+
+  Lark --> LarkBot
+  Feishu --> LarkBot
+  Web --> WebAdapter
+  LarkBot --> CaseAPI
+  WebAdapter --> CaseAPI
+  CaseAPI --> Store
+  CaseAPI --> Queue
+  Queue --> GoOrch
+  Queue -. future .-> PyEngine
+  GoOrch --> Retriever
+  PyEngine --> Retriever
+  PyEngine -. last resort .-> LocalCode
+  GoOrch --> Policy
+  PyEngine --> Policy
+  Policy --> Audit
+  Audit --> Registry
+  Registry --> Market
+  Registry --> Asset
+  Registry --> Logs
+  Registry -. reserved .-> Deploy
+  Policy --> Store
+  Audit --> Store
 ```
 
-本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时可以按 TRD 拆成 `lark-bot`、`orchestrator`、`worker`、`investigation-gateway` 四个服务。
+### 排障数据流
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant C as Channel Adapter
+  participant S as Case Store
+  participant D as Decision Layer
+  participant G as Investigation Gateway
+  participant B as Business Readonly APIs
+  participant K as Knowledge Store
+
+  U->>C: 文字 / 图片 / 工单描述
+  C->>S: 创建 case，写入 message 和 OCR
+  C->>D: 投递 case.created
+  D->>S: 读取 case、历史消息、实体
+  D->>K: 检索相似 case / SOP / 经验
+  D->>D: 分类、实体抽取、必要字段检查
+  alt 信息不足
+    D->>S: 写入决策日志，状态变更为 WAITING_USER_REPLY
+    D-->>U: 追问关键字段
+  else 信息足够
+    D->>G: 调用有限个只读工具
+    G->>G: 鉴权、scope、限流、timeout、审计、脱敏
+    G->>B: 查询生产只读证据
+    B-->>G: 返回证据
+    G-->>D: 返回脱敏后的 observation
+    D->>S: 写入 AI 决策日志和排查总结
+    D-->>U: 返回结论、证据链和下一步
+  end
+```
+
+### 组件职责
+
+| 组件 | 当前状态 | 职责 |
+| --- | --- | --- |
+| Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
+| Web Chat 入口 | 预留 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口。 |
+| Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
+| Decision Layer | Go baseline，计划迁移 Python 3.13 | 分类、抽取、计划、RAG、总结；只能通过 Gateway 查询生产证据。 |
+| Investigation Gateway | 已实现 | 生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册。 |
+| Business Adapters | mock + HTTP 规范 | 对接业务只读 API、日志、缓存、外部交易所等证据源。 |
+| Knowledge / RAG | SQL/tag/keyword first | 首发不强依赖向量库，后续按评测效果接 pgvector/Qdrant/Milvus。 |
+
+本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时可以拆成 `lark-bot`、`orchestrator` / `decision-engine`、`worker`、`investigation-gateway` 四类服务。
 
 ## 目录
 
@@ -178,10 +274,11 @@ docs/                      TRD 摘要与一期说明
 
 ## 本地启动
 
-需要 Go 1.26 或更高版本，并确保 `go` 与 `gofmt` 在 PATH 中：
+需要 Go 1.24 或更高版本，并确保 `go` 与 `gofmt` 在 PATH 中。后续 Python Decision Engine 使用 Python 3.13：
 
 ```bash
 go version
+python3.13 --version
 make test
 ```
 

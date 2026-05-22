@@ -4,7 +4,8 @@
 
 ## 开发环境
 
-- Go 1.26 或更高版本。
+- Go 1.24 或更高版本。
+- Python 3.13，用于后续 Python Decision Engine 开发。
 - Docker 可选，用于本地镜像验证。
 - MySQL 可选；不配置 `DB_DSN` 时会使用内存 store。
 
