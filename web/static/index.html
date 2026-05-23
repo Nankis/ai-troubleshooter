@@ -144,7 +144,6 @@
     }
 
     .section-toggle {
-      width: 100%;
       border: 0;
       border-radius: var(--radius);
       background: transparent;
@@ -163,11 +162,57 @@
       gap: 6px;
     }
 
+    .section-head-tools {
+      gap: 6px;
+      padding-right: 0;
+    }
+
+    .section-toggle-main {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 0 4px;
+    }
+
     .section-caret {
       width: 14px;
       color: var(--muted);
       text-align: center;
       line-height: 1;
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, .08);
+      color: var(--text);
+    }
+
+    .icon-btn:disabled {
+      cursor: default;
+      opacity: .55;
+    }
+
+    .icon-btn.spinning {
+      animation: spin .8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
     .ghost-btn {
@@ -184,6 +229,10 @@
     .case-list, .tool-list, .knowledge-list {
       display: grid;
       gap: 4px;
+    }
+
+    .tool-list[hidden] {
+      display: none;
     }
 
     .case-row, .tool-row, .knowledge-row {
@@ -266,6 +315,17 @@
       padding: 8px 8px;
     }
 
+    .tool-row-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .tool-name {
+      min-width: 0;
+    }
+
     .truncate {
       overflow: hidden;
       white-space: nowrap;
@@ -299,6 +359,16 @@
       color: var(--green);
       border-color: rgba(48, 209, 88, .3);
       background: var(--green-soft);
+    }
+
+    .tag.new {
+      min-height: 18px;
+      padding: 0 6px;
+      color: #9be7c6;
+      border-color: rgba(155, 231, 198, .34);
+      background: rgba(46, 160, 67, .11);
+      font-size: 11px;
+      font-weight: 700;
     }
 
     .knowledge-row {
@@ -1004,13 +1074,16 @@
         </section>
 
         <section class="section">
-          <button class="section-head section-toggle" type="button" id="toggleToolPanel" aria-expanded="true">
-            <span class="section-head-main truncate">
-              <span class="section-caret" id="toolPanelCaret">⌄</span>
-              <span class="truncate">已注册 Gateway Tools</span>
-            </span>
+          <div class="section-head section-head-tools">
+            <button class="section-toggle section-toggle-main" type="button" id="toggleToolPanel" aria-expanded="true">
+              <span class="section-head-main truncate">
+                <span class="section-caret" id="toolPanelCaret">⌄</span>
+                <span class="truncate">已注册 Gateway Tools</span>
+              </span>
+            </button>
+            <button class="icon-btn" type="button" id="refreshTools" aria-label="刷新 Gateway Tools" title="刷新 Gateway Tools">↻</button>
             <span class="tag" id="toolCount">0</span>
-          </button>
+          </div>
           <div class="tool-list" id="toolList"></div>
         </section>
 
@@ -1142,6 +1215,9 @@
       processing: false,
       collapsedToolServices: new Set(),
       toolPanelCollapsed: false,
+      toolsLoadedOnce: false,
+      newToolNames: new Set(),
+      toolRefreshing: false,
       draftSeq: 0,
       imagePreviewUrls: [],
       activeImagePreviewIndex: -1,
@@ -1165,6 +1241,7 @@
       toolCount: document.getElementById("toolCount"),
       toolPanelCaret: document.getElementById("toolPanelCaret"),
       toggleToolPanel: document.getElementById("toggleToolPanel"),
+      refreshTools: document.getElementById("refreshTools"),
       knowledgeList: document.getElementById("knowledgeList"),
       knowledgeForm: document.getElementById("knowledgeForm"),
       knowledgeSubmit: document.getElementById("knowledgeSubmit"),
@@ -1192,8 +1269,9 @@
     };
 
     document.getElementById("newCase").addEventListener("click", createDraftCase);
-    document.getElementById("refreshOverview").addEventListener("click", loadOverview);
+    document.getElementById("refreshOverview").addEventListener("click", () => loadOverview());
     el.toggleToolPanel.addEventListener("click", toggleToolPanel);
+    el.refreshTools.addEventListener("click", refreshTools);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
     document.getElementById("toggleKnowledgeForm").addEventListener("click", toggleKnowledgeForm);
     el.cancelKnowledgeEdit.addEventListener("click", () => {
@@ -1283,11 +1361,21 @@
       }
     });
 
-    async function loadOverview() {
+    async function loadOverview(options = {}) {
+      const previousToolNames = new Set(state.tools.map(toolKey).filter(Boolean));
       const response = await fetch("/web/api/overview");
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "overview failed");
-      state.tools = payload.tools || [];
+      const nextTools = payload.tools || [];
+      const nextToolNames = new Set(nextTools.map(toolKey).filter(Boolean));
+      const addedToolNames = state.toolsLoadedOnce
+        ? nextTools.map(toolKey).filter((name) => name && !previousToolNames.has(name))
+        : [];
+      const newToolNames = new Set([...state.newToolNames].filter((name) => nextToolNames.has(name)));
+      addedToolNames.forEach((name) => newToolNames.add(name));
+      state.newToolNames = newToolNames;
+      state.toolsLoadedOnce = true;
+      state.tools = nextTools;
       state.knowledge = payload.knowledge || [];
       state.cases = payload.cases || [];
       renderCases();
@@ -1296,6 +1384,26 @@
       renderKnowledge();
       el.envTools.textContent = String(state.tools.length);
       el.envKnowledge.textContent = String(state.knowledge.length);
+      if (options.toolFeedback) {
+        showToast(addedToolNames.length ? `Gateway Tools 已更新：新增 ${addedToolNames.length} 个` : "Gateway Tools 已是最新");
+      }
+      return { addedToolNames };
+    }
+
+    async function refreshTools() {
+      if (state.toolRefreshing) return;
+      state.toolRefreshing = true;
+      el.refreshTools.disabled = true;
+      el.refreshTools.classList.add("spinning");
+      try {
+        await loadOverview({ toolFeedback: true });
+      } catch (error) {
+        showToast("刷新工具失败：" + error.message);
+      } finally {
+        state.toolRefreshing = false;
+        el.refreshTools.disabled = false;
+        el.refreshTools.classList.remove("spinning");
+      }
     }
 
     function createDraftCase() {
@@ -1560,17 +1668,22 @@
       }
       el.toolList.innerHTML = groupToolsByService(state.tools).map((group) => {
         const collapsed = state.collapsedToolServices.has(group.service);
+        const newCount = group.tools.filter((item) => state.newToolNames.has(toolKey(item))).length;
         return `
         <div class="tool-group ${collapsed ? "collapsed" : ""}">
           <button class="tool-group-head" type="button" data-tool-service="${escapeAttr(group.service)}" aria-expanded="${String(!collapsed)}">
             <span class="tool-service-toggle">${collapsed ? "›" : "⌄"}</span>
             <span class="tool-service-name truncate">${escapeHTML(group.service)}</span>
+            ${newCount ? `<span class="tag new">+${newCount}</span>` : ""}
             <span class="tag">${group.tools.length}</span>
           </button>
           <div class="tool-group-body">
             ${group.tools.map((item) => `
               <div class="tool-row">
-                <div class="row-title truncate">${escapeHTML(item.name)}</div>
+                <div class="row-title tool-row-title">
+                  <span class="tool-name truncate">${escapeHTML(item.name)}</span>
+                  ${state.newToolNames.has(toolKey(item)) ? `<span class="tag new">新增</span>` : ""}
+                </div>
                 <div class="row-meta">${escapeHTML(item.description || item.required_scope || "")}</div>
               </div>
             `).join("")}
@@ -1628,6 +1741,10 @@
       if (signal.includes("log_connector") || signal.includes("deploy_connector") || signal.includes("logs:") || signal.includes("deploy:")) return "ops/logs";
       if (signal.includes("case_repository") || signal.includes("similar_case")) return "platform";
       return "other";
+    }
+
+    function toolKey(tool) {
+      return String(tool && tool.name || "").trim();
     }
 
     function serviceRank(service) {
@@ -1960,6 +2077,10 @@
 
     renderProgress([]);
     loadOverview().catch((error) => showToast("工作台加载失败：" + error.message));
+    window.setInterval(() => {
+      if (document.hidden || state.toolRefreshing) return;
+      loadOverview().catch(() => {});
+    }, 30000);
   </script>
 </body>
 </html>
