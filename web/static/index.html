@@ -755,9 +755,8 @@
       el.knowledgeForm.classList.toggle("open");
     });
 
-    el.images.addEventListener("change", () => {
-      el.fileCount.textContent = String(el.images.files.length);
-    });
+    el.images.addEventListener("change", updateFileCount);
+    el.form.addEventListener("paste", handleComposerPaste);
 
     el.form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -779,8 +778,7 @@
         applyCasePayload(payload);
         startPolling(state.currentCaseNo);
         el.message.value = "";
-        el.images.value = "";
-        el.fileCount.textContent = "0";
+        clearImages();
         await loadOverview();
       } catch (error) {
         showToast("请求失败：" + error.message);
@@ -833,11 +831,76 @@
       stopPolling();
       state.currentCaseNo = "";
       setBusy(false);
+      el.message.value = "";
+      clearImages();
       renderEmpty();
       renderProgress([]);
       el.caseStatus.textContent = "ready";
       el.caseSource.textContent = "web";
       document.querySelectorAll(".case-row.active").forEach((node) => node.classList.remove("active"));
+    }
+
+    function handleComposerPaste(event) {
+      const files = imageFilesFromClipboard(event.clipboardData);
+      if (files.length === 0) return;
+      if (!appendImageFiles(files)) return;
+      event.preventDefault();
+      showToast(files.length === 1 ? "已粘贴 1 张截图" : "已粘贴 " + files.length + " 张截图");
+    }
+
+    function imageFilesFromClipboard(clipboardData) {
+      if (!clipboardData || !clipboardData.items) return [];
+      const files = [];
+      for (const item of clipboardData.items) {
+        if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        files.push(toNamedImageFile(blob, files.length));
+      }
+      return files;
+    }
+
+    function toNamedImageFile(blob, index) {
+      const type = blob.type || "image/png";
+      const name = "pasted-" + compactTimestamp() + "-" + String(index + 1) + "." + imageExtension(type);
+      if (typeof File === "function") {
+        return new File([blob], name, { type, lastModified: Date.now() });
+      }
+      return blob;
+    }
+
+    function appendImageFiles(files) {
+      if (files.length === 0) return false;
+      if (typeof DataTransfer !== "function") {
+        showToast("当前浏览器不支持粘贴图片");
+        return false;
+      }
+      const transfer = new DataTransfer();
+      for (const file of el.images.files) transfer.items.add(file);
+      for (const file of files) transfer.items.add(file);
+      el.images.files = transfer.files;
+      updateFileCount();
+      return true;
+    }
+
+    function updateFileCount() {
+      el.fileCount.textContent = String(el.images.files.length);
+    }
+
+    function clearImages() {
+      el.images.value = "";
+      updateFileCount();
+    }
+
+    function imageExtension(type) {
+      if (type === "image/jpeg") return "jpg";
+      if (type === "image/webp") return "webp";
+      if (type === "image/gif") return "gif";
+      return "png";
+    }
+
+    function compactTimestamp() {
+      return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
     }
 
     function startPolling(caseNo) {

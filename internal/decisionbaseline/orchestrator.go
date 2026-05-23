@@ -633,6 +633,8 @@ func humanField(field string) string {
 		return "user_id 或 account_id"
 	case "user_id 或 uid":
 		return "用户 uid，例如 uid:123456"
+	case "issue_domain":
+		return "业务领域或服务名，例如 health-food、资产、K线"
 	default:
 		return field
 	}

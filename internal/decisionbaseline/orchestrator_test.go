@@ -204,6 +204,16 @@ func TestMissingInfoReplyUsesUserFriendlyTimeWording(t *testing.T) {
 	}
 }
 
+func TestMissingInfoReplyDoesNotExposeIssueDomainField(t *testing.T) {
+	reply := buildMissingInfoReply("case_1", []string{"issue_domain"})
+	if strings.Contains(reply, "issue_domain") {
+		t.Fatalf("reply should not expose internal issue_domain field: %s", reply)
+	}
+	if !strings.Contains(reply, "业务领域或服务名") {
+		t.Fatalf("reply should ask in user-facing language: %s", reply)
+	}
+}
+
 func TestHealthFoodToolArgsDoNotLeakDayWindowToPointLookups(t *testing.T) {
 	c := &caseflow.Case{
 		IssueDomain:  caseflow.DomainHealthFood,
