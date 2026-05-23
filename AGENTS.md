@@ -49,6 +49,17 @@
 - Investigation Gateway 只管业务生产证据查询边界，不查平台 MySQL。
 - Python `apps/decision-engine` 是目标 Agent Orchestrator；Go `internal/decisionbaseline` 只能作为本地 smoke/fallback。
 
+## 开发规范
+
+- Go 代码按 Uber Go Style Guide / Go Code Review Comments 的可维护性原则执行：小函数、清晰错误处理、资源 `defer` 释放、避免可变全局和无等待 goroutine。
+- Python 代码按 Google Python Style Guide 的可读性原则执行：类型边界清楚、函数职责单一、异常语义明确，不写隐式副作用脚本。
+- DB 访问优先 ORM、Query Builder 或仓库层封装；保留 raw SQL 时必须满足：
+  - 所有外部输入只能走占位符参数绑定，禁止 f-string、`fmt.Sprintf`、字符串拼接把变量写进 SQL 文本。
+  - 动态字段、排序、表名、状态枚举只能来自代码内白名单，不能来自用户输入。
+  - 新增动态 SQL 必须有单测证明注入 payload 只出现在 args，不出现在 query。
+  - Python adapter 连接 MySQL 必须使用 DB-API 参数化执行；禁止用 `mysql -e` 拼接 SQL。
+- 安全参考：OWASP SQL Injection Prevention、GitHub CodeQL SQL injection 规则、Uber Go Style Guide、Google Python Style Guide。规范链接写入相关 Program 或 PR 描述。
+
 ## Git
 
 - Full/大需求或可验收里程碑完成后，默认 commit + push。

@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +20,7 @@ import urllib.request
 from datetime import datetime, timedelta, time as dt_time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 
@@ -147,41 +147,41 @@ def validate_uid(params: dict) -> str:
     return uid
 
 
-def mysql_query(sql: str) -> list[dict[str, str | None]]:
-    env = os.environ.copy()
-    if MYSQL_PASSWORD:
-        env["MYSQL_PWD"] = MYSQL_PASSWORD
-    cmd = [
-        "mysql",
-        "-h",
-        MYSQL_HOST,
-        "-P",
-        MYSQL_PORT,
-        "-u",
-        MYSQL_USER,
-        "--default-character-set=utf8mb4",
-        "--batch",
-        "--raw",
-        MYSQL_DATABASE,
-        "-e",
-        sql,
-    ]
-    proc = subprocess.run(cmd, env=env, text=True, capture_output=True, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "mysql query failed")
-    lines = proc.stdout.splitlines()
-    if not lines:
-        return []
-    headers = lines[0].split("\t")
-    rows: list[dict[str, str | None]] = []
-    for line in lines[1:]:
-        values = line.split("\t")
-        row: dict[str, str | None] = {}
-        for idx, header in enumerate(headers):
-            value = values[idx] if idx < len(values) else None
-            row[header] = None if value == "NULL" else value
-        rows.append(row)
-    return rows
+def mysql_query(sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> list[dict[str, str | None]]:
+    try:
+        import pymysql
+        import pymysql.cursors
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PyMySQL is required for the real health-food readonly adapter; "
+            "install with `python3.13 -m pip install PyMySQL`"
+        ) from exc
+    try:
+        port = int(MYSQL_PORT)
+    except ValueError as exc:
+        raise RuntimeError("HEALTH_FOOD_MYSQL_PORT must be numeric") from exc
+
+    connection = pymysql.connect(
+        host=MYSQL_HOST,
+        port=port,
+        user=MYSQL_USER,
+        password=MYSQL_PASSWORD,
+        database=MYSQL_DATABASE,
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True,
+        read_timeout=3,
+        write_timeout=3,
+    )
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params or ())
+            return [
+                {key: None if value is None else str(value) for key, value in row.items()}
+                for row in cursor.fetchall()
+            ]
+    finally:
+        connection.close()
 
 
 def read_health_food_alive() -> dict:
@@ -368,8 +368,9 @@ def query_meals(uid: str, params: dict) -> tuple[list[dict], str, str]:
         "SELECT meal_id, meal_name, meal_time_ts, mood, status, "
         "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
         "FROM tb_meal_record "
-        f"WHERE uid={uid} AND status=1 AND meal_time_ts BETWEEN {start_ms} AND {end_ms} "
-        "ORDER BY meal_time_ts ASC"
+        "WHERE uid=%s AND status=1 AND meal_time_ts BETWEEN %s AND %s "
+        "ORDER BY meal_time_ts ASC",
+        (uid, start_ms, end_ms),
     )
     meal_ids = [str(row["meal_id"]) for row in rows if row.get("meal_id")]
     fingerprint = hashlib.md5(",".join(sorted(meal_ids)).encode("utf-8")).hexdigest() if meal_ids else ""
@@ -396,14 +397,16 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
         users = mysql_query(
             "SELECT uid, nick_name, email, phone, status, "
             "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
-            f"FROM tb_user_info WHERE uid={uid} LIMIT 1"
+            "FROM tb_user_info WHERE uid=%s LIMIT 1",
+            (uid,),
         )
-        memberships = mysql_query(f"SELECT level FROM tb_user_ai_membership WHERE uid={uid} LIMIT 1")
-        goals = mysql_query(f"SELECT goal, dietary_preferences, remark FROM tb_health_goal WHERE uid={uid} LIMIT 1")
+        memberships = mysql_query("SELECT level FROM tb_user_ai_membership WHERE uid=%s LIMIT 1", (uid,))
+        goals = mysql_query("SELECT goal, dietary_preferences, remark FROM tb_health_goal WHERE uid=%s LIMIT 1", (uid,))
         devices = mysql_query(
             "SELECT device_id, device_name, os_type, os_version, area, "
             "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
-            f"FROM tb_user_device_info WHERE uid={uid} ORDER BY update_time DESC LIMIT 1"
+            "FROM tb_user_device_info WHERE uid=%s ORDER BY update_time DESC LIMIT 1",
+            (uid,),
         )
         user = users[0] if users else {}
         data = {
@@ -424,12 +427,13 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
             "SELECT available_balance, daily_chat_count, "
             "DATE_FORMAT(last_reset_date, '%Y-%m-%dT%H:%i:%s+08:00') AS last_reset_date, "
             "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
-            f"FROM tb_user_asset_account WHERE uid={uid} AND (account_type IN (2, 200) OR LOWER(asset_name)='token') "
-            "ORDER BY update_time DESC LIMIT 1"
+            "FROM tb_user_asset_account WHERE uid=%s AND (account_type IN (2, 200) OR LOWER(asset_name)='token') "
+            "ORDER BY update_time DESC LIMIT 1",
+            (uid,),
         )
-        memberships = mysql_query(f"SELECT level FROM tb_user_ai_membership WHERE uid={uid} LIMIT 1")
+        memberships = mysql_query("SELECT level FROM tb_user_ai_membership WHERE uid=%s LIMIT 1", (uid,))
         level = int((memberships[0].get("level") if memberships else 0) or 0)
-        quotas = mysql_query(f"SELECT limit_chat FROM tb_ai_membership_token_quotas WHERE level={level} LIMIT 1")
+        quotas = mysql_query("SELECT limit_chat FROM tb_ai_membership_token_quotas WHERE level=%s LIMIT 1", (level,))
         account = accounts[0] if accounts else {}
         available = account.get("available_balance") or "0"
         daily = int(account.get("daily_chat_count") or 0)
@@ -473,7 +477,8 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
             "SELECT food_json, source_meal_ids, meal_data_fingerprint, meal_count, "
             "DATE_FORMAT(create_time, '%Y-%m-%dT%H:%i:%s+08:00') AS generated_at, "
             "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
-            f"FROM tb_daily_food_recommend WHERE uid={uid} AND recommend_date='{date_text}' LIMIT 1"
+            "FROM tb_daily_food_recommend WHERE uid=%s AND recommend_date=%s LIMIT 1",
+            (uid, date_text),
         )
         row = rows[0] if rows else {}
         has_recommendation = bool(rows and (row.get("food_json") or ""))

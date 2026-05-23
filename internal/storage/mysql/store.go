@@ -504,6 +504,24 @@ func (s *Store) FindKnowledgeItem(ctx context.Context, issueDomain string, issue
 }
 
 func (s *Store) ListKnowledgeItems(ctx context.Context, filter caseflow.KnowledgeFilter) ([]caseflow.KnowledgeItem, error) {
+	query, args := buildKnowledgeListQuery(filter)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []caseflow.KnowledgeItem{}
+	for rows.Next() {
+		item, err := scanKnowledgeRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func buildKnowledgeListQuery(filter caseflow.KnowledgeFilter) (string, []any) {
 	query := knowledgeSelect()
 	conds := []string{"1=1"}
 	args := []any{}
@@ -531,20 +549,7 @@ func (s *Store) ListKnowledgeItems(ctx context.Context, filter caseflow.Knowledg
 	}
 	query += " WHERE " + strings.Join(conds, " AND ") + " ORDER BY update_time DESC LIMIT ?"
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []caseflow.KnowledgeItem{}
-	for rows.Next() {
-		item, err := scanKnowledgeRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return query, args
 }
 
 func (s *Store) DeleteKnowledgeItem(ctx context.Context, id int64) error {

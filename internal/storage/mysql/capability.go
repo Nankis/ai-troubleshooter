@@ -130,6 +130,24 @@ func (s *Store) GetToolCapability(ctx context.Context, id int64) (capability.Too
 }
 
 func (s *Store) ListToolCapabilities(ctx context.Context, filter capability.ToolFilter) ([]capability.ToolCapability, error) {
+	query, args := buildToolCapabilityListQuery(filter)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []capability.ToolCapability{}
+	for rows.Next() {
+		item, err := scanCapability(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func buildToolCapabilityListQuery(filter capability.ToolFilter) (string, []any) {
 	limit := filter.Limit
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -146,20 +164,7 @@ func (s *Store) ListToolCapabilities(ctx context.Context, filter capability.Tool
 	}
 	query += ` ORDER BY service_name, tool_name LIMIT ?`
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []capability.ToolCapability{}
-	for rows.Next() {
-		item, err := scanCapability(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return query, args
 }
 
 func (s *Store) UpdateToolCapabilityStatus(ctx context.Context, id int64, status string, publishedBy string) (capability.ToolCapability, error) {

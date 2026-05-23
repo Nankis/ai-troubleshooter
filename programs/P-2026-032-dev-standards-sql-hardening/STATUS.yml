@@ -1,0 +1,17 @@
+program: P-2026-032-dev-standards-sql-hardening
+name: "dev standards and SQL hardening"
+status: completed
+updated_at: "2026-05-24"
+tasks:
+  - id: T1
+    name: "调研和规范更新"
+    status: completed
+  - id: T2
+    name: "代码审计和修复"
+    status: completed
+  - id: T3
+    name: "验证"
+    status: completed
+  - id: T4
+    name: "提交推送"
+    status: completed

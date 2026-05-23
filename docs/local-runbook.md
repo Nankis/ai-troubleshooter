@@ -248,6 +248,7 @@ python3.13 scripts/mcp-readonly-adapter.py
 
 ```bash
 # 1. 先启动本地 health-food，确保 /food-health/sys/alive 可访问。
+python3.13 -m pip install PyMySQL
 
 # 2. 启动真实 readonly adapter。
 CONNECTOR_API_KEY="$LOCAL_CONNECTOR_API_KEY" \

@@ -70,6 +70,30 @@ class FakeHealthFoodAdminHandler(BaseHTTPRequestHandler):
 
 
 class RealHealthFoodReadonlyAdapterTest(unittest.TestCase):
+    def test_local_mysql_queries_use_bound_parameters(self) -> None:
+        adapter = load_real_adapter({"HEALTH_FOOD_ALLOWED_SERVICE_NAMES": "health-food"})
+        calls: list[tuple[str, tuple[object, ...] | None]] = []
+
+        def fake_mysql_query(sql: str, params: tuple[object, ...] | None = None) -> list[dict]:
+            calls.append((sql, params))
+            return []
+
+        with mock.patch.object(adapter, "mysql_query", side_effect=fake_mysql_query):
+            adapter.query_meals(
+                "2054603630081875968",
+                {
+                    "start_time": "2026-05-23T00:00:00+08:00",
+                    "end_time": "2026-05-24T00:00:00+08:00",
+                },
+            )
+
+        self.assertEqual(len(calls), 1)
+        sql, params = calls[0]
+        self.assertIn("uid=%s", sql)
+        self.assertIn("BETWEEN %s AND %s", sql)
+        self.assertNotIn("2054603630081875968", sql)
+        self.assertEqual(params[0], "2054603630081875968")
+
     def test_admin_log_upstream_is_normalized_masked_and_limited(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), FakeHealthFoodAdminHandler)
         server.seen_queries = []  # type: ignore[attr-defined]
