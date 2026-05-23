@@ -3,8 +3,11 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
+
+const DefaultAgentID = "business-troubleshooter-v1"
 
 type Engine interface {
 	Authorize(ctx context.Context, req Request) (Decision, error)
@@ -97,9 +100,17 @@ func (e *StaticEngine) Authorize(ctx context.Context, req Request) (Decision, er
 }
 
 func DefaultAgents() []Agent {
+	return DefaultAgentsFor(DefaultAgentID)
+}
+
+func DefaultAgentsFor(agentID string) []Agent {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		agentID = DefaultAgentID
+	}
 	return []Agent{
 		{
-			AgentID: "business-troubleshooter-v1",
+			AgentID: agentID,
 			AllowedScopes: Set(
 				"case:read",
 				"case:write",

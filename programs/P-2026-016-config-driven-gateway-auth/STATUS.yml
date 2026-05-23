@@ -1,0 +1,25 @@
+program: P-2026-016-config-driven-gateway-auth
+name: "Config Driven Gateway Auth"
+level: "Medium"
+phase: "completed"
+status: "completed"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "done"
+tasks:
+  - id: task-1
+    name: "盘点硬编码接入点"
+    status: completed
+  - id: task-2
+    name: "实现 Gateway agent 配置化"
+    status: completed
+  - id: task-3
+    name: "runner agent id 配置化"
+    status: completed
+  - id: task-4
+    name: "测试、文档、样例配置"
+    status: completed
+  - id: task-5
+    name: "验证、提交、推送"
+    status: completed

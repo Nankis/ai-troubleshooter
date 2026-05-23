@@ -49,7 +49,7 @@ func main() {
 	}
 	evolver := evolution.NewService(store)
 	runner := decisionbaseline.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), decisionbaseline.Config{
-		AgentID:                 "business-troubleshooter-v1",
+		AgentID:                 cfg.Gateway.AgentID,
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,
 		MaxToolCallsPerCase:     cfg.Limits.MaxToolCallsPerCase,

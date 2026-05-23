@@ -38,7 +38,8 @@ ASSET_READONLY_BASE_URL=https://asset-readonly.example.internal
 OPS_READONLY_BASE_URL=https://ops-readonly.example.internal
 
 GATEWAY_AUTH_ENABLED=true
-GATEWAY_BEARER_TOKENS='business-troubleshooter-v1:replace-with-strong-token'
+GATEWAY_AGENT_CONFIG_FILE=configs/gateway-agents.example.json
+BUSINESS_TROUBLESHOOTER_GATEWAY_TOKEN=replace-with-strong-token
 GATEWAY_AGENT_QPS=20
 GATEWAY_USER_QPS=10
 GATEWAY_TOOL_QPS=20

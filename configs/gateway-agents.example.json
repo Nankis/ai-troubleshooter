@@ -1,0 +1,62 @@
+{
+  "agents": [
+    {
+      "agent_id": "business-troubleshooter-v1",
+      "status": "enabled",
+      "bearer_token_env": "BUSINESS_TROUBLESHOOTER_GATEWAY_TOKEN",
+      "allowed_scopes": [
+        "kline:read",
+        "asset:read",
+        "logs:read_summary",
+        "deploy:read",
+        "cache:read",
+        "similar_case:read",
+        "health_food:user:read",
+        "health_food:ai_quota:read",
+        "health_food:meal:read",
+        "health_food:recommendation:read"
+      ],
+      "allowed_tools": [
+        "search_logs_by_service",
+        "get_recent_deployments",
+        "get_similar_cases",
+        "get_internal_kline",
+        "get_external_kline_compare",
+        "get_kline_cache_status",
+        "get_market_source_status",
+        "get_asset_snapshot",
+        "get_asset_events",
+        "get_user_recent_errors",
+        "get_health_food_user_profile",
+        "get_health_food_ai_quota",
+        "get_health_food_meal_records",
+        "get_health_food_recommendation_status"
+      ],
+      "allowed_chat_ids": [],
+      "rate_limit_qps": 5
+    },
+    {
+      "agent_id": "health-food-readonly-agent",
+      "status": "enabled",
+      "bearer_token_env": "HEALTH_FOOD_AGENT_GATEWAY_TOKEN",
+      "allowed_scopes": [
+        "logs:read_summary",
+        "similar_case:read",
+        "health_food:user:read",
+        "health_food:ai_quota:read",
+        "health_food:meal:read",
+        "health_food:recommendation:read"
+      ],
+      "allowed_tools": [
+        "search_logs_by_service",
+        "get_similar_cases",
+        "get_health_food_user_profile",
+        "get_health_food_ai_quota",
+        "get_health_food_meal_records",
+        "get_health_food_recommendation_status"
+      ],
+      "allowed_chat_ids": ["oc_health_food_oncall"],
+      "rate_limit_qps": 3
+    }
+  ]
+}

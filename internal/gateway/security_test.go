@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Nankis/ai-troubleshooter/internal/audit"
+	"github.com/Nankis/ai-troubleshooter/internal/config"
 	"github.com/Nankis/ai-troubleshooter/internal/policy"
 	"github.com/Nankis/ai-troubleshooter/internal/tool"
 )
@@ -70,6 +71,47 @@ func TestGatewayAllowsAuthenticatedRequest(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGatewayUsesConfiguredAgentPolicy(t *testing.T) {
+	gw, err := NewFromConfigWithAudit(config.Config{
+		Gateway: config.GatewayConfig{
+			AuthEnabled:  true,
+			AgentID:      "health-agent",
+			BearerTokens: map[string]string{"health-token": "health-agent"},
+			AgentQPS:     10,
+			UserQPS:      10,
+			ToolQPS:      10,
+			Agents: []config.GatewayAgentConfig{{
+				AgentID:       "health-agent",
+				Status:        "enabled",
+				AllowedScopes: []string{"health_food:user:read"},
+				AllowedTools:  []string{"get_health_food_user_profile"},
+			}},
+		},
+		Limits: config.LimitsConfig{DefaultToolTimeoutSeconds: 1},
+	}, audit.NewMemorySink())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allowedBody := []byte(`{"case_id":"case_1","agent_id":"health-agent","arguments":{"uid":"hf_user_001"}}`)
+	allowedReq := httptest.NewRequest(http.MethodPost, "/tools/get_health_food_user_profile/invoke", bytes.NewReader(allowedBody))
+	allowedReq.Header.Set("Authorization", "Bearer health-token")
+	allowedRec := httptest.NewRecorder()
+	gw.ServeHTTP(allowedRec, allowedReq)
+	if allowedRec.Code != http.StatusOK {
+		t.Fatalf("expected configured health tool to be allowed, got %d body=%s", allowedRec.Code, allowedRec.Body.String())
+	}
+
+	deniedBody := []byte(`{"case_id":"case_1","agent_id":"health-agent","arguments":{"user_id":"u1","asset_symbol":"USDT"}}`)
+	deniedReq := httptest.NewRequest(http.MethodPost, "/tools/get_asset_snapshot/invoke", bytes.NewReader(deniedBody))
+	deniedReq.Header.Set("Authorization", "Bearer health-token")
+	deniedRec := httptest.NewRecorder()
+	gw.ServeHTTP(deniedRec, deniedReq)
+	if deniedRec.Code != http.StatusForbidden {
+		t.Fatalf("expected asset tool to be denied by configured policy, got %d body=%s", deniedRec.Code, deniedRec.Body.String())
 	}
 }
 

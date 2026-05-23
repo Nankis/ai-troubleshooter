@@ -59,9 +59,14 @@ connectors:
 
 gateway:
   auth_enabled: false
+  agent_id: business-troubleshooter-v1
   # Runtime env format:
   # GATEWAY_BEARER_TOKENS=business-troubleshooter-v1:replace-with-strong-token
+  # Preferred configurable policy:
+  # GATEWAY_AGENT_CONFIG_FILE=configs/gateway-agents.example.json
+  # BUSINESS_TROUBLESHOOTER_GATEWAY_TOKEN=replace-with-strong-token
   bearer_tokens: {}
+  agents_config_file: ""
   allow_unauthenticated_list_tools: false
   agent_qps: 20
   user_qps: 10

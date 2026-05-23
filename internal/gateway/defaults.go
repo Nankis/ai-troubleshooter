@@ -40,7 +40,7 @@ func NewFromConfigWithAudit(cfg config.Config, auditSink audit.Sink) (*Gateway, 
 		return nil, err
 	}
 	RegisterDefaultTools(registry, kline, asset, ops, healthFood)
-	return New(registry, policy.NewStaticEngine(policy.DefaultAgents()), auditSink, timeout).WithSecurity(SecurityConfig{
+	return New(registry, policy.NewStaticEngine(policyAgentsFromConfig(cfg.Gateway.AgentID, cfg.Gateway.Agents)), auditSink, timeout).WithSecurity(SecurityConfig{
 		AuthEnabled:                   cfg.Gateway.AuthEnabled,
 		BearerTokens:                  cfg.Gateway.BearerTokens,
 		AllowUnauthenticatedListTools: cfg.Gateway.AllowUnauthenticatedListTools,
@@ -48,6 +48,24 @@ func NewFromConfigWithAudit(cfg config.Config, auditSink audit.Sink) (*Gateway, 
 		UserQPS:                       cfg.Gateway.UserQPS,
 		ToolQPS:                       cfg.Gateway.ToolQPS,
 	}), nil
+}
+
+func policyAgentsFromConfig(defaultAgentID string, configs []config.GatewayAgentConfig) []policy.Agent {
+	if len(configs) == 0 {
+		return policy.DefaultAgentsFor(defaultAgentID)
+	}
+	agents := make([]policy.Agent, 0, len(configs))
+	for _, item := range configs {
+		agents = append(agents, policy.Agent{
+			AgentID:           strings.TrimSpace(item.AgentID),
+			AllowedScopes:     policy.Set(item.AllowedScopes...),
+			AllowedTools:      policy.Set(item.AllowedTools...),
+			AllowedLarkGroups: policy.Set(item.AllowedChatIDs...),
+			Status:            firstNonEmpty(strings.TrimSpace(item.Status), "enabled"),
+			RateLimitQPS:      item.RateLimitQPS,
+		})
+	}
+	return agents
 }
 
 func buildConnectors(cfg config.Config) (connectors.KlineConnector, connectors.AssetConnector, connectors.OpsConnector, connectors.HealthFoodConnector, error) {

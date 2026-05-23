@@ -1,0 +1,17 @@
+allowed_paths:
+  - internal/config/**
+  - internal/gateway/**
+  - internal/policy/**
+  - cmd/**
+  - configs/**
+  - docs/**
+  - README.md
+  - programs/P-2026-016-config-driven-gateway-auth/**
+
+forbidden_paths:
+  - migrations/**
+  - apps/decision-engine/**
+
+notes:
+  - "优先保持向后兼容，旧的 GATEWAY_BEARER_TOKENS 继续可用。"
+  - "新增权限配置不得要求写真实 token 到仓库。"

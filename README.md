@@ -330,6 +330,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - [P-2026-013 Local Code Intelligence](programs/P-2026-013-local-code-intelligence/RESULT.md)：debug-only 本地代码辅助排查，支持关键词、符号和调用边。
 - [P-2026-014 Semantic Code Index](programs/P-2026-014-semantic-code-index/RESULT.md)：跨模块调用边解析、receiver type、接口实现关系和 tree-sitter/LSP/LSIF backend 配置预留。
 - [P-2026-015 MCP Gateway Adapter](programs/P-2026-015-mcp-gateway-adapter/RESULT.md)：MCP server 通过 allowlist readonly adapter 接入 Gateway，并用 health-food 实际链路验证。
+- [P-2026-016 Config Driven Gateway Auth](programs/P-2026-016-config-driven-gateway-auth/RESULT.md)：Gateway agent/scope/tool/chat 权限配置化，runner agent id 可配置。
 
 ## 已实现能力
 
@@ -355,6 +356,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - Tool Registry 和内部 Tool Invoke API。
 - Investigation Gateway 默认拒绝策略、scope 校验、参数边界控制。
 - Gateway HTTP Bearer 鉴权、认证 agent 与请求 `agent_id` 绑定、agent/user/tool 固定窗口限流。
+- Gateway agent 权限配置化：可通过 `GATEWAY_AGENT_CONFIG_FILE` / `GATEWAY_AGENT_CONFIG_JSON` 配置 agent、scope、tool、chat allowlist 和 `bearer_token_env`，新增业务 agent 不需要改代码。
 - 控制面 API Bearer 鉴权，生产环境缺少关键安全配置时 fail-closed。
 - Audit sink、MySQL tool audit 持久化和脱敏。
 - 14 个一期只读工具。
@@ -611,7 +613,7 @@ go test ./...
 
 ## Gateway 安全边界
 
-平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token；`GATEWAY_BEARER_TOKENS` 用 `agent_id:token` 配置，并把认证 agent 与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计持久化和返回脱敏。
+平台内已实现 Gateway 入口安全：`GATEWAY_AUTH_ENABLED=true` 后，`POST /tools/{tool}/invoke` 必须携带 Bearer token。推荐用 `GATEWAY_AGENT_CONFIG_FILE` / `GATEWAY_AGENT_CONFIG_JSON` 配置 agent、scope、tool、chat allowlist 和 `bearer_token_env`；旧版 `GATEWAY_BEARER_TOKENS=agent_id:token` 仍兼容。认证 agent 会与请求体 `agent_id` 强绑定，防止调用方伪造其它 agent。Gateway 还内置工具默认拒绝、scope 校验、时间范围/limit 约束、调用 timeout、agent/user/tool 固定窗口限流、审计持久化和返回脱敏。
 
 root cause、feedback、knowledge、case/process 这类控制面 API 通过 `CONTROL_API_AUTH_ENABLED=true` 和 `CONTROL_API_BEARER_TOKENS` 单独鉴权。`APP_ENV=prod` 时，Gateway、控制面 API、Lark verification token 和 allowed chats 缺失会直接启动失败。
 
