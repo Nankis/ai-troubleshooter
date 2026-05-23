@@ -308,6 +308,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 | [docs/ai-connector-integration.md](docs/ai-connector-integration.md) | 业务方只读接口接入规范，定义接口命名、参数、返回、错误和 adapter 规则。 |
 | [docs/business-service-registration.md](docs/business-service-registration.md) | 业务服务注册到 Gateway 的 manifest 数据结构、capability 字段和 health-food 示例。 |
 | [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
+| [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md) | MCP server 通过 readonly adapter 接入 Gateway 的方式和验收标准。 |
 | [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
 | [docs/knowledge-evolution.md](docs/knowledge-evolution.md) | root cause 回填、经验沉淀、knowledge item 和自进化逻辑。 |
 | [docs/agent-framework-selection.md](docs/agent-framework-selection.md) | Python 决策层框架选择，记录 LangGraph / LangChain 等后续迁移触发条件。 |
@@ -328,6 +329,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - [P-2026-009 Web Chat Verification Hardening](programs/P-2026-009-web-chat-verification-hardening/RESULT.md)：补充 Web 多场景验证、Gateway 输出脱敏和超时 504 单测。
 - [P-2026-013 Local Code Intelligence](programs/P-2026-013-local-code-intelligence/RESULT.md)：debug-only 本地代码辅助排查，支持关键词、符号和调用边。
 - [P-2026-014 Semantic Code Index](programs/P-2026-014-semantic-code-index/RESULT.md)：跨模块调用边解析、receiver type、接口实现关系和 tree-sitter/LSP/LSIF backend 配置预留。
+- [P-2026-015 MCP Gateway Adapter](programs/P-2026-015-mcp-gateway-adapter/RESULT.md)：MCP server 通过 allowlist readonly adapter 接入 Gateway，并用 health-food 实际链路验证。
 
 ## 已实现能力
 
@@ -360,6 +362,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - health-food 故障域、本地 readonly adapter、AI 配额 / 餐食 / 每日推荐只读工具和服务注册 manifest 示例。
 - health-food 真实本地联调 adapter：`scripts/real-health-food-readonly-adapter.py` 可连接本地测试 DB 和本地 health-food 服务，验证注册用户、餐食、AI 配额、每日推荐状态和 adapter 鉴权，不用 mock 故障数据冒充验收。
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
+- MCP readonly adapter：外部 MCP server 可通过 allowlist route 映射成标准 readonly adapter，再由 Gateway 调用；决策层不直连 MCP。
 - 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
 - MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
 - MySQL 初始化 migration。
@@ -487,6 +490,16 @@ HEALTH_FOOD_READONLY_BASE_URL=https://health-food-readonly.example.internal
 
 adapter 需要实现的接口见 [docs/ai-connector-integration.md](docs/ai-connector-integration.md)。业务服务注册到 Gateway 的 manifest 结构见 [docs/business-service-registration.md](docs/business-service-registration.md)，health-food 示例见 [configs/business-capabilities.health-food.example.yaml](configs/business-capabilities.health-food.example.yaml)。
 
+对接 MCP server：
+
+```bash
+MCP_ADAPTER_API_KEY="$LOCAL_CONNECTOR_API_KEY" \
+MCP_READONLY_ADAPTER_PORT=19085 \
+python3.13 scripts/mcp-readonly-adapter.py
+```
+
+MCP 接入仍然走 Gateway，不允许决策层直连 MCP。配置和验收标准见 [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md)，health-food MCP route 示例见 [configs/mcp-health-food-adapter.example.json](configs/mcp-health-food-adapter.example.json)。
+
 ### health-food 真实本地联调
 
 `scripts/real-health-food-readonly-adapter.py` 用于本地真实验证：它查询本地 health-food 测试库、探活本地 health-food 服务，并按公司 readonly adapter envelope 对外暴露 health-food 首批接口。它不合成 mock 故障数据，也不允许 Agent 直接访问生产 DB。
@@ -613,7 +626,7 @@ Decision Layer 不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Decision runner 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
 - Supervisor + Specialist Agents 已在 Python decision-engine 内提供轻量规则基线；生产查询仍必须通过 Gateway 获取只读证据。本地代码辅助排查仅 debug-only 开启，且只读 allowlist 仓库，支持关键词、语言结构符号、有限调用边、跨模块调用解析、receiver type 和接口实现关系，不返回源码片段、不自动改代码。tree-sitter、LSP、LSIF 已作为后续语义索引 backend 插槽预留，真实 LLM 多 agent 推理和更复杂状态图可继续演进。
-- 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
+- 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。外部 MCP server 可先用 MCP readonly adapter 转成同一套 HTTP readonly contract，再交给 Gateway 调用。
 - Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 
 ## 下一步

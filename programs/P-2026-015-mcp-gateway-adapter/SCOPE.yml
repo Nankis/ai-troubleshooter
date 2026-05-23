@@ -1,0 +1,15 @@
+allowed_paths:
+  - scripts/**
+  - configs/**
+  - docs/**
+  - README.md
+  - Makefile
+  - programs/P-2026-015-mcp-gateway-adapter/**
+
+forbidden_paths:
+  - internal/decisionbaseline/**
+  - apps/decision-engine/**
+
+notes:
+  - "MCP 只能作为 Gateway 后面的 readonly adapter 接入。"
+  - "验收必须实际启动 MCP server、adapter 和项目服务，再调用 Gateway 工具成功。"

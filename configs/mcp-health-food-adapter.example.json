@@ -1,0 +1,51 @@
+{
+  "server": {
+    "command": ["python3.13", "scripts/mock-health-food-mcp-server.py"],
+    "request_timeout_seconds": 5,
+    "protocol_version": "2025-06-18"
+  },
+  "routes": [
+    {
+      "path": "/v1/readonly/health-food/user/profile",
+      "tool_name": "health_food_user_profile",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": ["uid"]
+    },
+    {
+      "path": "/v1/readonly/health-food/ai/quota",
+      "tool_name": "health_food_ai_quota",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": ["uid"]
+    },
+    {
+      "path": "/v1/readonly/health-food/meals/range",
+      "tool_name": "health_food_meal_records",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": ["uid"]
+    },
+    {
+      "path": "/v1/readonly/health-food/recommendation/status",
+      "tool_name": "health_food_recommendation_status",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": ["uid", "recommendation_date"]
+    },
+    {
+      "path": "/v1/readonly/ops/logs/search",
+      "tool_name": "health_food_search_logs",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": ["service_name"]
+    },
+    {
+      "path": "/v1/readonly/ops/cases/similar",
+      "tool_name": "health_food_similar_cases",
+      "source": "health-food-mcp/mock",
+      "version": "mcp-mock-v1",
+      "required_params": []
+    }
+  ]
+}

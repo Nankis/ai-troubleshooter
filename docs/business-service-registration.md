@@ -4,7 +4,7 @@
 
 ## 注册对象
 
-业务服务不要把 DB、SQL、Redis key 或生产 token 直接交给 Agent。业务方只提供一个 readonly adapter，并提交一份能力注册 manifest：
+业务服务不要把 DB、SQL、Redis key 或生产 token 直接交给 Agent。业务方只提供一个 readonly adapter，并提交一份能力注册 manifest。若业务方已有 MCP server，也必须先用 MCP readonly adapter 映射成同一套 readonly HTTP contract，再注册到 Gateway：
 
 ```yaml
 service:

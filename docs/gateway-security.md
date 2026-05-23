@@ -2,7 +2,7 @@
 
 Investigation Gateway 是业务生产只读查询的安全边界。Agent、worker、Lark bot 都不应直接访问生产 DB、Redis、日志平台或业务服务，所有工具调用必须经过 Gateway。平台自己的 case、审计、知识库 MySQL 不属于业务生产证据源，由 Agent 平台服务按内部权限访问。
 
-业务服务通过 Gateway 注册只读能力，例如日志 MCP、行情、资产、风控和其他只读工具。Gateway 校验 `agent / scope / case / user / tool / limit / timeout`，业务服务也应校验来自 Gateway 的内部身份，形成双层鉴权。Agent 隔离在 Gateway 之前，不直接对业务 DB。
+业务服务通过 Gateway 注册只读能力，例如日志 MCP、行情、资产、风控和其他只读工具。MCP server 必须先通过 MCP readonly adapter 转成受控 readonly endpoint，不能让决策层直接连接。Gateway 校验 `agent / scope / case / user / tool / limit / timeout`，业务服务也应校验来自 Gateway 的内部身份，形成双层鉴权。Agent 隔离在 Gateway 之前，不直接对业务 DB。
 
 ## 已内置能力
 

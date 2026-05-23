@@ -14,6 +14,7 @@ test-go:
 
 test-python:
 	PYTHONPATH=apps/decision-engine $(PYTHON) -m unittest discover -s apps/decision-engine/tests -p 'test_*.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 dev:
 	$(GO) run ./cmd/dev-server
