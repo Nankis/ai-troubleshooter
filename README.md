@@ -373,7 +373,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - MCP readonly adapter：外部 MCP server 可通过 allowlist route 映射成标准 readonly adapter，再由 Gateway 调用；决策层不直连 MCP。
 - 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
 - Web 工作台支持查看平台经验沉淀，并可手动录入或软删除指定知识条目。
-- MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
+- MySQL store：默认 `DB_DRIVER=mysql` 时必须配置 `DB_DSN`，case、消息、根因、反馈、知识库和自进化运行记录都会持久化；只有显式设置 `DB_DRIVER=memory` 才允许使用内存 store 做一次性 smoke。
 - MySQL 初始化 migration。
 - 知识沉淀增强 migration。
 - AI 决策日志 migration。
@@ -394,6 +394,7 @@ MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PASSWORD="$LOCAL_MYSQ
 
 ```bash
 export DB_DSN="$LOCAL_DB_DSN"
+export DB_DRIVER=mysql
 export CONNECTOR_MODE=mock
 export LLM_PROVIDER=openai_compatible
 export LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -407,6 +408,7 @@ make dev
 ```
 
 4. 浏览器打开 `http://localhost:8080/`，输入问题或上传截图。左侧可查看问题会话、已注册 Gateway tools 和平台经验；右侧可查看当前排查状态和决策层步骤。
+5. 如果只是做一次性前端 smoke，可以显式设置 `DB_DRIVER=memory` 且不要配置 `DB_DSN`；任何需要验证平台经验沉淀、case、消息、审计或 AI 决策日志的场景都必须使用 MySQL 并查询表验证。
 
 所有 key、token、MySQL 密码都只允许通过环境变量传入。提交和推送前请安装本地 hook：
 

@@ -147,7 +147,7 @@ CONTROL_API_BEARER_TOKENS='replace-with-internal-control-token'
 - latency
 - error
 
-配置 `DB_DSN` 后，Gateway 会把审计写入 MySQL `tb_troubleshoot_tool_call_audit`；调用人字段使用 `caller_user_id VARCHAR(128)`，兼容 Lark/飞书和公司自定义字符串 UID。未配置时使用内存审计，适合本地 smoke。工具返回前会统一脱敏手机号、邮箱、token、secret、身份证等敏感字段。
+`DB_DRIVER=mysql` 时必须配置 `DB_DSN`，Gateway 会把审计写入 MySQL `tb_troubleshoot_tool_call_audit`；调用人字段使用 `caller_user_id VARCHAR(128)`，兼容 Lark/飞书和公司自定义字符串 UID。只有显式 `DB_DRIVER=memory` 才使用内存审计，适合一次性本地 smoke。工具返回前会统一脱敏手机号、邮箱、token、secret、身份证等敏感字段。
 
 ## 部署层必须补齐
 

@@ -7,7 +7,7 @@
 - Go 1.24 或更高版本。
 - Python 3.13，用于后续 Python Decision Engine 开发。
 - Docker 可选，用于本地镜像验证。
-- MySQL 可选；不配置 `DB_DSN` 时会使用内存 store。
+- MySQL 是完整验收的必备依赖；默认 `DB_DRIVER=mysql` 且必须配置 `DB_DSN`。只有显式 `DB_DRIVER=memory` 才允许做一次性本地 smoke。
 
 ```bash
 go version

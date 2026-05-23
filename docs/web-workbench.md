@@ -33,7 +33,7 @@ GET /
 
 ## 进度来源
 
-右侧进度不是前端假状态，而是从 `tb_troubleshoot_ai_decision_log` / in-memory store 中读取：
+右侧进度不是前端假状态，而是从 `tb_troubleshoot_ai_decision_log` 读取；只有显式 `DB_DRIVER=memory` 的一次性 smoke 才会从内存 store 中读取：
 
 - `classify_issue`
 - `extract_entities`
