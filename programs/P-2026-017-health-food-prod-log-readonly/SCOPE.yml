@@ -1,0 +1,17 @@
+program: P-2026-017-health-food-prod-log-readonly
+paths:
+  - scripts/real-health-food-readonly-adapter.py
+  - internal/connectors/types.go
+  - internal/connectors/http_test.go
+  - tests/test_real_health_food_readonly_adapter.py
+  - configs/business-capabilities.health-food.example.yaml
+  - docs/health-food-production-integration.md
+  - docs/ai-connector-integration.md
+  - README.md
+  - programs/P-2026-017-health-food-prod-log-readonly/**
+external_readonly_paths:
+  - /Users/ginseng/IdeaProjects/health-workspace/repos/health-food
+constraints:
+  - 不写入生产密钥、密码、token、生产 URL。
+  - 生产验证必须实际调用生产接口，mock 只作为链路自测。
+  - 不修改 health-food 仓库，除非确认缺口必须在业务服务侧补。

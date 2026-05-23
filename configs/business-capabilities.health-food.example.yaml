@@ -65,4 +65,16 @@ capabilities:
     required_params: [uid, recommendation_date]
     optional_params: [user_id, start_time, end_time, trace_id]
     response_data_schema_ref: HealthFoodRecommendationStatus
-
+  - tool_name: search_logs_by_service
+    description: 查询 health-food 生产/预发服务日志摘要，只返回脱敏样例
+    scope: logs:read_summary
+    method: POST
+    path: /v1/readonly/ops/logs/search
+    timeout_ms: 5000
+    max_qps: 3
+    max_time_range_minutes: 30
+    max_limit: 20
+    sensitivity_level: sensitive
+    required_params: [service_name, start_time, end_time]
+    optional_params: [level, keyword, trace_id, uid, user_id, api]
+    response_data_schema_ref: LogSearchResult

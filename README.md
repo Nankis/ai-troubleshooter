@@ -307,6 +307,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 | [docs/architecture-decisions.md](docs/architecture-decisions.md) | 架构边界、部署图、流程图、平台数据和业务 Gateway 分界。 |
 | [docs/ai-connector-integration.md](docs/ai-connector-integration.md) | 业务方只读接口接入规范，定义接口命名、参数、返回、错误和 adapter 规则。 |
 | [docs/business-service-registration.md](docs/business-service-registration.md) | 业务服务注册到 Gateway 的 manifest 数据结构、capability 字段和 health-food 示例。 |
+| [docs/health-food-production-integration.md](docs/health-food-production-integration.md) | health-food 生产只读日志接入方式、本地启动命令、安全限制和验收标准。 |
 | [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
 | [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md) | MCP server 通过 readonly adapter 接入 Gateway 的方式和验收标准。 |
 | [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
@@ -531,6 +532,22 @@ go run ./cmd/dev-server
 ```
 
 真实联调的验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库；必要时再用 Python Decision Engine 的 debug-only Local Code Agent 根据 `service_name` 定位本地代码路径，并输出相对路径、符号、调用边、resolved symbol、receiver type 和接口实现关系。
+
+### health-food 生产只读日志
+
+生产问题排查优先查询生产只读证据，不直接连生产 DB。health-food 当前已有 `/food-health/sys/admin/search-logs` 日志搜索能力，排障平台通过本地 adapter 桥接成标准 Gateway 工具 `search_logs_by_service`，并在返回前做服务名 allowlist、30 分钟时间窗、limit、超时和脱敏。
+
+最小启动方式：
+
+```bash
+CONNECTOR_API_KEY="$LOCAL_CONNECTOR_API_KEY" \
+HEALTH_FOOD_ADMIN_BASE_URL="https://health-food.example.com" \
+HEALTH_FOOD_ADMIN_SECRET="$HEALTH_FOOD_ADMIN_SECRET" \
+REAL_HEALTH_FOOD_ADAPTER_PORT=19084 \
+python3.13 scripts/real-health-food-readonly-adapter.py
+```
+
+完整命令和验收标准见 [docs/health-food-production-integration.md](docs/health-food-production-integration.md)。生产验收必须实际调用生产 health-food 日志接口并查到问题时间窗内的可靠证据；mock 只能算链路自测。
 
 配置图片识别：
 

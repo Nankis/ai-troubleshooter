@@ -389,6 +389,8 @@ tool_name: search_logs_by_service
 
 用途：按服务、时间、关键词查询日志摘要。只能返回摘要和少量样例，不返回大批量原始日志。
 
+health-food 生产接入可以复用本接口：本地 `real-health-food-readonly-adapter.py` 会把该标准请求转换为 health-food 内部 `/food-health/sys/admin/search-logs` 查询，并在返回前做 allowlist、limit、时间窗和脱敏。具体启动方式见 [health-food-production-integration.md](health-food-production-integration.md)。
+
 `params`：
 
 | 字段 | 类型 | 必填 | 说明 |

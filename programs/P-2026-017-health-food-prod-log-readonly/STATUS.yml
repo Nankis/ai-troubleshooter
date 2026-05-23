@@ -1,0 +1,7 @@
+status: blocked
+started_at: 2026-05-23
+updated_at: 2026-05-23
+owner: codex
+current_step: 等待真实生产 base URL、只读日志密钥和具体问题时间窗
+blocked_by:
+  - 真实 health-food 生产 base URL、只读日志密钥、问题时间窗尚未提供

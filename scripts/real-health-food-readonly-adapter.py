@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Readonly adapter backed by a real local health-food service and test DB.
 
-This adapter is for local integration verification. It does not synthesize
-fault scenarios. Every health-food response is derived from the configured
-local MySQL database, the health-food health endpoint, or optional log files.
+This adapter is for local integration verification and controlled production
+readonly log access. It does not synthesize fault scenarios. Every health-food
+response is derived from the configured local MySQL database, the health-food
+health endpoint, the health-food admin log endpoint, or optional log files.
 """
 
 from __future__ import annotations
@@ -14,8 +15,10 @@ import os
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import datetime, time as dt_time
+from datetime import datetime, timedelta, time as dt_time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -30,7 +33,29 @@ MYSQL_USER = os.getenv("HEALTH_FOOD_MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("HEALTH_FOOD_MYSQL_PASSWORD", "")
 MYSQL_DATABASE = os.getenv("HEALTH_FOOD_MYSQL_DATABASE", "hf_troubleshoot_codex")
 HEALTH_FOOD_LOG_PATH = os.getenv("HEALTH_FOOD_LOG_PATH", "")
+HEALTH_FOOD_ADMIN_BASE_URL = os.getenv("HEALTH_FOOD_ADMIN_BASE_URL", "").rstrip("/")
+HEALTH_FOOD_ADMIN_SECRET = os.getenv("HEALTH_FOOD_ADMIN_SECRET", "")
+HEALTH_FOOD_ADMIN_SEARCH_LOGS_PATH = os.getenv(
+    "HEALTH_FOOD_ADMIN_SEARCH_LOGS_PATH",
+    "/food-health/sys/admin/search-logs",
+)
+HEALTH_FOOD_ALLOWED_SERVICE_NAMES = {
+    item.strip()
+    for item in os.getenv("HEALTH_FOOD_ALLOWED_SERVICE_NAMES", "health-food,food-health").split(",")
+    if item.strip()
+}
+HEALTH_FOOD_LOG_MAX_LIMIT = int(os.getenv("HEALTH_FOOD_LOG_MAX_LIMIT", "20"))
+HEALTH_FOOD_LOG_MAX_RANGE_MINUTES = int(os.getenv("HEALTH_FOOD_LOG_MAX_RANGE_MINUTES", "30"))
+HEALTH_FOOD_LOG_TIMEOUT_SECONDS = float(os.getenv("HEALTH_FOOD_LOG_TIMEOUT_SECONDS", "3"))
 LOCAL_TZ = ZoneInfo(os.getenv("HEALTH_FOOD_TIMEZONE", "Asia/Shanghai"))
+
+LOG_LEVEL_RE = re.compile(r"\b(ERROR|WARN|INFO|DEBUG|TRACE)\b")
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+PHONE_RE = re.compile(r"\b1[3-9]\d{9}\b")
+BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+SECRET_ASSIGN_RE = re.compile(
+    r"(?i)\b(password|passwd|pwd|token|secret|authorization|api[_-]?key)\b(\s*[:=]\s*)([^\s,;}&\"]+)"
+)
 
 
 def now_iso() -> str:
@@ -44,6 +69,56 @@ def parse_dt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(LOCAL_TZ)
     except ValueError:
         return None
+
+
+def normalize_params(params: dict | None) -> dict:
+    if not isinstance(params, dict):
+        return {}
+    out: dict = {}
+    for key, value in params.items():
+        raw_key = str(key)
+        normalized = raw_key.replace("-", "_")
+        normalized = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", normalized)
+        normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized).lower()
+        out.setdefault(normalized, value)
+        out.setdefault(raw_key, value)
+    return out
+
+
+def int_param(params: dict, key: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(params.get(key) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+def effective_service_name(params: dict) -> str:
+    service_name = str(params.get("service_name") or "health-food").strip()
+    if HEALTH_FOOD_ALLOWED_SERVICE_NAMES and service_name not in HEALTH_FOOD_ALLOWED_SERVICE_NAMES:
+        allowed = ", ".join(sorted(HEALTH_FOOD_ALLOWED_SERVICE_NAMES))
+        raise ValueError(f"service_name {service_name!r} is not allowed; allowed={allowed}")
+    return service_name
+
+
+def log_time_window(params: dict) -> tuple[datetime, datetime]:
+    end = parse_dt(str(params.get("end_time") or "")) or datetime.now(LOCAL_TZ)
+    start = parse_dt(str(params.get("start_time") or "")) or (end - timedelta(minutes=30))
+    if end < start:
+        raise ValueError("end_time must be after start_time")
+    max_range = timedelta(minutes=max(1, HEALTH_FOOD_LOG_MAX_RANGE_MINUTES))
+    if end - start > max_range:
+        raise ValueError(f"log time range exceeds max {HEALTH_FOOD_LOG_MAX_RANGE_MINUTES} minutes")
+    return start, end
+
+
+def date_strings(start: datetime, end: datetime) -> list[str]:
+    dates: list[str] = []
+    day = start.date()
+    while day <= end.date():
+        dates.append(day.isoformat())
+        day = day + timedelta(days=1)
+    return dates
 
 
 def day_bounds(params: dict) -> tuple[int, int, str]:
@@ -130,6 +205,152 @@ def envelope(request_id: str, data: dict, warnings: list[str] | None = None) -> 
     }
 
 
+def mask_log_text(text: str, max_chars: int = 800) -> str:
+    masked = text
+    if HEALTH_FOOD_ADMIN_SECRET:
+        masked = masked.replace(HEALTH_FOOD_ADMIN_SECRET, "<redacted>")
+    masked = BEARER_RE.sub("Bearer <redacted>", masked)
+    masked = SECRET_ASSIGN_RE.sub(r"\1\2<redacted>", masked)
+    masked = EMAIL_RE.sub("<email_redacted>", masked)
+    masked = PHONE_RE.sub("<phone_redacted>", masked)
+    if len(masked) > max_chars:
+        return masked[:max_chars] + "..."
+    return masked
+
+
+def parse_health_food_log_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S,%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt).replace(tzinfo=LOCAL_TZ)
+        except ValueError:
+            continue
+    return parse_dt(value)
+
+
+def detect_log_level(text: str, fallback: str) -> str:
+    match = LOG_LEVEL_RE.search(text or "")
+    if match:
+        return match.group(1).lower()
+    return fallback or "info"
+
+
+def log_types_for_level(level: str) -> list[str]:
+    normalized = level.strip().lower()
+    if normalized == "error":
+        return ["error"]
+    if normalized in {"warn", "warning", "info", "debug", "trace"}:
+        return ["info"]
+    return ["error", "info"]
+
+
+def sample_from_admin_line(line: dict, service_name: str, requested_level: str) -> dict | None:
+    text = str(line.get("text") or "")
+    summary = str(line.get("summary") or "")
+    raw_time = str(line.get("time") or "")
+    level = detect_log_level(text or summary, requested_level or "info")
+    if requested_level:
+        normalized = "warn" if requested_level.lower() == "warning" else requested_level.lower()
+        if normalized in {"error", "warn", "info", "debug", "trace"} and level != normalized:
+            return None
+    parsed_time = parse_health_food_log_time(raw_time)
+    time_value = parsed_time.isoformat(timespec="milliseconds") if parsed_time else raw_time
+    message = summary or (text.splitlines()[0] if text else "")
+    sample = {
+        "time": time_value,
+        "level": level,
+        "service": service_name,
+        "message": mask_log_text(message, 500),
+        "excerpt": mask_log_text(text or summary, 800),
+    }
+    trace_match = re.search(r"\s-\s([A-Za-z0-9][A-Za-z0-9_-]{7,})\s-\s", text)
+    if trace_match:
+        sample["trace_id"] = trace_match.group(1)
+    return sample
+
+
+def query_health_food_admin_logs(params: dict, service_name: str, limit: int) -> tuple[list[dict], list[str]]:
+    if not (HEALTH_FOOD_ADMIN_BASE_URL and HEALTH_FOOD_ADMIN_SECRET):
+        return [], ["health-food admin log upstream is not configured"]
+
+    start, end = log_time_window(params)
+    keyword = str(params.get("keyword") or params.get("trace_id") or "").strip()
+    requested_level = str(params.get("level") or "").strip().lower()
+    warnings: list[str] = []
+    samples: list[dict] = []
+    seen_samples: set[tuple[str, str, str]] = set()
+    path = "/" + HEALTH_FOOD_ADMIN_SEARCH_LOGS_PATH.lstrip("/")
+    page_size = min(max(limit * 2, limit, 10), max(1, HEALTH_FOOD_LOG_MAX_LIMIT))
+
+    for date_text in date_strings(start, end):
+        for log_type in log_types_for_level(requested_level):
+            query = {
+                "password": HEALTH_FOOD_ADMIN_SECRET,
+                "date": date_text,
+                "type": log_type,
+                "page": "1",
+                "pageSize": str(page_size),
+            }
+            if params.get("trace_id"):
+                query["traceId"] = str(params["trace_id"])
+            if params.get("uid"):
+                query["uid"] = str(params["uid"])
+            elif params.get("user_id"):
+                query["uid"] = str(params["user_id"])
+            if params.get("api"):
+                query["api"] = str(params["api"])
+            if keyword:
+                query["content"] = keyword
+
+            url = HEALTH_FOOD_ADMIN_BASE_URL + path + "?" + urllib.parse.urlencode(query)
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "ai-troubleshooter-health-food-readonly-adapter/1.0",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=HEALTH_FOOD_LOG_TIMEOUT_SECONDS) as resp:
+                    body = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+            except urllib.error.HTTPError as exc:
+                warnings.append(f"health-food admin log API returned HTTP {exc.code}")
+                continue
+            except urllib.error.URLError as exc:
+                warnings.append(f"health-food admin log API unavailable: {exc.reason}")
+                continue
+            except json.JSONDecodeError:
+                warnings.append("health-food admin log API returned invalid JSON")
+                continue
+
+            if int(body.get("code") or 0) != 0:
+                warnings.append(mask_log_text(str(body.get("msg") or "health-food admin log API failed"), 200))
+                continue
+            data = body.get("data") or {}
+            for line in data.get("lines") or []:
+                if not isinstance(line, dict):
+                    continue
+                dedupe_key = (
+                    str(line.get("time") or ""),
+                    str(line.get("summary") or ""),
+                    str(line.get("text") or ""),
+                )
+                if dedupe_key in seen_samples:
+                    continue
+                seen_samples.add(dedupe_key)
+                line_time = parse_health_food_log_time(str(line.get("time") or ""))
+                if line_time and (line_time < start or line_time > end):
+                    continue
+                sample = sample_from_admin_line(line, service_name, requested_level)
+                if sample is None:
+                    continue
+                samples.append(sample)
+                if len(samples) >= limit:
+                    return samples, warnings
+    return samples, warnings
+
+
 def health_goal_summary(row: dict[str, str | None] | None) -> str:
     if not row:
         return ""
@@ -166,7 +387,7 @@ def query_meals(uid: str, params: dict) -> tuple[list[dict], str, str]:
 
 
 def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
-    params = payload.get("params") or {}
+    params = normalize_params(payload.get("params") or {})
     request_id = payload.get("request_id") or f"req_real_hf_{int(time.time() * 1000)}"
     uid = validate_uid(params)
     alive = read_health_food_alive()
@@ -297,7 +518,7 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
     return 404, {"code": "NOT_FOUND", "error": f"unknown path {path}"}
 
 
-def read_log_samples(keyword: str, limit: int) -> list[dict]:
+def read_log_samples(keyword: str, limit: int, service_name: str) -> list[dict]:
     if not HEALTH_FOOD_LOG_PATH:
         return []
     root = Path(HEALTH_FOOD_LOG_PATH)
@@ -316,26 +537,39 @@ def read_log_samples(keyword: str, limit: int) -> list[dict]:
         for line in reversed(lines[-800:]):
             if lowered and lowered not in line.lower():
                 continue
-            samples.append({"time": now_iso(), "level": "info", "service": "health-food", "message": line[:500]})
+            samples.append(
+                {
+                    "time": now_iso(),
+                    "level": "info",
+                    "service": service_name,
+                    "message": mask_log_text(line, 500),
+                }
+            )
             if len(samples) >= limit:
                 return samples
     return samples
 
 
 def handle_ops(path: str, payload: dict) -> tuple[int, dict]:
-    params = payload.get("params") or {}
+    params = normalize_params(payload.get("params") or {})
     request_id = payload.get("request_id") or f"req_real_ops_{int(time.time() * 1000)}"
     if path == "/v1/readonly/ops/logs/search":
-        service_name = str(params.get("service_name") or "health-food")
-        keyword = str(params.get("keyword") or params.get("trace_id") or "health-food")
-        limit = int(params.get("limit") or 10)
-        samples = read_log_samples(keyword, max(1, min(limit, 20)))
+        service_name = effective_service_name(params)
+        keyword = str(params.get("keyword") or params.get("trace_id") or "")
+        limit = int_param(params, "limit", 10, 1, HEALTH_FOOD_LOG_MAX_LIMIT)
+        samples, warnings = query_health_food_admin_logs(params, service_name, limit)
+        if not samples:
+            local_keyword = keyword or service_name
+            samples = read_log_samples(local_keyword, limit, service_name)
+            if samples:
+                warnings = [item for item in warnings if item != "health-food admin log upstream is not configured"]
         data = {
             "service_name": service_name,
             "total": len(samples),
             "samples": samples,
         }
-        warnings = [] if samples else ["no local health-food log file configured or no matching log line"]
+        if not samples and not warnings:
+            warnings = ["no health-food log upstream/local file configured or no matching log line"]
         return 200, envelope(request_id, data, warnings)
     if path == "/v1/readonly/ops/cases/similar":
         data = {"items": []}
@@ -349,7 +583,18 @@ def handle_ops(path: str, payload: dict) -> tuple[int, dict]:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/healthz":
-            self.write_json(200, {"ok": True, "source": "real-local", "health_food": read_health_food_alive()})
+            self.write_json(
+                200,
+                {
+                    "ok": True,
+                    "source": "real-local",
+                    "health_food": read_health_food_alive(),
+                    "admin_log_upstream_configured": bool(
+                        HEALTH_FOOD_ADMIN_BASE_URL and HEALTH_FOOD_ADMIN_SECRET
+                    ),
+                    "local_log_path_configured": bool(HEALTH_FOOD_LOG_PATH),
+                },
+            )
             return
         self.write_json(404, {"error": "not found"})
 

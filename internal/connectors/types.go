@@ -15,12 +15,12 @@ type Candle struct {
 }
 
 type KlineQuery struct {
-	Symbol     string
-	Interval   string
-	StartTime  time.Time
-	EndTime    time.Time
-	Exchange   string
-	TimeBucket time.Time
+	Symbol     string    `json:"symbol"`
+	Interval   string    `json:"interval"`
+	StartTime  time.Time `json:"start_time"`
+	EndTime    time.Time `json:"end_time"`
+	Exchange   string    `json:"exchange,omitempty"`
+	TimeBucket time.Time `json:"time_bucket,omitempty"`
 }
 
 type InternalKlineResult struct {
@@ -56,13 +56,13 @@ type MarketSourceStatus struct {
 }
 
 type AssetQuery struct {
-	UserID      string
-	AccountID   string
-	AssetSymbol string
-	StartTime   time.Time
-	EndTime     time.Time
-	AtTime      time.Time
-	EventTypes  []string
+	UserID      string    `json:"user_id,omitempty"`
+	AccountID   string    `json:"account_id,omitempty"`
+	AssetSymbol string    `json:"asset_symbol,omitempty"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	AtTime      time.Time `json:"at_time,omitempty"`
+	EventTypes  []string  `json:"event_types,omitempty"`
 }
 
 type AssetSnapshot struct {
@@ -96,13 +96,13 @@ type UserErrorsResult struct {
 }
 
 type LogQuery struct {
-	ServiceName string
-	StartTime   time.Time
-	EndTime     time.Time
-	Level       string
-	Keyword     string
-	TraceID     string
-	Limit       int
+	ServiceName string    `json:"service_name"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	Level       string    `json:"level,omitempty"`
+	Keyword     string    `json:"keyword,omitempty"`
+	TraceID     string    `json:"trace_id,omitempty"`
+	Limit       int       `json:"limit,omitempty"`
 }
 
 type LogSearchResult struct {

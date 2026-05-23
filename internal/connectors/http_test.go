@@ -70,8 +70,67 @@ func TestHTTPKlineConnectorSendsReadonlyEnvelope(t *testing.T) {
 	if captured.CaseID != "case_1" || captured.AgentID != "agent_1" || captured.ToolName != "get_internal_kline" {
 		t.Fatalf("readonly envelope lost metadata: %+v", captured)
 	}
+	params, ok := captured.Params.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected params type: %T", captured.Params)
+	}
+	if params["symbol"] != "BTCUSDT" || params["start_time"] == nil || params["StartTime"] != nil {
+		t.Fatalf("expected snake_case kline params, got %+v", params)
+	}
 	if len(result.Candles) != 1 || result.Source != "market-service" {
 		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestHTTPOpsConnectorSendsSnakeCaseLogParams(t *testing.T) {
+	var captured readonlyRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/readonly/ops/logs/search" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		writeTestJSON(w, map[string]any{
+			"request_id":      captured.RequestID,
+			"source":          "health-food-admin-log",
+			"queried_at":      "2026-05-23T10:02:00+08:00",
+			"data_updated_at": "2026-05-23T10:02:00+08:00",
+			"version":         "v1",
+			"warnings":        []string{},
+			"data": map[string]any{
+				"service_name": "health-food",
+				"total":        1,
+				"samples": []map[string]any{
+					{"time": "2026-05-23T10:00:00+08:00", "level": "error", "service": "health-food", "message": "boom"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	connector, err := NewHTTPOpsConnector(HTTPConfig{BaseURL: server.URL, APIKey: "test-key", Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = connector.SearchLogs(context.Background(), LogQuery{
+		ServiceName: "health-food",
+		StartTime:   time.Date(2026, 5, 23, 10, 0, 0, 0, time.FixedZone("CST", 8*3600)),
+		EndTime:     time.Date(2026, 5, 23, 10, 10, 0, 0, time.FixedZone("CST", 8*3600)),
+		Level:       "error",
+		Keyword:     "recommend",
+		TraceID:     "trace_1",
+		Limit:       5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, ok := captured.Params.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected params type: %T", captured.Params)
+	}
+	if params["service_name"] != "health-food" || params["trace_id"] != "trace_1" || params["ServiceName"] != nil {
+		t.Fatalf("expected snake_case log params, got %+v", params)
 	}
 }
 
