@@ -1,0 +1,13 @@
+in_scope:
+  - AGENTS.md
+  - docs/LESSONS.md
+  - README.md status wording
+  - programs/P-2026-028-agent-integrity-audit/**
+  - MySQL-backed runtime validation using local service
+out_of_scope:
+  - Real Lark/Feishu bot verification
+  - Real production health-food or DMS access
+  - Rewriting old Program history
+rules:
+  - Do not commit local MySQL password, DSN, tokens, API keys, screenshots, or tmp JSON payloads.
+  - All audit conclusions must state evidence level.

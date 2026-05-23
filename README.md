@@ -243,13 +243,13 @@ sequenceDiagram
 
 | 组件 | 当前状态 | 职责 |
 | --- | --- | --- |
-| Lark / 飞书入口 | 已实现 | 接收消息、验 token、解密 callback、下载图片、创建 case。 |
-| Web Chat 入口 | 已实现 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口，支持本地 mock Gateway 排障验证。 |
+| Lark / 飞书入口 | 代码实现 + 本地 payload/unit 验证 | 接收消息、验 token、解密 callback、下载图片、创建 case；真实 bot 端到端仍需公司凭据验收。 |
+| Web Chat 入口 | 已实现 + MySQL 本地验收 | 给不用 Lark/飞书的团队提供网页文字输入和图片上传入口，支持本地 mock Gateway 排障验证。 |
 | Case Layer | 已实现 | 管理 case 状态机、消息、幂等、AI 决策日志和知识沉淀。 |
-| Decision Layer | Python 3.13 target + Go fallback | 分类、抽取、经验评分、追问、有限工具计划和总结；未来承接 Supervisor + Specialist Agents 编排；只能通过 Gateway 查询业务生产证据。 |
+| Decision Layer | Python 3.13 target + Go fallback | Python 已有 Supervisor/Specialist 规则基线和 plan API；当前 Go worker 尚未切到 Python，Go baseline 只用于本地闭环/fallback；只能通过 Gateway 查询业务生产证据。 |
 | Platform Knowledge | SQL/tag/keyword first | 平台侧历史 case、root cause、SOP 和 knowledge item；首发不强依赖向量库。 |
 | Investigation Gateway | 已实现 | 业务生产只读查询安全边界：鉴权、scope、限流、timeout、审计、脱敏、工具注册；不是平台数据访问入口。 |
-| Business Services / Adapters | mock + HTTP 规范 | 注册并提供业务只读能力，服务自身访问自己的 DB，Agent 不直接对 DB。 |
+| Business Services / Adapters | mock + HTTP/MCP 规范 + health-food 本地真实 adapter | 注册并提供业务只读能力，服务自身访问自己的 DB，Agent 不直接对 DB；生产真实接口需按业务方只读 adapter 验收。 |
 
 本地 MVP 用 `cmd/dev-server` 把这些模块合并在一个进程里，方便先验证闭环。部署时建议拆成 `lark-bot`、`case-api/worker`、`decision-engine`、`investigation-gateway` 四类服务。`cmd/baseline-orchestrator` 只保留给本地 smoke 或兼容 fallback，不作为目标生产编排服务。
 

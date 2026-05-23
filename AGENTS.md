@@ -1,63 +1,57 @@
 # AGENTS.md
 
-此文件是 AI Agent 进入 `ai-troubleshooter` 仓库时的入口说明。
+此文件是 AI Agent 进入 `ai-troubleshooter` 仓库时的入口说明。它只写硬约束，不写流水账。
 
 ## 工作语言
 
-- 默认使用中文交流。
-- 文档优先中文，接口名、字段名和标准术语保留英文。
-- 代码、文档和 Program 改动必须保持小批次、可验证、可回滚。
+- 默认中文交流；接口名、字段名、标准协议保留英文。
+- 改动保持小批次、可验证、可回滚。
 
 ## 启动顺序
 
-1. 读取根目录 `README.md`，理解当前平台边界和部署架构。
-2. 读取关键架构文档：
-   - `docs/architecture-decisions.md`
-   - `docs/gateway-security.md`
-   - `docs/decision-logging-and-limits.md`
-   - `docs/ai-connector-integration.md`
-   - `docs/LESSONS.md`
-   - `docs/VERIFICATION.md`
-3. 若用户指定 Program，读取该 Program 的 `STATUS.yml`、`PROGRAM.md`、`SCOPE.yml`、`TASKS.md` 和 `EVIDENCE.md`。
-4. 若用户未指定 Program，先判断当前任务等级：
-   - Tiny：查询状态、修 typo、单文件小文案，可不建 Program。
+1. 读 `README.md`，确认平台边界和当前实现状态。
+2. 读必需规则：`docs/LESSONS.md`、`docs/VERIFICATION.md`、`programs/README.md`。
+3. 涉及架构、安全、Gateway、Decision、DDL、Lark/飞书、MCP 或业务接入时，再读相关专题文档。
+4. 判断任务级别：
+   - Tiny：查询状态、typo、单文件小文案，可不建 Program。
    - Lite：1-3 个文件的小修，推荐建 Program。
-   - Full：跨代码、架构、接口、DDL、安全、部署或多文档调整，必须新建 Program。
-5. 修改前确认：
-   - 当前任务是否需要新 Program。
-   - 写入范围是否被当前 Program 的 `SCOPE.yml` 或用户当前请求允许。
-   - 工作树是否已有用户或其他窗口的未提交改动。
-   - 是否命中 `docs/LESSONS.md` 中 `count >= 1` 的历史错误。
+   - Full：跨代码、架构、接口、DDL、安全、部署、多文档或错误复盘，必须新建或继续 Program。
+5. 修改前检查工作树；只改本任务范围，不回滚用户或其他窗口改动。
 
-## 核心约束
+## 验收纪律
 
-- 不要回滚用户或其他窗口已有改动。
-- 不要为了新命名、新架构或新理解去回写旧 Program 的历史上下文；独立变更必须新增 Program。
-- 如果确实必须修正旧 Program 的事实错误，必须在当前新 Program 的 `DECISIONS.md` 和 `ERRORS.md` 说明原因。
-- 遇到与 `docs/LESSONS.md` 反复错误计数器相似的问题时，先读取对应复盘，再设计方案；如果再次踩坑，先给对应条目 `count +1`。
-- 平台数据、知识库、AI 决策日志、工具审计和 LLM/Vision provider 属于 Agent 平台边界；业务方只提供 readonly business APIs/adapters。
+结论不能高于证据等级：
+
+- L0：文档/设计。
+- L1：单测、schema、静态检查。
+- L2：本地 mock/fake/smoke 链路。
+- L3：本地真实依赖，例如 MySQL、真实本地业务服务、真实本地代码仓。
+- L4：预发/生产真实接口或真实外部平台。
+
+硬规则：
+
+- 使用 `mock`、`fake`、`memory`、`local_rules` 时，结论必须明说证据等级，不能写成真实业务验收。
+- 平台持久化验收必须用 `DB_DRIVER=mysql`、执行 migration、通过 UI/API 写入、查询 MySQL 表、重启后再次读取。只有显式 `DB_DRIVER=memory` 才能做一次性 smoke。
+- UI 验收必须实际打开页面并操作；如果只用 curl/API，只能称为 API 验证。
+- 业务接入验收必须写清证据来源：mock 只能证明契约和链路；真实验收必须调用真实服务/DB/日志/生产只读接口。
+- Lark/飞书、LLM/Vision、DMS、MCP 等外部系统没有真实凭据或真实端点时，必须标为未验证，不能用本地替代物冒充。
+- Full 级任务的 `EVIDENCE.md` 和 `RESULT.md` 必须包含索引、命令、现场证据、覆盖映射、未验证项和已知噪音。
+
+## 历史错误
+
+- 命中 `docs/LESSONS.md` 中 `count >= 1` 的场景时，先读复盘再动手。
+- 再次踩同类坑，先给计数器 `count +1`，再写当前 Program 的 `ERRORS.md`。
+- 不为新命名、新架构或新理解回写旧 Program；独立变更新增 Program。确需修正旧事实，必须在当前 Program 写明例外。
+
+## 架构边界
+
+- 平台数据、知识库、AI 决策日志、工具审计、LLM/Vision provider 属于 Agent 平台；业务方只提供 readonly business APIs/adapters。
+- Investigation Gateway 只管业务生产证据查询边界，不查平台 MySQL。
 - Python `apps/decision-engine` 是目标 Agent Orchestrator；Go `internal/decisionbaseline` 只能作为本地 smoke/fallback。
-- 完成、暂停、切换方向时，把状态写回当前 Program 文档，不依赖聊天线程保存上下文。
-- Full 级任务的验证结果必须按 `docs/VERIFICATION.md` 写入 `EVIDENCE.md` 和 `RESULT.md`，包括 Evidence 索引、命令验证、覆盖映射、未验证项和已知噪音。
 
-## Git 提交与推送
+## Git
 
-- 完成一个 Full/大需求或可验收里程碑后，默认自己完成 commit 和 push。
-- 提交前至少运行 `git diff --check`；涉及 Go/Python 代码时运行 `make test`，必要时加 `go vet ./...`。
-- 验证结果要写入当前 Program，不能只写在聊天最终回复里。
-- 提交信息优先带 Program ID，说明主要变更和验证结果。
-- 工作树有不属于本任务的脏改动时，只 stage 本任务相关文件。
-
-## Program 使用口令
-
-```text
-新 Program: xxx
-继续 P-YYYY-NNN
-先拆 TASKS
-先看 LESSONS
-不要回写旧 Program
-任务暂停，写 HANDOFF
-任务完成，写 RESULT
-错误复盘，写 ERRORS 和 docs/LESSONS.md
-验证结果，写 EVIDENCE 和 RESULT
-```
+- Full/大需求或可验收里程碑完成后，默认 commit + push。
+- 提交前至少跑 `git diff --check` 和 `make secret-scan`；涉及 Go/Python 跑 `make test`，必要时加 `go vet ./...`。
+- 验证结果写入当前 Program，不能只写在聊天回复里。
+- 只 stage 本任务文件；提交信息优先带 Program ID 或清楚说明变更与验证。
