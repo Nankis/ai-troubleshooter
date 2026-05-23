@@ -173,13 +173,32 @@
     }
 
     .tool-group-head {
+      appearance: none;
+      width: 100%;
       min-height: 36px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
       align-items: center;
       gap: 8px;
       padding: 8px 10px;
+      border: 0;
       border-bottom: 1px solid rgba(255, 255, 255, .06);
+      color: inherit;
+      background: transparent;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .tool-group-head:hover {
+      background: rgba(255, 255, 255, .05);
+    }
+
+    .tool-service-toggle {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1;
+      text-align: center;
     }
 
     .tool-service-name {
@@ -192,6 +211,14 @@
       display: grid;
       gap: 1px;
       padding: 4px;
+    }
+
+    .tool-group.collapsed .tool-group-head {
+      border-bottom: 0;
+    }
+
+    .tool-group.collapsed .tool-group-body {
+      display: none;
     }
 
     .tool-group .tool-row {
@@ -451,6 +478,57 @@
       line-height: 1.55;
     }
 
+    .image-preview-list {
+      display: none;
+      gap: 8px;
+      padding: 0 10px 8px;
+      overflow-x: auto;
+    }
+
+    .image-preview-list.has-items {
+      display: flex;
+    }
+
+    .image-preview {
+      position: relative;
+      flex: 0 0 64px;
+      width: 64px;
+      height: 64px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #111;
+      overflow: hidden;
+    }
+
+    .image-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .image-remove {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 20px;
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, .28);
+      border-radius: 50%;
+      color: #fff;
+      background: rgba(0, 0, 0, .68);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .image-remove:hover {
+      background: rgba(255, 255, 255, .18);
+    }
+
     .composer-bar {
       display: flex;
       align-items: center;
@@ -707,6 +785,7 @@
       <div class="composer-wrap">
         <form class="composer" id="chatForm">
           <textarea id="message" name="message" placeholder="描述问题，例如：health-food 用户 123 今日推荐没有生成，时间 2026-05-23 10:00"></textarea>
+          <div class="image-preview-list" id="imagePreviewList"></div>
           <div class="composer-bar">
             <label class="file-label">
               <input id="images" name="images" type="file" accept="image/*" multiple>
@@ -756,6 +835,8 @@
       knowledge: [],
       cases: [],
       processing: false,
+      collapsedToolServices: new Set(),
+      imagePreviewUrls: [],
     };
 
     const el = {
@@ -766,6 +847,7 @@
       messages: document.getElementById("messages"),
       message: document.getElementById("message"),
       images: document.getElementById("images"),
+      imagePreviewList: document.getElementById("imagePreviewList"),
       fileCount: document.getElementById("fileCount"),
       caseList: document.getElementById("caseList"),
       caseCount: document.getElementById("caseCount"),
@@ -788,8 +870,9 @@
       el.knowledgeForm.classList.toggle("open");
     });
 
-    el.images.addEventListener("change", updateFileCount);
+    el.images.addEventListener("change", updateImages);
     el.form.addEventListener("paste", handleComposerPaste);
+    window.addEventListener("beforeunload", revokeImagePreviewUrls);
 
     el.form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -912,8 +995,26 @@
       for (const file of el.images.files) transfer.items.add(file);
       for (const file of files) transfer.items.add(file);
       el.images.files = transfer.files;
-      updateFileCount();
+      updateImages();
       return true;
+    }
+
+    function removeImageAt(index) {
+      if (typeof DataTransfer !== "function") {
+        showToast("当前浏览器不支持移除图片");
+        return;
+      }
+      const transfer = new DataTransfer();
+      Array.from(el.images.files || []).forEach((file, itemIndex) => {
+        if (itemIndex !== index) transfer.items.add(file);
+      });
+      el.images.files = transfer.files;
+      updateImages();
+    }
+
+    function updateImages() {
+      updateFileCount();
+      renderImagePreviews();
     }
 
     function updateFileCount() {
@@ -922,7 +1023,35 @@
 
     function clearImages() {
       el.images.value = "";
-      updateFileCount();
+      updateImages();
+    }
+
+    function revokeImagePreviewUrls() {
+      for (const url of state.imagePreviewUrls) URL.revokeObjectURL(url);
+      state.imagePreviewUrls = [];
+    }
+
+    function renderImagePreviews() {
+      revokeImagePreviewUrls();
+      const files = Array.from(el.images.files || []);
+      el.imagePreviewList.classList.toggle("has-items", files.length > 0);
+      if (!files.length) {
+        el.imagePreviewList.innerHTML = "";
+        return;
+      }
+      el.imagePreviewList.innerHTML = files.map((file, index) => {
+        const url = URL.createObjectURL(file);
+        state.imagePreviewUrls.push(url);
+        return `
+          <div class="image-preview">
+            <img src="${escapeAttr(url)}" alt="${escapeAttr(file.name || "screenshot")}">
+            <button class="image-remove" type="button" data-image-index="${index}" aria-label="移除截图">×</button>
+          </div>
+        `;
+      }).join("");
+      el.imagePreviewList.querySelectorAll("[data-image-index]").forEach((button) => {
+        button.addEventListener("click", () => removeImageAt(Number(button.dataset.imageIndex)));
+      });
     }
 
     function imageExtension(type) {
@@ -1006,12 +1135,15 @@
         el.toolList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无工具</div>`;
         return;
       }
-      el.toolList.innerHTML = groupToolsByService(state.tools).map((group) => `
-        <div class="tool-group">
-          <div class="tool-group-head">
+      el.toolList.innerHTML = groupToolsByService(state.tools).map((group) => {
+        const collapsed = state.collapsedToolServices.has(group.service);
+        return `
+        <div class="tool-group ${collapsed ? "collapsed" : ""}">
+          <button class="tool-group-head" type="button" data-tool-service="${escapeAttr(group.service)}" aria-expanded="${String(!collapsed)}">
+            <span class="tool-service-toggle">${collapsed ? "›" : "⌄"}</span>
             <span class="tool-service-name truncate">${escapeHTML(group.service)}</span>
             <span class="tag">${group.tools.length}</span>
-          </div>
+          </button>
           <div class="tool-group-body">
             ${group.tools.map((item) => `
               <div class="tool-row">
@@ -1021,7 +1153,19 @@
             `).join("")}
           </div>
         </div>
-      `).join("");
+      `;
+      }).join("");
+      el.toolList.querySelectorAll("[data-tool-service]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const service = button.dataset.toolService || "";
+          if (state.collapsedToolServices.has(service)) {
+            state.collapsedToolServices.delete(service);
+          } else {
+            state.collapsedToolServices.add(service);
+          }
+          renderTools();
+        });
+      });
     }
 
     function groupToolsByService(tools) {
