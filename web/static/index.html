@@ -267,6 +267,27 @@
       align-items: start;
     }
 
+    .knowledge-main {
+      appearance: none;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .knowledge-main:hover .row-title {
+      color: var(--green);
+    }
+
+    .knowledge-actions {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .action-btn,
     .delete-btn {
       width: 28px;
       height: 28px;
@@ -275,6 +296,7 @@
       color: var(--faint);
     }
 
+    .action-btn:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
     .delete-btn:hover { background: rgba(255, 95, 87, .12); color: var(--red); }
 
     .knowledge-form {
@@ -288,6 +310,12 @@
     }
 
     .knowledge-form.open { display: grid; }
+
+    .form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
 
     .input, .mini-textarea {
       width: 100%;
@@ -311,13 +339,26 @@
     }
 
     .primary-small {
-      justify-self: end;
       height: 32px;
       border-radius: 7px;
       padding: 0 12px;
       background: var(--green);
       color: #061006;
       font-weight: 700;
+    }
+
+    .secondary-small {
+      height: 32px;
+      border-radius: 7px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .secondary-small:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, .07);
     }
 
     .main {
@@ -613,6 +654,100 @@
       background: rgba(255, 255, 255, .16);
     }
 
+    .knowledge-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .knowledge-modal[hidden] {
+      display: none;
+    }
+
+    .knowledge-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      background: rgba(0, 0, 0, .68);
+    }
+
+    .knowledge-modal-panel {
+      position: relative;
+      width: min(720px, 92vw);
+      max-height: 86vh;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .knowledge-modal-head,
+    .knowledge-modal-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 14px 16px;
+    }
+
+    .knowledge-modal-head {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .knowledge-modal-actions {
+      border-top: 1px solid var(--line);
+    }
+
+    .knowledge-modal-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 16px 0;
+    }
+
+    .knowledge-detail {
+      display: grid;
+      gap: 14px;
+      padding: 14px 16px 18px;
+      overflow: auto;
+    }
+
+    .knowledge-detail-block {
+      display: grid;
+      gap: 6px;
+    }
+
+    .detail-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-text {
+      color: #e6e6e6;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .detail-list {
+      margin: 0;
+      padding-left: 20px;
+      color: #e6e6e6;
+      line-height: 1.55;
+    }
+
+    .knowledge-modal-button-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
     .composer-bar {
       display: flex;
       align-items: center;
@@ -835,12 +970,18 @@
             <button class="ghost-btn" type="button" id="toggleKnowledgeForm">录入</button>
           </div>
           <form class="knowledge-form" id="knowledgeForm">
+            <input type="hidden" name="id">
             <input class="input" name="title" placeholder="经验标题">
             <input class="input" name="issue_domain" placeholder="领域，例如 health_food">
             <input class="input" name="issue_type" placeholder="类型，例如 每日推荐缺失">
             <textarea class="mini-textarea" name="typical_description" placeholder="典型现象"></textarea>
             <textarea class="mini-textarea" name="recommended_steps" placeholder="排查步骤，每行一条"></textarea>
-            <button class="primary-small" type="submit">保存经验</button>
+            <textarea class="mini-textarea" name="common_causes" placeholder="常见原因，每行一条"></textarea>
+            <textarea class="mini-textarea" name="useful_tools" placeholder="相关工具，每行一个 tool name"></textarea>
+            <div class="form-actions">
+              <button class="secondary-small" type="button" id="cancelKnowledgeEdit">取消</button>
+              <button class="primary-small" type="submit" id="knowledgeSubmit">保存经验</button>
+            </div>
           </form>
           <div class="knowledge-list" id="knowledgeList"></div>
         </section>
@@ -920,6 +1061,24 @@
       </div>
     </div>
   </div>
+  <div class="knowledge-modal" id="knowledgeModal" role="dialog" aria-modal="true" aria-label="经验预览" hidden>
+    <button class="knowledge-modal-backdrop" id="knowledgeModalBackdrop" type="button" aria-label="关闭经验预览"></button>
+    <section class="knowledge-modal-panel">
+      <div class="knowledge-modal-head">
+        <span class="row-title truncate" id="knowledgeModalTitle"></span>
+        <button class="image-lightbox-close" id="knowledgeModalClose" type="button" aria-label="关闭经验预览">×</button>
+      </div>
+      <div class="knowledge-modal-meta" id="knowledgeModalMeta"></div>
+      <div class="knowledge-detail" id="knowledgeModalBody"></div>
+      <div class="knowledge-modal-actions">
+        <span class="row-meta" id="knowledgeModalStats"></span>
+        <span class="knowledge-modal-button-row">
+          <button class="secondary-small" type="button" id="knowledgeModalEdit">编辑</button>
+          <button class="secondary-small" type="button" id="knowledgeModalDelete">删除</button>
+        </span>
+      </div>
+    </section>
+  </div>
 
   <script>
     const state = {
@@ -932,6 +1091,8 @@
       collapsedToolServices: new Set(),
       imagePreviewUrls: [],
       activeImagePreviewIndex: -1,
+      activeKnowledgeId: 0,
+      editingKnowledgeId: 0,
     };
 
     const el = {
@@ -950,6 +1111,8 @@
       toolCount: document.getElementById("toolCount"),
       knowledgeList: document.getElementById("knowledgeList"),
       knowledgeForm: document.getElementById("knowledgeForm"),
+      knowledgeSubmit: document.getElementById("knowledgeSubmit"),
+      cancelKnowledgeEdit: document.getElementById("cancelKnowledgeEdit"),
       progressList: document.getElementById("progressList"),
       caseStatus: document.getElementById("caseStatus"),
       envTools: document.getElementById("envTools"),
@@ -961,21 +1124,41 @@
       imageLightboxName: document.getElementById("imageLightboxName"),
       imageLightboxBackdrop: document.getElementById("imageLightboxBackdrop"),
       imageLightboxClose: document.getElementById("imageLightboxClose"),
+      knowledgeModal: document.getElementById("knowledgeModal"),
+      knowledgeModalTitle: document.getElementById("knowledgeModalTitle"),
+      knowledgeModalMeta: document.getElementById("knowledgeModalMeta"),
+      knowledgeModalBody: document.getElementById("knowledgeModalBody"),
+      knowledgeModalStats: document.getElementById("knowledgeModalStats"),
+      knowledgeModalBackdrop: document.getElementById("knowledgeModalBackdrop"),
+      knowledgeModalClose: document.getElementById("knowledgeModalClose"),
+      knowledgeModalEdit: document.getElementById("knowledgeModalEdit"),
+      knowledgeModalDelete: document.getElementById("knowledgeModalDelete"),
     };
 
     document.getElementById("newCase").addEventListener("click", resetCase);
     document.getElementById("refreshOverview").addEventListener("click", loadOverview);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
-    document.getElementById("toggleKnowledgeForm").addEventListener("click", () => {
-      el.knowledgeForm.classList.toggle("open");
+    document.getElementById("toggleKnowledgeForm").addEventListener("click", toggleKnowledgeForm);
+    el.cancelKnowledgeEdit.addEventListener("click", () => {
+      resetKnowledgeForm();
+      el.knowledgeForm.classList.remove("open");
     });
 
     el.images.addEventListener("change", updateImages);
     el.form.addEventListener("paste", handleComposerPaste);
     el.imageLightboxBackdrop.addEventListener("click", closeImagePreview);
     el.imageLightboxClose.addEventListener("click", closeImagePreview);
+    el.knowledgeModalBackdrop.addEventListener("click", closeKnowledgePreview);
+    el.knowledgeModalClose.addEventListener("click", closeKnowledgePreview);
+    el.knowledgeModalEdit.addEventListener("click", () => editKnowledge(state.activeKnowledgeId));
+    el.knowledgeModalDelete.addEventListener("click", () => deleteKnowledge(state.activeKnowledgeId));
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !el.imageLightbox.hidden) closeImagePreview();
+      if (event.key !== "Escape") return;
+      if (!el.imageLightbox.hidden) {
+        closeImagePreview();
+        return;
+      }
+      if (!el.knowledgeModal.hidden) closeKnowledgePreview();
     });
     window.addEventListener("beforeunload", revokeImagePreviewUrls);
 
@@ -1010,24 +1193,29 @@
     el.knowledgeForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(el.knowledgeForm);
+      const id = String(data.get("id") || "").trim();
       const payload = {
         title: data.get("title"),
         issue_domain: data.get("issue_domain"),
         issue_type: data.get("issue_type"),
         typical_description: data.get("typical_description"),
         recommended_steps: lines(data.get("recommended_steps")),
+        common_causes: lines(data.get("common_causes")),
+        useful_tools: lines(data.get("useful_tools")),
       };
+      const url = id ? "/web/api/knowledge/" + encodeURIComponent(id) : "/web/api/knowledge";
+      const method = id ? "PUT" : "POST";
       try {
-        const response = await fetch("/web/api/knowledge", {
-          method: "POST",
+        const response = await fetch(url, {
+          method,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
         const saved = await response.json();
         if (!response.ok) throw new Error(saved.error || "save failed");
-        el.knowledgeForm.reset();
+        resetKnowledgeForm();
         el.knowledgeForm.classList.remove("open");
-        showToast("经验已保存");
+        showToast(id ? "经验已更新" : "经验已保存");
         await loadOverview();
       } catch (error) {
         showToast("保存失败：" + error.message);
@@ -1334,6 +1522,31 @@
       return index === -1 ? order.length : index;
     }
 
+    function toggleKnowledgeForm() {
+      if (state.editingKnowledgeId) {
+        resetKnowledgeForm();
+        el.knowledgeForm.classList.add("open");
+        el.knowledgeForm.elements.title.focus();
+        return;
+      }
+      if (!el.knowledgeForm.classList.contains("open")) {
+        resetKnowledgeForm();
+        el.knowledgeForm.classList.add("open");
+        el.knowledgeForm.elements.title.focus();
+        return;
+      }
+      resetKnowledgeForm();
+      el.knowledgeForm.classList.remove("open");
+    }
+
+    function resetKnowledgeForm() {
+      state.editingKnowledgeId = 0;
+      el.knowledgeForm.reset();
+      el.knowledgeForm.elements.id.value = "";
+      el.knowledgeSubmit.textContent = "保存经验";
+      document.getElementById("toggleKnowledgeForm").textContent = "录入";
+    }
+
     function renderKnowledge() {
       if (!state.knowledge.length) {
         el.knowledgeList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无沉淀经验</div>`;
@@ -1341,16 +1554,83 @@
       }
       el.knowledgeList.innerHTML = state.knowledge.map((item) => `
         <div class="knowledge-row">
-          <span class="truncate">
+          <button class="knowledge-main truncate" type="button" data-knowledge-preview-id="${escapeAttr(item.id)}">
             <span class="row-title truncate">${escapeHTML(item.title)}</span>
             <span class="row-meta truncate">${escapeHTML([item.issue_domain, item.issue_type].filter(Boolean).join(" · "))}</span>
+          </button>
+          <span class="knowledge-actions">
+            <button class="action-btn" type="button" data-knowledge-edit-id="${escapeAttr(item.id)}" aria-label="编辑经验">✎</button>
+            <button class="delete-btn" type="button" data-knowledge-id="${escapeAttr(item.id)}" aria-label="删除经验">×</button>
           </span>
-          <button class="delete-btn" type="button" data-knowledge-id="${item.id}" aria-label="删除经验">×</button>
         </div>
       `).join("");
+      el.knowledgeList.querySelectorAll("[data-knowledge-preview-id]").forEach((button) => {
+        button.addEventListener("click", () => openKnowledgePreview(button.dataset.knowledgePreviewId));
+      });
+      el.knowledgeList.querySelectorAll("[data-knowledge-edit-id]").forEach((button) => {
+        button.addEventListener("click", () => editKnowledge(button.dataset.knowledgeEditId));
+      });
       el.knowledgeList.querySelectorAll("[data-knowledge-id]").forEach((button) => {
         button.addEventListener("click", () => deleteKnowledge(button.dataset.knowledgeId));
       });
+    }
+
+    function findKnowledge(id) {
+      const numericID = Number(id);
+      return state.knowledge.find((item) => Number(item.id) === numericID);
+    }
+
+    function openKnowledgePreview(id) {
+      const item = findKnowledge(id);
+      if (!item) return;
+      state.activeKnowledgeId = Number(item.id);
+      el.knowledgeModalTitle.textContent = item.title || "未命名经验";
+      el.knowledgeModalMeta.innerHTML = [
+        item.issue_domain,
+        item.issue_type,
+        item.last_root_cause_category,
+        item.status,
+      ].filter(Boolean).map((value) => `<span class="tag">${escapeHTML(value)}</span>`).join("");
+      el.knowledgeModalBody.innerHTML = `
+        ${knowledgeDetailBlock("典型现象", item.typical_description || "未填写")}
+        ${knowledgeListBlock("排查步骤", jsonList(item.recommended_steps_json))}
+        ${knowledgeListBlock("常见原因", jsonList(item.common_causes_json))}
+        ${knowledgeListBlock("相关工具", jsonList(item.useful_tools_json))}
+        ${knowledgeDetailBlock("最后确认原因", item.last_confirmed_reason || "未填写")}
+      `;
+      el.knowledgeModalStats.textContent = "命中 " + String(item.observed_case_count || 0) + " 次 · 置信度 " + formatConfidence(item.confidence);
+      el.knowledgeModal.hidden = false;
+      el.knowledgeModalEdit.focus();
+    }
+
+    function closeKnowledgePreview() {
+      if (el.knowledgeModal.hidden) return;
+      state.activeKnowledgeId = 0;
+      el.knowledgeModal.hidden = true;
+      el.knowledgeModalTitle.textContent = "";
+      el.knowledgeModalMeta.innerHTML = "";
+      el.knowledgeModalBody.innerHTML = "";
+      el.knowledgeModalStats.textContent = "";
+    }
+
+    function editKnowledge(id) {
+      const item = findKnowledge(id);
+      if (!item) return;
+      closeKnowledgePreview();
+      state.editingKnowledgeId = Number(item.id);
+      el.knowledgeForm.elements.id.value = item.id;
+      el.knowledgeForm.elements.title.value = item.title || "";
+      el.knowledgeForm.elements.issue_domain.value = item.issue_domain || "";
+      el.knowledgeForm.elements.issue_type.value = item.issue_type || "";
+      el.knowledgeForm.elements.typical_description.value = item.typical_description || "";
+      el.knowledgeForm.elements.recommended_steps.value = jsonList(item.recommended_steps_json).join("\n");
+      el.knowledgeForm.elements.common_causes.value = jsonList(item.common_causes_json).join("\n");
+      el.knowledgeForm.elements.useful_tools.value = jsonList(item.useful_tools_json).join("\n");
+      el.knowledgeSubmit.textContent = "保存修改";
+      document.getElementById("toggleKnowledgeForm").textContent = "新建";
+      el.knowledgeForm.classList.add("open");
+      el.knowledgeForm.scrollIntoView({ block: "nearest" });
+      el.knowledgeForm.elements.title.focus();
     }
 
     async function deleteKnowledge(id) {
@@ -1359,11 +1639,55 @@
         const response = await fetch("/web/api/knowledge/" + encodeURIComponent(id), { method: "DELETE" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "delete failed");
+        if (state.activeKnowledgeId === Number(id)) closeKnowledgePreview();
+        if (state.editingKnowledgeId === Number(id)) {
+          resetKnowledgeForm();
+          el.knowledgeForm.classList.remove("open");
+        }
         showToast("经验已删除");
         await loadOverview();
       } catch (error) {
         showToast("删除失败：" + error.message);
       }
+    }
+
+    function knowledgeDetailBlock(label, text) {
+      return `
+        <div class="knowledge-detail-block">
+          <div class="detail-label">${escapeHTML(label)}</div>
+          <div class="detail-text">${escapeHTML(text || "未填写")}</div>
+        </div>
+      `;
+    }
+
+    function knowledgeListBlock(label, items) {
+      if (!items.length) return knowledgeDetailBlock(label, "未填写");
+      return `
+        <div class="knowledge-detail-block">
+          <div class="detail-label">${escapeHTML(label)}</div>
+          <ol class="detail-list">
+            ${items.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}
+          </ol>
+        </div>
+      `;
+    }
+
+    function jsonList(value) {
+      if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+      if (!value) return [];
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean);
+      } catch (_) {
+        return lines(value);
+      }
+      return [];
+    }
+
+    function formatConfidence(value) {
+      const numeric = Number(value || 0);
+      if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+      return Math.round(numeric * 100) + "%";
     }
 
     function renderMessages(items) {

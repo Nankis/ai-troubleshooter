@@ -256,39 +256,70 @@ func (h *Handler) ServeKnowledge(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 	case http.MethodPost:
-		var input knowledgeInput
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-		item, err := input.toKnowledgeItem()
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
-			return
-		}
-		saved, err := h.store.UpsertKnowledgeItem(r.Context(), item)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusCreated, saved)
+		h.saveKnowledge(w, r, 0)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 	}
 }
 
 func (h *Handler) ServeKnowledgeItem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-		return
-	}
 	rawID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/web/api/knowledge/"), "/")
 	id, err := strconv.ParseInt(rawID, 10, 64)
 	if err != nil || id <= 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid knowledge id"})
 		return
 	}
-	if err := h.store.DeleteKnowledgeItem(r.Context(), id); err != nil {
+	switch r.Method {
+	case http.MethodGet:
+		item, err := h.store.GetKnowledgeItem(r.Context(), id)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, caseflow.ErrNotFound) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
+	case http.MethodPut, http.MethodPatch:
+		h.saveKnowledge(w, r, id)
+	case http.MethodDelete:
+		if err := h.store.DeleteKnowledgeItem(r.Context(), id); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, caseflow.ErrNotFound) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func (h *Handler) saveKnowledge(w http.ResponseWriter, r *http.Request, pathID int64) {
+	var input knowledgeInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if pathID > 0 {
+		input.ID = pathID
+	}
+	item, err := h.knowledgeItemFromInput(r.Context(), input)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, caseflow.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "required") {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	saved, err := h.store.UpsertKnowledgeItem(r.Context(), item)
+	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, caseflow.ErrNotFound) {
 			status = http.StatusNotFound
@@ -296,7 +327,11 @@ func (h *Handler) ServeKnowledgeItem(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+	status := http.StatusCreated
+	if input.ID > 0 {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, saved)
 }
 
 func (h *Handler) loadCase(ctx context.Context, ref string) (*caseflow.Case, error) {
@@ -453,10 +488,23 @@ type knowledgeInput struct {
 	IssueType          string   `json:"issue_type"`
 	TypicalDescription string   `json:"typical_description"`
 	RecommendedSteps   []string `json:"recommended_steps"`
+	CommonCauses       []string `json:"common_causes"`
 	UsefulTools        []string `json:"useful_tools"`
 }
 
-func (in knowledgeInput) toKnowledgeItem() (caseflow.KnowledgeItem, error) {
+func (h *Handler) knowledgeItemFromInput(ctx context.Context, input knowledgeInput) (caseflow.KnowledgeItem, error) {
+	var base caseflow.KnowledgeItem
+	if input.ID > 0 {
+		existing, err := h.store.GetKnowledgeItem(ctx, input.ID)
+		if err != nil {
+			return caseflow.KnowledgeItem{}, err
+		}
+		base = existing
+	}
+	return input.applyTo(base)
+}
+
+func (in knowledgeInput) applyTo(item caseflow.KnowledgeItem) (caseflow.KnowledgeItem, error) {
 	title := strings.TrimSpace(in.Title)
 	domain := strings.TrimSpace(in.IssueDomain)
 	if title == "" {
@@ -465,19 +513,27 @@ func (in knowledgeInput) toKnowledgeItem() (caseflow.KnowledgeItem, error) {
 	if domain == "" {
 		return caseflow.KnowledgeItem{}, fmt.Errorf("issue_domain is required")
 	}
-	return caseflow.KnowledgeItem{
-		ID:                   in.ID,
-		Title:                title,
-		IssueDomain:          domain,
-		IssueType:            strings.TrimSpace(in.IssueType),
-		TypicalDescription:   strings.TrimSpace(in.TypicalDescription),
-		RecommendedStepsJSON: jsonString(in.RecommendedSteps),
-		UsefulToolsJSON:      jsonString(in.UsefulTools),
-		Confidence:           0.7,
-		Status:               "active",
-		ObservedCaseCount:    1,
-		LastEvolvedAt:        time.Now(),
-	}, nil
+	item.ID = in.ID
+	item.Title = title
+	item.IssueDomain = domain
+	item.IssueType = strings.TrimSpace(in.IssueType)
+	item.TypicalDescription = strings.TrimSpace(in.TypicalDescription)
+	item.RecommendedStepsJSON = jsonString(in.RecommendedSteps)
+	item.CommonCausesJSON = jsonString(in.CommonCauses)
+	item.UsefulToolsJSON = jsonString(in.UsefulTools)
+	if item.Confidence == 0 {
+		item.Confidence = 0.7
+	}
+	if item.Status == "" {
+		item.Status = "active"
+	}
+	if item.ObservedCaseCount == 0 {
+		item.ObservedCaseCount = 1
+	}
+	if item.LastEvolvedAt.IsZero() {
+		item.LastEvolvedAt = time.Now()
+	}
+	return item, nil
 }
 
 func jsonString(v any) string {

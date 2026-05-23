@@ -9,7 +9,7 @@ GET /
 
 ## 布局
 
-- 左侧：问题会话、按服务可折叠分组的已注册 Gateway tools、平台经验沉淀。
+- 左侧：问题会话、按服务可折叠分组的已注册 Gateway tools、平台经验沉淀；经验项支持预览、编辑和删除。
 - 中间：当前问题对话和 Agent 输出。
 - 右侧：决策层进度、当前状态、工具数量、知识数量和证据来源。
 
@@ -27,6 +27,8 @@ GET /
 | `GET /web/api/cases/{case_no}` | 查询 case、消息、实体、AI decision logs、progress steps。 |
 | `GET /web/api/knowledge` | 查询平台知识。 |
 | `POST /web/api/knowledge` | 手动录入知识。 |
+| `GET /web/api/knowledge/{id}` | 查看单条知识。 |
+| `PUT /web/api/knowledge/{id}` | 编辑单条知识。 |
 | `DELETE /web/api/knowledge/{id}` | 软删除指定知识，默认列表不再展示。 |
 
 ## 进度来源

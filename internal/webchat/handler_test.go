@@ -155,6 +155,35 @@ func TestServeOverviewAndKnowledgeMutation(t *testing.T) {
 	if item.ID == 0 || !strings.Contains(item.RecommendedStepsJSON, "查餐食") {
 		t.Fatalf("unexpected knowledge item: %+v", item)
 	}
+	updateReq := httptest.NewRequest(http.MethodPut, "/web/api/knowledge/"+strconvFormat(item.ID), strings.NewReader(`{
+		"title":"health-food 推荐缺失更新",
+		"issue_domain":"health_food",
+		"issue_type":"每日推荐缺失",
+		"typical_description":"有餐食但没有推荐，且日志有 quota 告警",
+		"recommended_steps":["查用户资料","查推荐状态","查日志"],
+		"common_causes":["额度耗尽"],
+		"useful_tools":["get_health_food_user_profile","search_logs_by_service"]
+	}`))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec := httptest.NewRecorder()
+	handler.ServeKnowledgeItem(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("unexpected update status %d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+	var updated caseflow.KnowledgeItem
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != item.ID || !strings.Contains(updated.Title, "更新") || !strings.Contains(updated.CommonCausesJSON, "额度耗尽") {
+		t.Fatalf("unexpected updated knowledge item: %+v", updated)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/web/api/knowledge/"+strconvFormat(item.ID), nil)
+	getRec := httptest.NewRecorder()
+	handler.ServeKnowledgeItem(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("unexpected get status %d body=%s", getRec.Code, getRec.Body.String())
+	}
 
 	overviewReq := httptest.NewRequest(http.MethodGet, "/web/api/overview", nil)
 	overviewRec := httptest.NewRecorder()
