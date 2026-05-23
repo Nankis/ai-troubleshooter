@@ -35,6 +35,37 @@ class MCPReadonlyAdapterTest(unittest.TestCase):
         self.assertEqual(params["trace_id"], "trace_1")
         self.assertEqual(params["uid"], "hf_user_001")
 
+    def test_tool_arguments_can_map_gateway_params_to_mcp_schema(self) -> None:
+        adapter = load_adapter_module()
+        route = adapter.Route(
+            path="/v1/readonly/db/tables/list",
+            tool_name="listTables",
+            source="dms-mcp",
+            version="v1",
+            required_params=("schema_name",),
+            param_map={"schema_name": "schemaName", "page_size": "pageSize"},
+            fixed_params={"envType": "product"},
+            forward_all_params=False,
+        )
+
+        arguments = adapter.tool_arguments(
+            route,
+            {
+                "schema_name": "health_food",
+                "page_size": 20,
+                "extra": "should-not-forward",
+            },
+        )
+
+        self.assertEqual(
+            arguments,
+            {
+                "schemaName": "health_food",
+                "pageSize": 20,
+                "envType": "product",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

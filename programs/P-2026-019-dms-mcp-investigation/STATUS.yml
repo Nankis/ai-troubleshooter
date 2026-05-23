@@ -1,0 +1,22 @@
+program: P-2026-019-dms-mcp-investigation
+name: "DMS MCP Investigation"
+level: "Medium"
+phase: "completed"
+status: "completed"
+owner: "Codex"
+created_at: "2026-05-23"
+updated_at: "2026-05-23"
+current_task: "done"
+tasks:
+  - id: task-1
+    name: "调研 DMS MCP / CLI"
+    status: completed
+  - id: task-2
+    name: "补 DMS 接入文档和配置样例"
+    status: completed
+  - id: task-3
+    name: "增强 MCP adapter 参数映射"
+    status: completed
+  - id: task-4
+    name: "测试和安全扫描"
+    status: completed

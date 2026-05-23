@@ -82,6 +82,9 @@ class Route:
     source: str
     version: str
     required_params: tuple[str, ...]
+    param_map: dict[str, str]
+    fixed_params: dict[str, Any]
+    forward_all_params: bool
 
 
 class MCPProtocolError(RuntimeError):
@@ -243,6 +246,9 @@ def parse_routes(config: dict[str, Any]) -> dict[str, Route]:
             source=str(item.get("source") or "mcp-readonly-adapter"),
             version=str(item.get("version") or "mcp-v1"),
             required_params=tuple(str(param) for param in item.get("required_params") or ()),
+            param_map={str(key): str(value) for key, value in (item.get("param_map") or {}).items()},
+            fixed_params=dict(item.get("fixed_params") or {}),
+            forward_all_params=bool(item.get("forward_all_params", True)),
         )
     if not routes:
         raise ValueError("at least one MCP route is required")
@@ -279,6 +285,19 @@ def normalize_params(params: dict[str, Any]) -> dict[str, Any]:
         if snake and snake not in normalized:
             normalized[snake] = value
     return normalized
+
+
+def tool_arguments(route: Route, params: dict[str, Any]) -> dict[str, Any]:
+    if route.forward_all_params:
+        arguments = dict(params)
+    else:
+        arguments = {}
+    for source_name, target_name in route.param_map.items():
+        if source_name in params:
+            arguments[target_name] = params[source_name]
+    for key, value in route.fixed_params.items():
+        arguments[key] = value
+    return arguments
 
 
 def to_snake_case(value: str) -> str:
@@ -337,8 +356,9 @@ class Handler(BaseHTTPRequestHandler):
         if missing:
             self.write_json(400, {"code": "MISSING_PARAM", "error": f"missing required params: {', '.join(missing)}"})
             return
+        arguments = tool_arguments(route, params)
         try:
-            data = STATE.client.call_tool(route.tool_name, params)
+            data = STATE.client.call_tool(route.tool_name, arguments)
         except TimeoutError as exc:
             self.write_json(504, {"code": "MCP_TIMEOUT", "error": str(exc)})
             return

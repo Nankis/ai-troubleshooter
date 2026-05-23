@@ -60,7 +60,9 @@ go run ./cmd/dev-server
       "tool_name": "health_food_recommendation_status",
       "source": "health-food-mcp/mock",
       "version": "mcp-mock-v1",
-      "required_params": ["uid", "recommendation_date"]
+      "required_params": ["uid", "recommendation_date"],
+      "forward_all_params": true,
+      "param_map": {}
     }
   ]
 }
@@ -70,8 +72,12 @@ go run ./cmd/dev-server
 
 - `routes` 是唯一暴露面，不会自动开放 MCP `tools/list` 的全部工具。
 - 每个 route 必须映射到一个 MCP `tools/list` 中存在的 tool。
+- `required_params` 使用 Gateway/readonly adapter 侧的标准字段名，adapter 会自动为 Go/Pascal/camel/kebab 参数补 snake_case alias。
+- `param_map` 可把 Gateway 标准字段映射成 MCP tool schema 字段；`forward_all_params=false` 时只转发 `param_map` 和 `fixed_params` 中声明的字段，适合 DMS 这类严格 schema 的官方 MCP。
 - MCP tool 应返回 `structuredContent` 对象；如果只返回 text，adapter 只接受可解析为 JSON object 的文本，否则会包装为 `{ "text": "..." }`。
 - adapter 对外仍使用标准 readonly envelope，不暴露 MCP 原始协议细节。
+
+阿里云 DMS MCP 接入方案见 [dms-mcp-integration.md](dms-mcp-integration.md)，元数据 route 示例见 [../configs/mcp-dms-adapter.metadata.example.json](../configs/mcp-dms-adapter.metadata.example.json)。
 
 ## 安全边界
 

@@ -1,0 +1,74 @@
+{
+  "server": {
+    "command": ["uvx", "alibabacloud-dms-mcp-server@latest"],
+    "request_timeout_seconds": 5,
+    "protocol_version": "2025-06-18"
+  },
+  "routes": [
+    {
+      "path": "/v1/readonly/db/instances/search",
+      "tool_name": "listInstances",
+      "source": "aliyun-dms-mcp",
+      "version": "dms-mcp-metadata-v1",
+      "required_params": [],
+      "forward_all_params": false,
+      "param_map": {
+        "search_key": "search_key",
+        "db_type": "db_type",
+        "env_type": "env_type"
+      }
+    },
+    {
+      "path": "/v1/readonly/db/databases/search",
+      "tool_name": "searchDatabase",
+      "source": "aliyun-dms-mcp",
+      "version": "dms-mcp-metadata-v1",
+      "required_params": ["search_key"],
+      "forward_all_params": false,
+      "param_map": {
+        "search_key": "search_key",
+        "page_number": "page_number",
+        "page_size": "page_size"
+      }
+    },
+    {
+      "path": "/v1/readonly/db/databases/detail",
+      "tool_name": "getDatabase",
+      "source": "aliyun-dms-mcp",
+      "version": "dms-mcp-metadata-v1",
+      "required_params": ["host", "port", "schema_name"],
+      "forward_all_params": false,
+      "param_map": {
+        "host": "host",
+        "port": "port",
+        "schema_name": "schema_name",
+        "sid": "sid"
+      }
+    },
+    {
+      "path": "/v1/readonly/db/tables/list",
+      "tool_name": "listTables",
+      "source": "aliyun-dms-mcp",
+      "version": "dms-mcp-metadata-v1",
+      "required_params": ["database_id"],
+      "forward_all_params": false,
+      "param_map": {
+        "database_id": "database_id",
+        "search_name": "search_name",
+        "page_number": "page_number",
+        "page_size": "page_size"
+      }
+    },
+    {
+      "path": "/v1/readonly/db/tables/detail",
+      "tool_name": "getTableDetailInfo",
+      "source": "aliyun-dms-mcp",
+      "version": "dms-mcp-metadata-v1",
+      "required_params": ["table_guid"],
+      "forward_all_params": false,
+      "param_map": {
+        "table_guid": "table_guid"
+      }
+    }
+  ]
+}

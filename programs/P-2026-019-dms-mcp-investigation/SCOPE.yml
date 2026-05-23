@@ -1,0 +1,17 @@
+allowed_paths:
+  - scripts/mcp-readonly-adapter.py
+  - tests/test_mcp_readonly_adapter.py
+  - configs/mcp-dms-adapter.metadata.example.json
+  - docs/dms-mcp-integration.md
+  - docs/mcp-gateway-adapter.md
+  - README.md
+  - programs/P-2026-019-dms-mcp-investigation/**
+
+forbidden_paths:
+  - internal/decisionbaseline/**
+  - apps/decision-engine/**
+  - internal/gateway/**
+
+notes:
+  - "本轮只完成 DMS 调研、文档、配置样例和 MCP adapter 通用参数映射。"
+  - "真实 DMS Gateway 工具和生产验收需要公司 DMS 凭证、实例范围和只读授权。"

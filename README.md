@@ -311,6 +311,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 | [docs/web-workbench.md](docs/web-workbench.md) | Codex 风格 Web 排障工作台、进度轮询、工具/知识展示和手动知识录入接口。 |
 | [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
 | [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md) | MCP server 通过 readonly adapter 接入 Gateway 的方式和验收标准。 |
+| [docs/dms-mcp-integration.md](docs/dms-mcp-integration.md) | 阿里云 DMS MCP / CLI 调研结论、安全接入方案和 DB 元数据接入路线。 |
 | [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
 | [docs/knowledge-evolution.md](docs/knowledge-evolution.md) | root cause 回填、经验沉淀、knowledge item 和自进化逻辑。 |
 | [docs/agent-framework-selection.md](docs/agent-framework-selection.md) | Python 决策层框架选择，记录 LangGraph / LangChain 等后续迁移触发条件。 |
@@ -334,6 +335,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - [P-2026-015 MCP Gateway Adapter](programs/P-2026-015-mcp-gateway-adapter/RESULT.md)：MCP server 通过 allowlist readonly adapter 接入 Gateway，并用 health-food 实际链路验证。
 - [P-2026-016 Config Driven Gateway Auth](programs/P-2026-016-config-driven-gateway-auth/RESULT.md)：Gateway agent/scope/tool/chat 权限配置化，runner agent id 可配置。
 - [P-2026-018 Web Workbench Progress UI](programs/P-2026-018-web-workbench-progress-ui/RESULT.md)：Codex 风格三栏 Web 工作台，支持异步排查进度、工具/知识查看、手动知识录入和删除。
+- [P-2026-019 DMS MCP Investigation](programs/P-2026-019-dms-mcp-investigation/RESULT.md)：阿里云 DMS MCP / CLI 调研、DMS 元数据 route 样例和 MCP 参数映射增强。
 
 ## 已实现能力
 
@@ -506,6 +508,8 @@ python3.13 scripts/mcp-readonly-adapter.py
 ```
 
 MCP 接入仍然走 Gateway，不允许决策层直连 MCP。配置和验收标准见 [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md)，health-food MCP route 示例见 [configs/mcp-health-food-adapter.example.json](configs/mcp-health-food-adapter.example.json)。
+
+阿里云 DMS 可以作为 DB 只读证据入口接入。当前建议先通过 DMS MCP 暴露实例、库、表和表结构元数据，SQL 执行类能力必须再包 named readonly query，不允许把 `executeScript` 或 `askDatabase` 直接交给 Agent。调研和接入设计见 [docs/dms-mcp-integration.md](docs/dms-mcp-integration.md)，元数据 route 示例见 [configs/mcp-dms-adapter.metadata.example.json](configs/mcp-dms-adapter.metadata.example.json)。
 
 ### health-food 真实本地联调
 
