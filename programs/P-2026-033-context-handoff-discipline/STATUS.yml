@@ -1,0 +1,14 @@
+program: P-2026-033-context-handoff-discipline
+name: "context handoff discipline"
+status: completed
+updated_at: "2026-05-24"
+tasks:
+  - id: T1
+    name: "规则补齐"
+    status: completed
+  - id: T2
+    name: "handoff 补齐"
+    status: completed
+  - id: T3
+    name: "验证提交"
+    status: completed

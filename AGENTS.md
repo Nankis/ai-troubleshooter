@@ -43,6 +43,14 @@
 - 再次踩同类坑，先给计数器 `count +1`，再写当前 Program 的 `ERRORS.md`。
 - 不为新命名、新架构或新理解回写旧 Program；独立变更新增 Program。确需修正旧事实，必须在当前 Program 写明例外。
 
+## 上下文交接铁律
+
+- 聊天线程不是持久记忆；Program 文件才是接手入口。
+- 每个 Program 在暂停、完成里程碑、切换方向、准备压缩上下文或看到“正在自动压缩上下文”时，必须更新 `HANDOFF.md`。
+- `HANDOFF.md` 至少记录：当前目标、已完成内容、证据路径、已运行命令、commit/push 状态、工作树状态、下一步、风险/阻塞。
+- 压缩或恢复后，先读 `AGENTS.md`、`programs/README.md` 和当前 Program 的 `HANDOFF.md`，再继续执行；不能只凭聊天记忆接手。
+- Program 没有最新 `HANDOFF.md` 时，不允许宣称完成或切换到下一个方向。
+
 ## 架构边界
 
 - 平台数据、知识库、AI 决策日志、工具审计、LLM/Vision provider 属于 Agent 平台；业务方只提供 readonly business APIs/adapters。
