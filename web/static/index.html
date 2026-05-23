@@ -143,6 +143,33 @@
       padding: 0 4px;
     }
 
+    .section-toggle {
+      width: 100%;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .section-toggle:hover {
+      background: rgba(255, 255, 255, .06);
+    }
+
+    .section-head-main {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .section-caret {
+      width: 14px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1;
+    }
+
     .ghost-btn {
       background: transparent;
       color: var(--muted);
@@ -977,10 +1004,13 @@
         </section>
 
         <section class="section">
-          <div class="section-head">
-            <span>已注册 Gateway Tools</span>
+          <button class="section-head section-toggle" type="button" id="toggleToolPanel" aria-expanded="true">
+            <span class="section-head-main truncate">
+              <span class="section-caret" id="toolPanelCaret">⌄</span>
+              <span class="truncate">已注册 Gateway Tools</span>
+            </span>
             <span class="tag" id="toolCount">0</span>
-          </div>
+          </button>
           <div class="tool-list" id="toolList"></div>
         </section>
 
@@ -1103,12 +1133,16 @@
   <script>
     const state = {
       currentCaseNo: "",
+      currentDraftID: "",
       polling: null,
       tools: [],
       knowledge: [],
       cases: [],
+      drafts: [],
       processing: false,
       collapsedToolServices: new Set(),
+      toolPanelCollapsed: false,
+      draftSeq: 0,
       imagePreviewUrls: [],
       activeImagePreviewIndex: -1,
       activeKnowledgeId: 0,
@@ -1129,6 +1163,8 @@
       caseCount: document.getElementById("caseCount"),
       toolList: document.getElementById("toolList"),
       toolCount: document.getElementById("toolCount"),
+      toolPanelCaret: document.getElementById("toolPanelCaret"),
+      toggleToolPanel: document.getElementById("toggleToolPanel"),
       knowledgeList: document.getElementById("knowledgeList"),
       knowledgeForm: document.getElementById("knowledgeForm"),
       knowledgeSubmit: document.getElementById("knowledgeSubmit"),
@@ -1155,8 +1191,9 @@
       knowledgeModalDelete: document.getElementById("knowledgeModalDelete"),
     };
 
-    document.getElementById("newCase").addEventListener("click", resetCase);
+    document.getElementById("newCase").addEventListener("click", createDraftCase);
     document.getElementById("refreshOverview").addEventListener("click", loadOverview);
+    el.toggleToolPanel.addEventListener("click", toggleToolPanel);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
     document.getElementById("toggleKnowledgeForm").addEventListener("click", toggleKnowledgeForm);
     el.cancelKnowledgeEdit.addEventListener("click", () => {
@@ -1165,6 +1202,7 @@
     });
 
     el.images.addEventListener("change", updateImages);
+    el.message.addEventListener("input", updateActiveDraftFromComposer);
     el.form.addEventListener("paste", handleComposerPaste);
     el.imageLightboxBackdrop.addEventListener("click", closeImagePreview);
     el.imageLightboxClose.addEventListener("click", closeImagePreview);
@@ -1186,6 +1224,7 @@
       event.preventDefault();
       const text = el.message.value.trim();
       if (!text && el.images.files.length === 0) return;
+      updateActiveDraftFromComposer();
 
       const data = new FormData();
       data.append("message", text);
@@ -1198,6 +1237,8 @@
         const response = await fetch("/web/api/chat", { method: "POST", body: data });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "request failed");
+        if (state.currentDraftID) removeDraft(state.currentDraftID);
+        state.currentDraftID = "";
         state.currentCaseNo = payload.case.case_no;
         applyCasePayload(payload);
         startPolling(state.currentCaseNo);
@@ -1251,22 +1292,55 @@
       state.cases = payload.cases || [];
       renderCases();
       renderTools();
+      renderToolPanel();
       renderKnowledge();
       el.envTools.textContent = String(state.tools.length);
       el.envKnowledge.textContent = String(state.knowledge.length);
     }
 
-    function resetCase() {
+    function createDraftCase() {
+      updateActiveDraftFromComposer();
+      const draftID = "draft_" + Date.now() + "_" + (++state.draftSeq);
+      state.drafts.unshift({
+        draft_id: draftID,
+        title: "新问题",
+        message: "",
+        created_at: new Date().toISOString(),
+      });
+      selectDraftCase(draftID);
+      renderCases();
+      showToast("已新建问题草稿");
+    }
+
+    function selectDraftCase(draftID) {
+      updateActiveDraftFromComposer();
+      const draft = state.drafts.find((item) => item.draft_id === draftID);
+      if (!draft) return;
       stopPolling();
+      state.currentDraftID = draftID;
       state.currentCaseNo = "";
       setBusy(false);
-      el.message.value = "";
+      el.message.value = draft.message || "";
       clearImages();
       renderEmpty();
       renderProgress([]);
       el.caseStatus.textContent = "ready";
       el.caseSource.textContent = "web";
-      document.querySelectorAll(".case-row.active").forEach((node) => node.classList.remove("active"));
+      highlightCurrentCase();
+      el.message.focus();
+    }
+
+    function updateActiveDraftFromComposer() {
+      if (!state.currentDraftID) return;
+      const draft = state.drafts.find((item) => item.draft_id === state.currentDraftID);
+      if (!draft) return;
+      draft.message = el.message.value;
+      draft.title = draftTitle(el.message.value);
+      renderCases();
+    }
+
+    function removeDraft(draftID) {
+      state.drafts = state.drafts.filter((item) => item.draft_id !== draftID);
     }
 
     function handleComposerPaste(event) {
@@ -1447,25 +1521,34 @@
     }
 
     function renderCases() {
-      el.caseCount.textContent = String(state.cases.length);
-      if (!state.cases.length) {
+      const items = [
+        ...state.drafts.map((item) => ({ ...item, isDraft: true })),
+        ...state.cases.map((item) => ({ ...item, isDraft: false })),
+      ];
+      el.caseCount.textContent = String(items.length);
+      if (!items.length) {
         el.caseList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无问题会话</div>`;
         return;
       }
-      el.caseList.innerHTML = state.cases.map((item) => `
-        <button class="case-row ${item.case_no === state.currentCaseNo ? "active" : ""}" type="button" data-case="${escapeAttr(item.case_no)}">
+      el.caseList.innerHTML = items.map((item) => `
+        <button class="case-row ${caseRowActive(item) ? "active" : ""}" type="button" ${item.isDraft ? `data-draft="${escapeAttr(item.draft_id)}"` : `data-case="${escapeAttr(item.case_no)}"`}>
           <span class="truncate">
             <span class="row-title truncate">${escapeHTML(caseTitle(item))}</span>
-            <span class="row-meta truncate">${escapeHTML(item.issue_domain || item.source || "web")}</span>
+            <span class="row-meta truncate">${escapeHTML(item.isDraft ? "草稿 · web" : (item.issue_domain || item.source || "web"))}</span>
           </span>
-          <span class="tag ${isActive(item.status) ? "green" : ""}">${escapeHTML(shortStatus(item.status))}</span>
+          <span class="tag ${isActive(item.status) ? "green" : ""}">${escapeHTML(item.isDraft ? "草稿" : shortStatus(item.status))}</span>
         </button>
       `).join("");
       el.caseList.querySelectorAll("[data-case]").forEach((button) => {
         button.addEventListener("click", () => {
+          updateActiveDraftFromComposer();
+          state.currentDraftID = "";
           state.currentCaseNo = button.dataset.case || "";
           startPolling(state.currentCaseNo);
         });
+      });
+      el.caseList.querySelectorAll("[data-draft]").forEach((button) => {
+        button.addEventListener("click", () => selectDraftCase(button.dataset.draft || ""));
       });
     }
 
@@ -1506,6 +1589,17 @@
           renderTools();
         });
       });
+    }
+
+    function toggleToolPanel() {
+      state.toolPanelCollapsed = !state.toolPanelCollapsed;
+      renderToolPanel();
+    }
+
+    function renderToolPanel() {
+      el.toolList.hidden = state.toolPanelCollapsed;
+      el.toggleToolPanel.setAttribute("aria-expanded", String(!state.toolPanelCollapsed));
+      el.toolPanelCaret.textContent = state.toolPanelCollapsed ? "›" : "⌄";
     }
 
     function groupToolsByService(tools) {
@@ -1777,13 +1871,23 @@
 
     function highlightCurrentCase() {
       document.querySelectorAll(".case-row").forEach((row) => {
-        row.classList.toggle("active", row.dataset.case === state.currentCaseNo);
+        row.classList.toggle("active", row.dataset.case === state.currentCaseNo || row.dataset.draft === state.currentDraftID);
       });
     }
 
+    function caseRowActive(item) {
+      if (item.isDraft) return item.draft_id === state.currentDraftID;
+      return item.case_no === state.currentCaseNo;
+    }
+
     function caseTitle(item) {
-      const text = (item.original_text || item.case_no || "").replace(/\s+/g, " ").trim();
+      const text = (item.title || item.original_text || item.case_no || "").replace(/\s+/g, " ").trim();
       return text || item.case_no || "未命名问题";
+    }
+
+    function draftTitle(text) {
+      const value = String(text || "").replace(/\s+/g, " ").trim();
+      return value ? value.slice(0, 40) : "新问题";
     }
 
     function shortStatus(status) {
