@@ -308,6 +308,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 | [docs/ai-connector-integration.md](docs/ai-connector-integration.md) | 业务方只读接口接入规范，定义接口命名、参数、返回、错误和 adapter 规则。 |
 | [docs/business-service-registration.md](docs/business-service-registration.md) | 业务服务注册到 Gateway 的 manifest 数据结构、capability 字段和 health-food 示例。 |
 | [docs/health-food-production-integration.md](docs/health-food-production-integration.md) | health-food 生产只读日志接入方式、本地启动命令、安全限制和验收标准。 |
+| [docs/web-workbench.md](docs/web-workbench.md) | Codex 风格 Web 排障工作台、进度轮询、工具/知识展示和手动知识录入接口。 |
 | [docs/gateway-security.md](docs/gateway-security.md) | Gateway 鉴权、agent 绑定、scope、限流、timeout、脱敏和审计边界。 |
 | [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md) | MCP server 通过 readonly adapter 接入 Gateway 的方式和验收标准。 |
 | [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md) | AI 决策日志、工具预算、失败上限、case timeout 和停止条件。 |
@@ -332,12 +333,13 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - [P-2026-014 Semantic Code Index](programs/P-2026-014-semantic-code-index/RESULT.md)：跨模块调用边解析、receiver type、接口实现关系和 tree-sitter/LSP/LSIF backend 配置预留。
 - [P-2026-015 MCP Gateway Adapter](programs/P-2026-015-mcp-gateway-adapter/RESULT.md)：MCP server 通过 allowlist readonly adapter 接入 Gateway，并用 health-food 实际链路验证。
 - [P-2026-016 Config Driven Gateway Auth](programs/P-2026-016-config-driven-gateway-auth/RESULT.md)：Gateway agent/scope/tool/chat 权限配置化，runner agent id 可配置。
+- [P-2026-018 Web Workbench Progress UI](programs/P-2026-018-web-workbench-progress-ui/RESULT.md)：Codex 风格三栏 Web 工作台，支持异步排查进度、工具/知识查看、手动知识录入和删除。
 
 ## 已实现能力
 
 - Go + Python monorepo 和一期目录结构。
 - 本地一体化 `dev-server`。
-- 内置 Web Chat：`GET /` 或 `/web` 打开本地聊天页，`POST /web/api/chat` 支持文字和图片上传，自动创建/继续 case 并返回 Agent 排查结果。
+- 内置 Web 排障工作台：`GET /` 或 `/web` 打开 Codex 风格三栏页面，`POST /web/api/chat` 支持文字和图片上传，`async=1` 时会立即创建/继续 case 并通过 `/web/api/cases/{case_no}` 轮询展示决策进度。
 - Lark / 飞书事件入口：`POST /lark/events` 和 `POST /feishu/events`，支持本地模拟 payload 和 Lark/Feishu v2 消息 payload。
 - Lark verification token 和 allowed chat 基础门禁。
 - Lark encrypted callback：配置 `LARK_ENCRYPT_KEY` 后只接受密文回调，先解密 `encrypt` 回调体，再验 token 和处理 challenge / message。
@@ -352,6 +354,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
 - AI 决策日志：分类、实体抽取、字段检查、工具计划、工具调用、总结、失败原因、重复处理跳过原因、陈旧处理中状态收敛原因均可审计，快照写入前会统一脱敏。
+- Web 工作台进度：右侧按 AI 决策日志展示 `classify_issue`、`extract_entities`、`required_fields_check`、`knowledge_retrieval`、`decide_next_action`、`tool_invocation`、`summarize_findings`。
 - Case 级排查超时、工具调用总数上限和工具失败上限，避免查不到问题时持续打下游。
 - Decision runner 处理前先认领 case；重复 worker、重复事件或终态 case 会安全跳过，不再查询下游；陈旧处理中状态会恢复或失败收敛。
 - Tool Registry 和内部 Tool Invoke API。
@@ -367,6 +370,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - 标准 HTTP 只读 connector，可按文档对接公司接口。
 - MCP readonly adapter：外部 MCP server 可通过 allowlist route 映射成标准 readonly adapter，再由 Gateway 调用；决策层不直连 MCP。
 - 人工 root cause 回填、case feedback、knowledge item 自进化和 evolution run 记录。
+- Web 工作台支持查看平台经验沉淀，并可手动录入或软删除指定知识条目。
 - MySQL store：配置 `DB_DSN` 后 case、消息、根因、反馈、知识库和自进化运行记录持久化；不配置时本地自动使用内存 store。
 - MySQL 初始化 migration。
 - 知识沉淀增强 migration。
@@ -400,7 +404,7 @@ export VISION_API_KEY="$DASHSCOPE_API_KEY"
 make dev
 ```
 
-4. 浏览器打开 `http://localhost:8080/`，输入问题或上传截图。
+4. 浏览器打开 `http://localhost:8080/`，输入问题或上传截图。左侧可查看问题会话、已注册 Gateway tools 和平台经验；右侧可查看当前排查状态和决策层步骤。
 
 所有 key、token、MySQL 密码都只允许通过环境变量传入。提交和推送前请安装本地 hook：
 

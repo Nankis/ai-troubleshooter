@@ -85,10 +85,15 @@ func main() {
 		MaxImages:     cfg.Vision.MaxImagesPerMessage,
 		MaxImageBytes: int64(cfg.Vision.MaxImageBytes),
 	})
+	webChat.SetToolLister(gw.Registry())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", webChat.ServeIndex)
 	mux.HandleFunc("/web", webChat.ServeIndex)
 	mux.HandleFunc("/web/api/chat", webChat.ServeChat)
+	mux.HandleFunc("/web/api/overview", webChat.ServeOverview)
+	mux.HandleFunc("/web/api/cases/", webChat.ServeCaseStatus)
+	mux.HandleFunc("/web/api/knowledge", webChat.ServeKnowledge)
+	mux.HandleFunc("/web/api/knowledge/", webChat.ServeKnowledgeItem)
 	mux.Handle("/lark/events", larkHandler)
 	mux.Handle("/feishu/events", larkHandler)
 	mux.Handle("/tools", gw)

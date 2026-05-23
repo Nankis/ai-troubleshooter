@@ -105,6 +105,26 @@ func (s *Store) FindCaseByMessageID(ctx context.Context, source string, messageI
 	return scanCase(row)
 }
 
+func (s *Store) ListRecentCases(ctx context.Context, limit int) ([]caseflow.Case, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	rows, err := s.db.QueryContext(ctx, caseSelect()+` ORDER BY update_time DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []caseflow.Case{}
+	for rows.Next() {
+		c, err := scanCase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *c)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UpdateCase(ctx context.Context, id int64, expectedVersion int64, update func(*caseflow.Case) error) (*caseflow.Case, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -486,6 +506,8 @@ func (s *Store) ListKnowledgeItems(ctx context.Context, filter caseflow.Knowledg
 	if filter.Status != "" {
 		conds = append(conds, "knowledge_status = ?")
 		args = append(args, filter.Status)
+	} else {
+		conds = append(conds, "knowledge_status <> 'deleted'")
 	}
 	limit := filter.Limit
 	if limit <= 0 || limit > 100 {
@@ -507,6 +529,24 @@ func (s *Store) ListKnowledgeItems(ctx context.Context, filter caseflow.Knowledg
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) DeleteKnowledgeItem(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `
+UPDATE tb_troubleshoot_knowledge_item
+SET knowledge_status = 'deleted', update_time = ?
+WHERE id = ?`, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return caseflow.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) CreateKnowledgeEvolutionRun(ctx context.Context, run caseflow.KnowledgeEvolutionRun) (caseflow.KnowledgeEvolutionRun, error) {

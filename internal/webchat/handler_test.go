@@ -8,10 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
+	"github.com/Nankis/ai-troubleshooter/internal/tool"
 	"github.com/Nankis/ai-troubleshooter/internal/vision"
 )
 
@@ -38,6 +42,12 @@ func (fakeVision) AnalyzeImages(ctx context.Context, userText string, images []v
 	return vision.Analysis{ModelProvider: "test", ModelName: "vision-test", OCRText: "Symbol: BTCUSDT\nInterval: 1m"}, nil
 }
 
+type fakeToolLister struct{}
+
+func (fakeToolLister) List() []tool.Spec {
+	return []tool.Spec{{Name: "search_logs_by_service", Description: "查服务日志", RequiredScope: "logs:read_summary"}}
+}
+
 func TestServeChatCreatesCaseFromText(t *testing.T) {
 	store := caseflow.NewInMemoryStore()
 	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
@@ -62,6 +72,119 @@ func TestServeChatCreatesCaseFromText(t *testing.T) {
 	}
 	if len(payload.ToolCallIDs) != 1 || payload.ToolCallIDs[0] != "tc_test" {
 		t.Fatalf("unexpected tool ids: %+v", payload.ToolCallIDs)
+	}
+}
+
+func TestServeChatAsyncReturnsStatusAndProgress(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	processor := &waitingProcessor{store: store, started: make(chan struct{}), release: make(chan struct{})}
+	handler := New(store, processor, fakeVision{}, Options{})
+
+	req := multipartRequest(t, map[string]string{"message": "health-food 今日推荐没生成", "async": "1"}, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeChat(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status %d body=%s", rec.Code, rec.Body.String())
+	}
+	var initial struct {
+		Case       caseflow.Case `json:"case"`
+		Processing bool          `json:"processing"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+	if !initial.Processing || initial.Case.CaseNo == "" {
+		t.Fatalf("expected async case, got %+v", initial)
+	}
+
+	select {
+	case <-processor.started:
+	case <-time.After(time.Second):
+		t.Fatal("processor did not start")
+	}
+
+	reqStatus := httptest.NewRequest(http.MethodGet, "/web/api/cases/"+initial.Case.CaseNo, nil)
+	recStatus := httptest.NewRecorder()
+	handler.ServeCaseStatus(recStatus, reqStatus)
+	if recStatus.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", recStatus.Code, recStatus.Body.String())
+	}
+	var status struct {
+		Processing bool `json:"processing"`
+		Progress   []struct {
+			Key    string `json:"key"`
+			Status string `json:"status"`
+		} `json:"progress"`
+	}
+	if err := json.Unmarshal(recStatus.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Processing {
+		t.Fatalf("expected processing status: %+v", status)
+	}
+	if len(status.Progress) == 0 || status.Progress[0].Key != "classify_issue" || status.Progress[0].Status != "done" {
+		t.Fatalf("expected progress from decision logs, got %+v", status.Progress)
+	}
+
+	close(processor.release)
+}
+
+func TestServeOverviewAndKnowledgeMutation(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
+	handler.SetToolLister(fakeToolLister{})
+
+	createReq := httptest.NewRequest(http.MethodPost, "/web/api/knowledge", strings.NewReader(`{
+		"title":"health-food 推荐缺失",
+		"issue_domain":"health_food",
+		"issue_type":"每日推荐缺失",
+		"typical_description":"有餐食但没有推荐",
+		"recommended_steps":["查餐食","查推荐状态"],
+		"useful_tools":["get_health_food_recommendation_status"]
+	}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+	handler.ServeKnowledge(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected create status %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var item caseflow.KnowledgeItem
+	if err := json.Unmarshal(createRec.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	if item.ID == 0 || !strings.Contains(item.RecommendedStepsJSON, "查餐食") {
+		t.Fatalf("unexpected knowledge item: %+v", item)
+	}
+
+	overviewReq := httptest.NewRequest(http.MethodGet, "/web/api/overview", nil)
+	overviewRec := httptest.NewRecorder()
+	handler.ServeOverview(overviewRec, overviewReq)
+	if overviewRec.Code != http.StatusOK {
+		t.Fatalf("unexpected overview status %d body=%s", overviewRec.Code, overviewRec.Body.String())
+	}
+	var overview struct {
+		Tools     []tool.Spec              `json:"tools"`
+		Knowledge []caseflow.KnowledgeItem `json:"knowledge"`
+	}
+	if err := json.Unmarshal(overviewRec.Body.Bytes(), &overview); err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Tools) != 1 || len(overview.Knowledge) != 1 {
+		t.Fatalf("unexpected overview: %+v", overview)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/web/api/knowledge/"+strconvFormat(item.ID), nil)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeKnowledgeItem(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("unexpected delete status %d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	items, err := store.ListKnowledgeItems(context.Background(), caseflow.KnowledgeFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected soft-deleted knowledge to be hidden, got %+v", items)
 	}
 }
 
@@ -97,6 +220,39 @@ type filePart struct {
 	filename    string
 	contentType string
 	data        []byte
+}
+
+type waitingProcessor struct {
+	store   caseflow.Store
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *waitingProcessor) ProcessCase(ctx context.Context, caseID int64) (caseflow.ProcessResult, error) {
+	_ = ctx
+	c, err := p.store.GetCase(context.Background(), caseID)
+	if err != nil {
+		return caseflow.ProcessResult{}, err
+	}
+	_, _ = p.store.UpdateCase(context.Background(), caseID, c.Version, func(next *caseflow.Case) error {
+		next.Status = caseflow.StatusInvestigating
+		return nil
+	})
+	_, _ = p.store.AddAIDecisionLog(context.Background(), caseflow.AIDecisionLog{
+		CaseID:       caseID,
+		AgentID:      "test-agent",
+		DecisionType: "classify_issue",
+		Reason:       "test progress",
+		Status:       "success",
+	})
+	p.once.Do(func() { close(p.started) })
+	<-p.release
+	return caseflow.ProcessResult{CaseID: caseID, CaseNo: c.CaseNo, Status: caseflow.StatusNeedHumanConfirmation, Reply: "done"}, nil
+}
+
+func strconvFormat(value int64) string {
+	return strconv.FormatInt(value, 10)
 }
 
 func multipartRequest(t *testing.T, fields map[string]string, files []filePart) *http.Request {

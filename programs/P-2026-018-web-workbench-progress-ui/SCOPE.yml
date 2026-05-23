@@ -1,0 +1,14 @@
+program: P-2026-018-web-workbench-progress-ui
+paths:
+  - web/static/index.html
+  - internal/webchat/**
+  - internal/caseflow/store.go
+  - internal/storage/mysql/store.go
+  - cmd/dev-server/main.go
+  - docs/web-workbench.md
+  - README.md
+  - programs/P-2026-018-web-workbench-progress-ui/**
+constraints:
+  - 不引入 Node/Next/Vite 构建依赖。
+  - UI 进度必须来自真实 case / decision log 数据，不写死假步骤结果。
+  - 保持现有同步 `POST /web/api/chat` 兼容；异步通过 `async=1` 启用。

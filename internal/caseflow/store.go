@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -30,6 +31,7 @@ type Store interface {
 	GetCase(ctx context.Context, id int64) (*Case, error)
 	FindCaseByNo(ctx context.Context, caseNo string) (*Case, error)
 	FindCaseByMessageID(ctx context.Context, source string, messageID string) (*Case, error)
+	ListRecentCases(ctx context.Context, limit int) ([]Case, error)
 	UpdateCase(ctx context.Context, id int64, expectedVersion int64, update func(*Case) error) (*Case, error)
 	AddEntities(ctx context.Context, caseID int64, entities []Entity) error
 	ListEntities(ctx context.Context, caseID int64) ([]Entity, error)
@@ -47,6 +49,7 @@ type Store interface {
 	GetKnowledgeItem(ctx context.Context, id int64) (KnowledgeItem, error)
 	FindKnowledgeItem(ctx context.Context, issueDomain string, issueType string, rootCauseCategory string) (KnowledgeItem, error)
 	ListKnowledgeItems(ctx context.Context, filter KnowledgeFilter) ([]KnowledgeItem, error)
+	DeleteKnowledgeItem(ctx context.Context, id int64) error
 	CreateKnowledgeEvolutionRun(ctx context.Context, run KnowledgeEvolutionRun) (KnowledgeEvolutionRun, error)
 	ListKnowledgeEvolutionRuns(ctx context.Context, caseID int64) ([]KnowledgeEvolutionRun, error)
 }
@@ -180,6 +183,26 @@ func (s *InMemoryStore) FindCaseByMessageID(ctx context.Context, source string, 
 		return nil, ErrNotFound
 	}
 	return cloneCase(s.cases[id]), nil
+}
+
+func (s *InMemoryStore) ListRecentCases(ctx context.Context, limit int) ([]Case, error) {
+	_ = ctx
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	items := make([]Case, 0, len(s.cases))
+	for _, c := range s.cases {
+		items = append(items, *cloneCase(c))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func (s *InMemoryStore) UpdateCase(ctx context.Context, id int64, expectedVersion int64, update func(*Case) error) (*Case, error) {
@@ -469,6 +492,9 @@ func (s *InMemoryStore) ListKnowledgeItems(ctx context.Context, filter Knowledge
 	}
 	out := []KnowledgeItem{}
 	for _, item := range s.knowledgeItems {
+		if filter.Status == "" && item.Status == "deleted" {
+			continue
+		}
 		if filter.IssueDomain != "" && item.IssueDomain != filter.IssueDomain {
 			continue
 		}
@@ -487,6 +513,21 @@ func (s *InMemoryStore) ListKnowledgeItems(ctx context.Context, filter Knowledge
 		}
 	}
 	return out, nil
+}
+
+func (s *InMemoryStore) DeleteKnowledgeItem(ctx context.Context, id int64) error {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeItems[id]
+	if !ok {
+		return ErrNotFound
+	}
+	next := *item
+	next.Status = "deleted"
+	next.UpdatedAt = time.Now()
+	s.knowledgeItems[id] = &next
+	return nil
 }
 
 func (s *InMemoryStore) CreateKnowledgeEvolutionRun(ctx context.Context, run KnowledgeEvolutionRun) (KnowledgeEvolutionRun, error) {
