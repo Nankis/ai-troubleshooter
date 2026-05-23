@@ -108,14 +108,49 @@ class CallEdge:
     file_path: str
     line_number: int
     language: str
+    receiver: str = ""
+    receiver_type: str = ""
+    resolved_symbols: list[CodeSymbol] = field(default_factory=list)
+    resolution_kind: str = ""
+    confidence: float = 0.0
 
     def search_text(self) -> str:
-        return " ".join((self.caller, self.callee, self.language)).lower()
+        return " ".join((self.caller, self.callee, self.receiver, self.receiver_type, self.language)).lower()
+
+    def to_dict(self) -> dict[str, Any]:
+        value: dict[str, Any] = {
+            "caller": self.caller,
+            "callee": self.callee,
+            "file_path": self.file_path,
+            "line_number": self.line_number,
+            "language": self.language,
+        }
+        if self.receiver:
+            value["receiver"] = self.receiver
+        if self.receiver_type:
+            value["receiver_type"] = self.receiver_type
+        if self.resolved_symbols:
+            value["resolved_symbols"] = [symbol.to_dict() for symbol in self.resolved_symbols]
+            value["resolution_kind"] = self.resolution_kind
+            value["confidence"] = self.confidence
+        return value
+
+
+@dataclass(slots=True)
+class ImplementRelation:
+    type_name: str
+    interface_name: str
+    file_path: str
+    line_number: int
+    language: str
+
+    def search_text(self) -> str:
+        return " ".join((self.type_name, self.interface_name, self.language)).lower()
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "caller": self.caller,
-            "callee": self.callee,
+            "type_name": self.type_name,
+            "interface_name": self.interface_name,
             "file_path": self.file_path,
             "line_number": self.line_number,
             "language": self.language,
@@ -130,6 +165,7 @@ class ScannedFile:
     language: str
     symbols: list[CodeSymbol] = field(default_factory=list)
     call_edges: list[CallEdge] = field(default_factory=list)
+    implement_relations: list[ImplementRelation] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,16 +174,24 @@ class LocalRepoConfig:
     repo_path: Path
     allowed_globs: tuple[str, ...] = DEFAULT_ALLOWED_GLOBS
     deny_globs: tuple[str, ...] = DEFAULT_DENY_GLOBS
+    analysis_backend: str = "auto"
+    lsif_path: Path | None = None
+    lsp_command: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, service_name: str, value: dict[str, Any]) -> "LocalRepoConfig":
         allowed = tuple(str(item) for item in value.get("allowed_globs") or DEFAULT_ALLOWED_GLOBS)
         deny = tuple(str(item) for item in value.get("deny_globs") or DEFAULT_DENY_GLOBS)
+        lsp_command = tuple(str(item) for item in value.get("lsp_command") or ())
+        lsif_raw = str(value.get("lsif_path", "")).strip()
         return cls(
             service_name=service_name,
             repo_path=Path(str(value.get("repo_path", ""))).expanduser(),
             allowed_globs=allowed,
             deny_globs=deny + tuple(item for item in DEFAULT_DENY_GLOBS if item not in deny),
+            analysis_backend=str(value.get("analysis_backend") or "auto"),
+            lsif_path=Path(lsif_raw).expanduser() if lsif_raw else None,
+            lsp_command=lsp_command,
         )
 
 
@@ -158,6 +202,7 @@ class LocalCodeHit:
     line_numbers: list[int] = field(default_factory=list)
     symbols: list[CodeSymbol] = field(default_factory=list)
     call_edges: list[CallEdge] = field(default_factory=list)
+    implement_relations: list[ImplementRelation] = field(default_factory=list)
     analysis_modes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,6 +215,8 @@ class LocalCodeHit:
             value["symbols"] = [symbol.to_dict() for symbol in self.symbols]
         if self.call_edges:
             value["call_edges"] = [edge.to_dict() for edge in self.call_edges]
+        if self.implement_relations:
+            value["implement_relations"] = [relation.to_dict() for relation in self.implement_relations]
         if self.analysis_modes:
             value["analysis_modes"] = self.analysis_modes
         return value
@@ -186,7 +233,10 @@ class LocalCodeInspection:
     scanned_files: int = 0
     symbol_count: int = 0
     call_edge_count: int = 0
+    resolved_call_edge_count: int = 0
+    implement_relation_count: int = 0
     analysis_modes: list[str] = field(default_factory=list)
+    analysis_backends: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
 
     def evidence(self) -> list[dict[str, Any]]:
@@ -277,10 +327,14 @@ class LocalCodeInspector:
             if scanned_file is not None:
                 scanned_files.append(scanned_file)
 
+        self._resolve_cross_module_symbols(scanned_files)
         hits = self._build_hits(scanned_files, terms, max_hits)
         symbol_count = sum(len(item.symbols) for item in scanned_files)
         call_edge_count = sum(len(item.call_edges) for item in scanned_files)
-        analysis_modes = self._analysis_modes(symbol_count, call_edge_count)
+        resolved_call_edge_count = sum(1 for item in scanned_files for edge in item.call_edges if edge.resolved_symbols)
+        implement_relation_count = sum(len(item.implement_relations) for item in scanned_files)
+        analysis_modes = self._analysis_modes(symbol_count, call_edge_count, resolved_call_edge_count, implement_relation_count)
+        analysis_backends = self._analysis_backends(repo)
 
         if hits:
             return LocalCodeInspection(
@@ -296,7 +350,10 @@ class LocalCodeInspector:
                 scanned_files=scanned,
                 symbol_count=symbol_count,
                 call_edge_count=call_edge_count,
+                resolved_call_edge_count=resolved_call_edge_count,
+                implement_relation_count=implement_relation_count,
                 analysis_modes=analysis_modes,
+                analysis_backends=analysis_backends,
             )
 
         return LocalCodeInspection(
@@ -308,7 +365,10 @@ class LocalCodeInspector:
             scanned_files=scanned,
             symbol_count=symbol_count,
             call_edge_count=call_edge_count,
+            resolved_call_edge_count=resolved_call_edge_count,
+            implement_relation_count=implement_relation_count,
             analysis_modes=analysis_modes,
+            analysis_backends=analysis_backends,
         )
 
     def _resolve_repo(self, service_name: str, repo_hint: str) -> LocalRepoConfig | None:
@@ -350,7 +410,7 @@ class LocalCodeInspector:
             return None
         relative = self._relative_posix(root, path)
         language = self._language_for_path(path)
-        symbols, call_edges = self._analyze_content(relative, language, content)
+        symbols, call_edges, implement_relations = self._analyze_content(relative, language, content)
         return ScannedFile(
             path=path,
             relative_path=relative,
@@ -358,6 +418,7 @@ class LocalCodeInspector:
             language=language,
             symbols=symbols,
             call_edges=call_edges,
+            implement_relations=implement_relations,
         )
 
     def _build_hits(self, scanned_files: list[ScannedFile], terms: list[str], max_hits: int) -> list[LocalCodeHit]:
@@ -377,6 +438,7 @@ class LocalCodeInspector:
                 matched_symbol_names.add(self._compact(edge.callee.rsplit(".", 1)[-1]))
 
         self._add_call_graph_context(scanned_files, hits_by_file, matched_symbol_names)
+        self._add_implementation_context(scanned_files, hits_by_file)
         hits = sorted(hits_by_file.values(), key=self._hit_rank, reverse=True)
         return hits[:max(1, max_hits)]
 
@@ -384,7 +446,9 @@ class LocalCodeInspector:
         matched_terms = [term for term in terms if self._matches_text(scanned_file.content, [term])]
         symbols = [symbol for symbol in scanned_file.symbols if self._matches_text(symbol.search_text(), terms)]
         call_edges = [edge for edge in scanned_file.call_edges if self._matches_text(self._edge_match_text(edge), terms)]
-        if not matched_terms and not symbols and not call_edges:
+        implement_relations = [relation for relation in scanned_file.implement_relations if self._matches_text(relation.search_text(), terms)]
+        has_resolved_call_edges = any(edge.resolved_symbols for edge in call_edges)
+        if not matched_terms and not symbols and not call_edges and not implement_relations:
             return None
 
         line_numbers: list[int] = []
@@ -400,7 +464,8 @@ class LocalCodeInspector:
             line_numbers=line_numbers,
             symbols=symbols[:MAX_SYMBOLS_PER_HIT],
             call_edges=call_edges[:MAX_CALL_EDGES_PER_HIT],
-            analysis_modes=self._hit_modes(bool(matched_terms), bool(symbols), bool(call_edges)),
+            implement_relations=implement_relations[:MAX_SYMBOLS_PER_HIT],
+            analysis_modes=self._hit_modes(bool(matched_terms), bool(symbols), bool(call_edges), has_resolved_call_edges, bool(implement_relations)),
         )
 
     def _add_call_graph_context(
@@ -435,6 +500,53 @@ class LocalCodeInspector:
                     hit.call_edges.append(edge)
                 if "call_graph" not in hit.analysis_modes:
                     hit.analysis_modes.append("call_graph")
+                if edge.resolved_symbols and "cross_module_call_resolution" not in hit.analysis_modes:
+                    hit.analysis_modes.append("cross_module_call_resolution")
+
+    def _add_implementation_context(
+        self,
+        scanned_files: list[ScannedFile],
+        hits_by_file: dict[str, LocalCodeHit],
+    ) -> None:
+        relevant_types: set[str] = set()
+        for hit in hits_by_file.values():
+            for edge in hit.call_edges:
+                if edge.receiver_type:
+                    relevant_types.add(self._compact(edge.receiver_type))
+                for symbol in edge.resolved_symbols:
+                    if symbol.owner:
+                        relevant_types.add(self._compact(symbol.owner))
+                    relevant_types.add(self._compact(symbol.simple_name()))
+            for symbol in hit.symbols:
+                if symbol.owner:
+                    relevant_types.add(self._compact(symbol.owner))
+                relevant_types.add(self._compact(symbol.simple_name()))
+
+        if not relevant_types:
+            return
+
+        files_by_path = {item.relative_path: item for item in scanned_files}
+        for scanned_file in scanned_files:
+            for relation in scanned_file.implement_relations:
+                type_key = self._compact(relation.type_name)
+                interface_key = self._compact(relation.interface_name)
+                if type_key not in relevant_types and interface_key not in relevant_types:
+                    continue
+                hit = hits_by_file.get(relation.file_path)
+                if hit is None:
+                    source = files_by_path.get(relation.file_path)
+                    hit = LocalCodeHit(
+                        file_path=relation.file_path,
+                        matched_terms=["interface_implementation_context"],
+                        line_numbers=[relation.line_number],
+                        symbols=(source.symbols[:4] if source else []),
+                        analysis_modes=["interface_implementation"],
+                    )
+                    hits_by_file[relation.file_path] = hit
+                if not any(existing.type_name == relation.type_name and existing.interface_name == relation.interface_name for existing in hit.implement_relations):
+                    hit.implement_relations.append(relation)
+                if "interface_implementation" not in hit.analysis_modes:
+                    hit.analysis_modes.append("interface_implementation")
 
     def _hit_rank(self, hit: LocalCodeHit) -> tuple[int, int, int, int, int]:
         has_structure = 1 if hit.symbols or hit.call_edges else 0
@@ -442,17 +554,34 @@ class LocalCodeInspector:
 
     def _edge_match_text(self, edge: CallEdge) -> str:
         caller_method = edge.caller.rsplit(".", 1)[-1]
-        return " ".join((caller_method, edge.callee, edge.language)).lower()
+        return " ".join((caller_method, edge.callee, edge.receiver, edge.receiver_type, edge.language)).lower()
 
-    def _analysis_modes(self, symbol_count: int, call_edge_count: int) -> list[str]:
+    def _analysis_modes(
+        self,
+        symbol_count: int,
+        call_edge_count: int,
+        resolved_call_edge_count: int,
+        implement_relation_count: int,
+    ) -> list[str]:
         modes = ["keyword"]
         if symbol_count:
             modes.extend(["language_structure_tree", "symbol_index"])
         if call_edge_count:
             modes.append("call_graph")
+        if resolved_call_edge_count:
+            modes.append("cross_module_call_resolution")
+        if implement_relation_count:
+            modes.append("interface_implementation")
         return modes
 
-    def _hit_modes(self, has_keyword: bool, has_symbols: bool, has_call_edges: bool) -> list[str]:
+    def _hit_modes(
+        self,
+        has_keyword: bool,
+        has_symbols: bool,
+        has_call_edges: bool,
+        has_resolved_call_edges: bool,
+        has_implements: bool,
+    ) -> list[str]:
         modes: list[str] = []
         if has_keyword:
             modes.append("keyword")
@@ -460,6 +589,10 @@ class LocalCodeInspector:
             modes.extend(["language_structure_tree", "symbol_index"])
         if has_call_edges:
             modes.append("call_graph")
+        if has_resolved_call_edges:
+            modes.append("cross_module_call_resolution")
+        if has_implements:
+            modes.append("interface_implementation")
         return modes
 
     def _matches_text(self, text: str, terms: list[str]) -> bool:
@@ -486,7 +619,25 @@ class LocalCodeInspector:
             return "javascript"
         return "text"
 
-    def _analyze_content(self, relative_path: str, language: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge]]:
+    def _analysis_backends(self, repo: LocalRepoConfig) -> list[str]:
+        backends = ["lightweight", "cross_module_resolver"]
+        backend = repo.analysis_backend.strip().lower()
+        if backend and backend not in {"auto", "lightweight"}:
+            backends.append(f"requested:{backend}")
+        if repo.lsif_path is not None:
+            backends.append("lsif_configured")
+        if repo.lsp_command:
+            backends.append("lsp_configured")
+        if backend == "tree_sitter":
+            backends.append("tree_sitter_configured")
+        return backends
+
+    def _analyze_content(
+        self,
+        relative_path: str,
+        language: str,
+        content: str,
+    ) -> tuple[list[CodeSymbol], list[CallEdge], list[ImplementRelation]]:
         if language == "python":
             return self._analyze_python(relative_path, content)
         if language == "java":
@@ -495,13 +646,13 @@ class LocalCodeInspector:
             return self._analyze_go(relative_path, content)
         if language in {"typescript", "javascript"}:
             return self._analyze_js_ts(relative_path, language, content)
-        return [], []
+        return [], [], []
 
-    def _analyze_python(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge]]:
+    def _analyze_python(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge], list[ImplementRelation]]:
         try:
             tree = ast.parse(content)
         except SyntaxError:
-            return [], []
+            return [], [], []
 
         symbols: list[CodeSymbol] = []
         call_edges: list[CallEdge] = []
@@ -562,15 +713,25 @@ class LocalCodeInspector:
             return ""
 
         Visitor().visit(tree)
-        return symbols, call_edges
+        return symbols, call_edges, []
 
-    def _analyze_java(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge]]:
+    def _analyze_java(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge], list[ImplementRelation]]:
         symbols: list[CodeSymbol] = []
         call_edges: list[CallEdge] = []
+        implement_relations: list[ImplementRelation] = []
         current_class = ""
         current_method = ""
         brace_depth = 0
-        class_re = re.compile(r"\b(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)")
+        field_types_by_class: dict[str, dict[str, str]] = {}
+        class_re = re.compile(
+            r"\b(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)"
+            r"(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_.$<>?, ]*?)(?=\s+implements|\s*\{|$))?"
+            r"(?:\s+implements\s+([A-Za-z_][A-Za-z0-9_.$<>?, ]*?)(?=\s*\{|$))?"
+        )
+        field_re = re.compile(
+            r"^\s*(?:(?:private|protected|public|static|final|volatile|transient)\s+)*"
+            r"([A-Za-z_][A-Za-z0-9_.$<>?,]*)\s+([a-z_][A-Za-z0-9_]*)\s*(?:=|;)"
+        )
         method_re = re.compile(
             r"^\s*(?:(?:public|private|protected|static|final|synchronized|abstract|native|default)\s+)*"
             r"[A-Za-z_][A-Za-z0-9_<>\[\],.? extends super]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*(?:throws [^{]+)?\{?"
@@ -580,7 +741,23 @@ class LocalCodeInspector:
             class_match = class_re.search(line)
             if class_match:
                 current_class = class_match.group(2)
+                field_types_by_class.setdefault(current_class, {})
                 symbols.append(CodeSymbol(name=current_class, kind=class_match.group(1), file_path=relative_path, line_number=line_number, language="java"))
+                for interface_name in self._split_java_types(class_match.group(4) or ""):
+                    implement_relations.append(
+                        ImplementRelation(
+                            type_name=current_class,
+                            interface_name=interface_name,
+                            file_path=relative_path,
+                            line_number=line_number,
+                            language="java",
+                        )
+                    )
+
+            if current_class and not current_method:
+                field_match = field_re.search(line)
+                if field_match:
+                    field_types_by_class.setdefault(current_class, {})[field_match.group(2)] = self._simple_type(field_match.group(1))
 
             if not current_method:
                 method_match = method_re.search(line)
@@ -591,19 +768,32 @@ class LocalCodeInspector:
                     symbols.append(CodeSymbol(name=symbol_name, kind="method", file_path=relative_path, line_number=line_number, language="java", owner=owner))
                     current_method = symbol_name
                     brace_depth = 0
+                    if ";" in line and "{" not in line:
+                        current_method = ""
 
             if current_method:
-                for callee in self._call_names(line):
+                for receiver, callee in self._call_refs(line):
                     if callee == current_method.rsplit(".", 1)[-1]:
                         continue
-                    call_edges.append(CallEdge(caller=current_method, callee=callee, file_path=relative_path, line_number=line_number, language="java"))
+                    receiver_type = field_types_by_class.get(current_class, {}).get(receiver, "")
+                    call_edges.append(
+                        CallEdge(
+                            caller=current_method,
+                            callee=callee,
+                            file_path=relative_path,
+                            line_number=line_number,
+                            language="java",
+                            receiver=receiver,
+                            receiver_type=receiver_type,
+                        )
+                    )
                 brace_depth += line.count("{") - line.count("}")
                 if brace_depth <= 0 and ("{" in line or "}" in line):
                     current_method = ""
 
-        return symbols, call_edges
+        return symbols, call_edges, implement_relations
 
-    def _analyze_go(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge]]:
+    def _analyze_go(self, relative_path: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge], list[ImplementRelation]]:
         symbols: list[CodeSymbol] = []
         call_edges: list[CallEdge] = []
         current_func = ""
@@ -624,17 +814,17 @@ class LocalCodeInspector:
                     brace_depth = 0
 
             if current_func:
-                for callee in self._call_names(line):
+                for receiver, callee in self._call_refs(line):
                     if callee == current_func:
                         continue
-                    call_edges.append(CallEdge(caller=current_func, callee=callee, file_path=relative_path, line_number=line_number, language="go"))
+                    call_edges.append(CallEdge(caller=current_func, callee=callee, file_path=relative_path, line_number=line_number, language="go", receiver=receiver))
                 brace_depth += line.count("{") - line.count("}")
                 if brace_depth <= 0 and ("{" in line or "}" in line):
                     current_func = ""
 
-        return symbols, call_edges
+        return symbols, call_edges, []
 
-    def _analyze_js_ts(self, relative_path: str, language: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge]]:
+    def _analyze_js_ts(self, relative_path: str, language: str, content: str) -> tuple[list[CodeSymbol], list[CallEdge], list[ImplementRelation]]:
         symbols: list[CodeSymbol] = []
         call_edges: list[CallEdge] = []
         current_callable = ""
@@ -656,28 +846,133 @@ class LocalCodeInspector:
                     brace_depth = 0
 
             if current_callable:
-                for callee in self._call_names(line):
+                for receiver, callee in self._call_refs(line):
                     if callee == current_callable:
                         continue
-                    call_edges.append(CallEdge(caller=current_callable, callee=callee, file_path=relative_path, line_number=line_number, language=language))
+                    call_edges.append(CallEdge(caller=current_callable, callee=callee, file_path=relative_path, line_number=line_number, language=language, receiver=receiver))
                 brace_depth += line.count("{") - line.count("}")
                 if brace_depth <= 0 and ("{" in line or "}" in line):
                     current_callable = ""
 
-        return symbols, call_edges
+        return symbols, call_edges, []
+
+    def _resolve_cross_module_symbols(self, scanned_files: list[ScannedFile]) -> None:
+        symbols_by_simple: dict[str, list[CodeSymbol]] = {}
+        symbols_by_owner_simple: dict[tuple[str, str], list[CodeSymbol]] = {}
+        implementers_by_interface: dict[str, list[str]] = {}
+
+        for scanned_file in scanned_files:
+            for symbol in scanned_file.symbols:
+                simple_name = self._compact(symbol.simple_name())
+                symbols_by_simple.setdefault(simple_name, []).append(symbol)
+                if symbol.owner:
+                    key = (self._compact(symbol.owner), simple_name)
+                    symbols_by_owner_simple.setdefault(key, []).append(symbol)
+            for relation in scanned_file.implement_relations:
+                interface_name = self._simple_type(relation.interface_name)
+                type_name = self._simple_type(relation.type_name)
+                implementers_by_interface.setdefault(self._compact(interface_name), []).append(type_name)
+
+        for scanned_file in scanned_files:
+            for edge in scanned_file.call_edges:
+                candidates: list[CodeSymbol] = []
+                resolution_kind = ""
+                callee_key = self._compact(edge.callee.rsplit(".", 1)[-1])
+                receiver_type = self._simple_type(edge.receiver_type)
+                if receiver_type:
+                    receiver_key = self._compact(receiver_type)
+                    candidates.extend(symbols_by_owner_simple.get((receiver_key, callee_key), []))
+                    for implementer in implementers_by_interface.get(receiver_key, []):
+                        candidates.extend(symbols_by_owner_simple.get((self._compact(implementer), callee_key), []))
+                    resolution_kind = "receiver_type"
+                elif "." in edge.callee:
+                    owner, callee = edge.callee.rsplit(".", 1)
+                    candidates.extend(symbols_by_owner_simple.get((self._compact(owner), self._compact(callee)), []))
+                    resolution_kind = "qualified_callee"
+                else:
+                    candidates.extend(symbols_by_simple.get(callee_key, []))
+                    resolution_kind = "symbol_name"
+
+                resolved = self._dedupe_and_rank_symbols(candidates, edge.file_path)
+                if not resolved:
+                    continue
+                edge.resolved_symbols = resolved
+                edge.resolution_kind = resolution_kind
+                edge.confidence = self._resolution_confidence(resolution_kind, len(resolved))
+
+    def _dedupe_and_rank_symbols(self, symbols: list[CodeSymbol], source_file_path: str) -> list[CodeSymbol]:
+        seen: set[tuple[str, str, int]] = set()
+        unique: list[CodeSymbol] = []
+        for symbol in symbols:
+            key = (symbol.file_path, symbol.name, symbol.line_number)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(symbol)
+        unique.sort(
+            key=lambda symbol: (
+                1 if symbol.file_path == source_file_path else 0,
+                1 if symbol.kind in {"method", "function"} else 0,
+                -symbol.line_number,
+            ),
+            reverse=True,
+        )
+        return unique[:5]
+
+    def _resolution_confidence(self, resolution_kind: str, candidate_count: int) -> float:
+        if resolution_kind == "receiver_type":
+            return 0.9 if candidate_count <= 2 else 0.75
+        if resolution_kind == "qualified_callee":
+            return 0.78 if candidate_count <= 2 else 0.62
+        return 0.55 if candidate_count == 1 else 0.35
+
+    def _split_java_types(self, value: str) -> list[str]:
+        if not value:
+            return []
+        types: list[str] = []
+        part: list[str] = []
+        depth = 0
+        for char in value:
+            if char == "<":
+                depth += 1
+            elif char == ">" and depth:
+                depth -= 1
+            if char == "," and depth == 0:
+                item = self._simple_type("".join(part))
+                if item:
+                    types.append(item)
+                part = []
+                continue
+            part.append(char)
+        item = self._simple_type("".join(part))
+        if item:
+            types.append(item)
+        return types
+
+    def _simple_type(self, value: str) -> str:
+        normalized = re.sub(r"<.*>", "", value).strip()
+        normalized = normalized.replace("[]", "").strip()
+        if not normalized:
+            return ""
+        return normalized.rsplit(".", 1)[-1]
 
     def _call_names(self, line: str) -> list[str]:
+        return [name for _, name in self._call_refs(line)]
+
+    def _call_refs(self, line: str) -> list[tuple[str, str]]:
         stripped = re.sub(r"//.*$", "", line)
         stripped = re.sub(r"#.*$", "", stripped)
-        names: list[str] = []
-        seen: set[str] = set()
-        for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped):
-            name = match.group(1)
-            if name in CALL_IGNORED_NAMES or name in seen:
+        calls: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for match in re.finditer(r"(?:(\b[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped):
+            receiver = match.group(1) or ""
+            name = match.group(2)
+            key = (receiver, name)
+            if name in CALL_IGNORED_NAMES or key in seen:
                 continue
-            seen.add(name)
-            names.append(name)
-        return names
+            seen.add(key)
+            calls.append(key)
+        return calls
 
     def _is_denied(self, relative_path: str, deny_globs: tuple[str, ...]) -> bool:
         lowered = relative_path.lower()

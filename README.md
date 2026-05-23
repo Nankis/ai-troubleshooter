@@ -326,6 +326,8 @@ web/                       内置 Web Chat 静态页面和 Go embed
 
 - [P-2026-008 Web Chat Local Agent MVP](programs/P-2026-008-web-chat-local-agent-mvp/RESULT.md)：内置 Web Chat、MySQL 本地落库、Qwen/Qwen-VL smoke、secret hook。
 - [P-2026-009 Web Chat Verification Hardening](programs/P-2026-009-web-chat-verification-hardening/RESULT.md)：补充 Web 多场景验证、Gateway 输出脱敏和超时 504 单测。
+- [P-2026-013 Local Code Intelligence](programs/P-2026-013-local-code-intelligence/RESULT.md)：debug-only 本地代码辅助排查，支持关键词、符号和调用边。
+- [P-2026-014 Semantic Code Index](programs/P-2026-014-semantic-code-index/RESULT.md)：跨模块调用边解析、receiver type、接口实现关系和 tree-sitter/LSP/LSIF backend 配置预留。
 
 ## 已实现能力
 
@@ -341,6 +343,7 @@ web/                       内置 Web Chat 静态页面和 Go embed
 - Lark/Feishu 图片消息下载：从消息 `content` 中提取 `image_key`，通过消息资源接口下载图片，调用视觉模型识别后写入 `case.ocr_text`；原图不落库。
 - 多模型链路：默认复用主 LLM 的图片能力；只有显式配置 `VISION_*` 时才启用独立视觉模型，适合用 Qwen-VL 先识别截图。
 - Python Decision Engine：`apps/decision-engine` 已提供 Supervisor + Kline Agent + Asset Agent + Knowledge Agent + Local Code Agent + Verifier 的有限工具计划 API、Gateway client、OpenAPI 草案和单元测试。
+- Local Code Agent：debug-only、allowlist、无源码片段，支持关键词、语言结构符号、调用边、跨模块 resolved symbols、Java receiver type 和接口实现关系；tree-sitter/LSP/LSIF 作为后续 backend 插槽预留。
 - Case 创建、状态流转、消息和实体记录。
 - Worker pool 消费 case event。
 - LLMClient 抽象和规则型本地实现。
@@ -512,7 +515,7 @@ HEALTH_FOOD_READONLY_BASE_URL=http://127.0.0.1:19084 \
 go run ./cmd/dev-server
 ```
 
-真实联调的验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库；必要时再用 Python Decision Engine 的 debug-only Local Code Agent 根据 `service_name` 定位本地代码路径。
+真实联调的验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库；必要时再用 Python Decision Engine 的 debug-only Local Code Agent 根据 `service_name` 定位本地代码路径，并输出相对路径、符号、调用边、resolved symbol、receiver type 和接口实现关系。
 
 配置图片识别：
 
@@ -609,7 +612,7 @@ Decision Layer 不是无限循环查询：`MAX_INVESTIGATION_SECONDS` 控制单 
 - LLM 默认是规则型本地实现，方便本地跑通；接真实模型时实现 `internal/llm.LLMClient`。
 - Gateway 已按一期原则实现入口鉴权、身份绑定、默认拒绝、只读工具、scope 校验、时间范围/limit 约束、限流、审计和脱敏。
 - Decision runner 一期采用有限工具计划，不做无限自主循环；后续如引入多轮 ReAct，需要继续复用当前 timeout、tool call budget 和 decision log。
-- Supervisor + Specialist Agents 已在 Python decision-engine 内提供轻量规则基线；生产查询仍必须通过 Gateway 获取只读证据。本地代码辅助排查仅 debug-only 开启，且只读 allowlist 仓库，支持关键词、语言结构符号和有限调用边，不返回源码片段、不自动改代码。真实 LLM 多 agent 推理和更复杂状态图可后续演进。
+- Supervisor + Specialist Agents 已在 Python decision-engine 内提供轻量规则基线；生产查询仍必须通过 Gateway 获取只读证据。本地代码辅助排查仅 debug-only 开启，且只读 allowlist 仓库，支持关键词、语言结构符号、有限调用边、跨模块调用解析、receiver type 和接口实现关系，不返回源码片段、不自动改代码。tree-sitter、LSP、LSIF 已作为后续语义索引 backend 插槽预留，真实 LLM 多 agent 推理和更复杂状态图可继续演进。
 - 公司只读接口可通过标准 HTTP connector 接入；如接口字段不同，应写 adapter 做映射。
 - Lark/飞书图片会短暂下载并送入视觉模型识别，但原图不持久化；如需留存原图，应接公司对象存储和数据分级策略。
 

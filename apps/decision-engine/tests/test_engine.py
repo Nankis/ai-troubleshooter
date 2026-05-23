@@ -183,6 +183,7 @@ class DecisionEngineTest(unittest.TestCase):
             source_file.parent.mkdir(parents=True)
             source_file.write_text(
                 "class RecommendationJob {\n"
+                "  private IFoodService foodService;\n"
                 "  void run() {\n"
                 "    foodService.generateDailyFoodRecommendWithFingerprint(uid, meals);\n"
                 "    String mealDataFingerprint = \"stale\";\n"
@@ -190,9 +191,16 @@ class DecisionEngineTest(unittest.TestCase):
                 "}\n",
                 encoding="utf-8",
             )
+            interface_file = repo / "src/main/java/com/example/IFoodService.java"
+            interface_file.write_text(
+                "interface IFoodService {\n"
+                "  boolean generateDailyFoodRecommendWithFingerprint(Long uid, List meals);\n"
+                "}\n",
+                encoding="utf-8",
+            )
             impl_file = repo / "src/main/java/com/example/FoodServiceImpl.java"
             impl_file.write_text(
-                "class FoodServiceImpl {\n"
+                "class FoodServiceImpl implements IFoodService {\n"
                 "  boolean generateDailyFoodRecommendWithFingerprint(Long uid, List meals) { return true; }\n"
                 "}\n",
                 encoding="utf-8",
@@ -236,11 +244,37 @@ class DecisionEngineTest(unittest.TestCase):
             evidence_text = str(local_report.evidence)
             self.assertIn("symbols", evidence_text)
             self.assertIn("call_edges", evidence_text)
+            self.assertIn("implement_relations", evidence_text)
             self.assertIn("generateDailyFoodRecommendWithFingerprint", evidence_text)
-            self.assertIn("analysis_modes=keyword,language_structure_tree,symbol_index,call_graph", local_report.observations)
+            self.assertIn("'receiver_type': 'IFoodService'", evidence_text)
+            self.assertIn("resolved_symbols", evidence_text)
+            self.assertIn("FoodServiceImpl.generateDailyFoodRecommendWithFingerprint", evidence_text)
+            self.assertIn("IFoodService.generateDailyFoodRecommendWithFingerprint", evidence_text)
+            self.assertIn("resolved_call_edge_count=1", local_report.observations)
+            self.assertIn("implement_relation_count=1", local_report.observations)
+            self.assertIn(
+                "analysis_modes=keyword,language_structure_tree,symbol_index,call_graph,cross_module_call_resolution,interface_implementation",
+                local_report.observations,
+            )
+            self.assertIn("analysis_backends=lightweight,cross_module_resolver", local_report.observations)
             self.assertNotIn("application-prod.yml", str(local_report.evidence))
             self.assertNotIn("should_not_be_returned", str(local_report.evidence))
             self.assertIn("no_source_snippets", response.verification.checks)
+
+    def test_local_code_config_accepts_semantic_backend_slots(self) -> None:
+        config = LocalRepoConfig.from_dict(
+            "health-food",
+            {
+                "repo_path": "/tmp/health-food",
+                "analysis_backend": "lsp",
+                "lsif_path": "/tmp/health-food/index.lsif",
+                "lsp_command": ["jdtls", "--stdio"],
+            },
+        )
+
+        self.assertEqual(config.analysis_backend, "lsp")
+        self.assertEqual(str(config.lsif_path), "/tmp/health-food/index.lsif")
+        self.assertEqual(config.lsp_command, ("jdtls", "--stdio"))
 
     def test_local_code_debug_uses_python_ast_calls(self) -> None:
         with TemporaryDirectory() as tmpdir:

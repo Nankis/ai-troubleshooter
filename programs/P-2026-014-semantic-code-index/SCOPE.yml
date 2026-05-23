@@ -1,0 +1,13 @@
+allowed_paths:
+  - apps/decision-engine/**
+  - docs/**
+  - README.md
+  - programs/P-2026-014-semantic-code-index/**
+
+forbidden_paths:
+  - internal/gateway/**
+  - migrations/**
+
+notes:
+  - "继续保持 debug-only 和 no source snippets。"
+  - "先实现跨模块解析核心，tree-sitter / LSP / LSIF 做 backend 配置预留。"
