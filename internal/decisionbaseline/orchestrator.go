@@ -624,15 +624,15 @@ func humanField(field string) string {
 	case "interval":
 		return "K线周期，例如 1m、5m、1h"
 	case "abnormal_time":
-		return "异常发生的大概时间，并带 timezone，默认 Asia/Shanghai"
+		return "异常大概发生时间，例如今天上午、昨晚 8 点、2026-05-23 10:00；不确定可以说“刚刚/今天”。默认按北京时间（UTC+8）理解，如果你反馈的是 UTC 时间请注明"
 	case "issue_type":
-		return "异常类型，例如不显示、延迟、价格不一致、余额减少"
+		return "异常现象，例如价格不一致、余额减少、今日推荐没生成、token 消耗不对"
 	case "asset_symbol":
 		return "资产币种，例如 USDT、BTC"
 	case "user_id 或 account_id":
 		return "user_id 或 account_id"
 	case "user_id 或 uid":
-		return "health-food 用户 uid / user_id"
+		return "用户 uid，例如 uid:123456"
 	default:
 		return field
 	}
@@ -652,16 +652,15 @@ func investigationTarget(domain string) string {
 }
 
 func buildToolArgs(toolName string, c *caseflow.Case, entities map[string]string) map[string]any {
-	start, end := timeRange(entities["abnormal_time"])
-	args := map[string]any{
-		"start_time": start.Format(time.RFC3339),
-		"end_time":   end.Format(time.RFC3339),
-	}
+	start, end := timeRangeForCase(c, entities)
+	args := map[string]any{}
 	switch toolName {
 	case "get_internal_kline", "get_external_kline_compare", "get_market_source_status":
 		args["symbol"] = entities["symbol"]
 		args["interval"] = entities["interval"]
 		args["exchange"] = fallback(entities["compare_exchange"], "binance")
+		args["start_time"] = start.Format(time.RFC3339)
+		args["end_time"] = end.Format(time.RFC3339)
 	case "get_kline_cache_status":
 		args["symbol"] = entities["symbol"]
 		args["interval"] = entities["interval"]
@@ -675,10 +674,14 @@ func buildToolArgs(toolName string, c *caseflow.Case, entities map[string]string
 		args["user_id"] = entities["user_id"]
 		args["account_id"] = entities["account_id"]
 		args["asset_symbol"] = entities["asset_symbol"]
+		args["start_time"] = start.Format(time.RFC3339)
+		args["end_time"] = end.Format(time.RFC3339)
 	case "get_user_recent_errors":
 		args["user_id"] = entities["user_id"]
 		args["account_id"] = entities["account_id"]
 		args["service_names"] = []string{"asset-service", "order-service"}
+		args["start_time"] = start.Format(time.RFC3339)
+		args["end_time"] = end.Format(time.RFC3339)
 	case "get_health_food_user_profile", "get_health_food_ai_quota":
 		args["user_id"] = fallback(entities["user_id"], entities["uid"])
 		args["uid"] = fallback(entities["uid"], entities["user_id"])
@@ -706,11 +709,14 @@ func buildToolArgs(toolName string, c *caseflow.Case, entities map[string]string
 		}
 		args["limit"] = 5
 	case "search_logs_by_service":
+		logStart, logEnd := logTimeRange(entities["abnormal_time"])
 		args["service_name"] = fallback(entities["service_name"], serviceNameForDomain(c.IssueDomain))
 		args["keyword"] = fallback(entities["trace_id"], c.IssueType)
 		args["trace_id"] = entities["trace_id"]
 		args["level"] = "error"
 		args["limit"] = 20
+		args["start_time"] = logStart.Format(time.RFC3339)
+		args["end_time"] = logEnd.Format(time.RFC3339)
 	}
 	return args
 }
@@ -736,6 +742,33 @@ func timeRange(abnormalTime string) (time.Time, time.Time) {
 	}
 	now := time.Now()
 	return now.Add(-20 * time.Minute), now
+}
+
+func timeRangeForCase(c *caseflow.Case, entities map[string]string) (time.Time, time.Time) {
+	if start, end := timeRange(entities["abnormal_time"]); entities["abnormal_time"] != "" {
+		return start, end
+	}
+	if c != nil && c.IssueDomain == caseflow.DomainHealthFood {
+		now := time.Now().In(beijingLocation())
+		text := strings.ToLower(c.OriginalText + "\n" + c.OCRText + "\n" + c.IssueType)
+		if containsAny(text, "今日", "今天", "当天", "当日", "today", "每日推荐", "token") {
+			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+			return start, now
+		}
+	}
+	return timeRange("")
+}
+
+func logTimeRange(abnormalTime string) (time.Time, time.Time) {
+	if abnormalTime != "" {
+		return timeRange(abnormalTime)
+	}
+	now := time.Now()
+	return now.Add(-30 * time.Minute), now
+}
+
+func beijingLocation() *time.Location {
+	return time.FixedZone("UTC+8", 8*3600)
 }
 
 func boundedToolNames(names []string, max int) []string {

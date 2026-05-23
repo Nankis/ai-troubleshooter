@@ -64,7 +64,7 @@ func MissingRequiredFields(domain string, entities map[string]string) []string {
 		if entities["user_id"] == "" && entities["uid"] == "" {
 			required = append(required, "user_id 或 uid")
 		}
-		required = append(required, "abnormal_time", "issue_type")
+		required = append(required, "issue_type")
 	default:
 		return []string{"issue_domain"}
 	}

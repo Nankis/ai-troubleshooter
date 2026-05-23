@@ -37,4 +37,12 @@ func TestMissingRequiredFields(t *testing.T) {
 	if len(missing) != 0 {
 		t.Fatalf("expected health-food fields complete, got %v", missing)
 	}
+
+	missing = MissingRequiredFields(DomainHealthFood, map[string]string{
+		"uid":        "123456",
+		"issue_type": "AI配额异常",
+	})
+	if len(missing) != 0 {
+		t.Fatalf("expected health-food to use default Beijing time instead of asking user, got %v", missing)
+	}
 }

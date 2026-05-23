@@ -54,3 +54,27 @@ func TestRuleBasedClientClassifiesEnglishHealthFoodRecommendation(t *testing.T) 
 		t.Fatalf("unexpected health-food entities: %+v", got)
 	}
 }
+
+func TestRuleBasedClientClassifiesChineseTokenConsumptionComplaint(t *testing.T) {
+	client := NewRuleBasedClient()
+	input := CaseInput{Case: caseflow.Case{
+		OriginalText: "uid:123456 用户反馈 今日 token消耗 数量不对",
+	}}
+
+	classification, err := client.ClassifyIssue(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classification.IssueDomain != caseflow.DomainHealthFood || classification.IssueType != "AI配额异常" {
+		t.Fatalf("unexpected classification: %+v", classification)
+	}
+
+	entities, err := client.ExtractEntities(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := caseflow.EntityMap(entities.Entities)
+	if got["uid"] != "123456" || got["issue_type"] != "AI配额异常" || got["service_name"] != "health-food" {
+		t.Fatalf("unexpected token consumption entities: %+v", got)
+	}
+}

@@ -249,7 +249,8 @@ func isHealthFoodText(text string) bool {
 	return containsAny(text,
 		"health-food", "food-health", "健康饮食", "饮食", "餐食", "食物", "营养", "每日推荐", "今日推荐", "周报",
 		"recommendation", "daily recommend", "today-recommend-food", "meal", "nutrition", "weekly report",
-		"ai对话", "ai 对话", "qianwen", "千问", "token账户", "token 账户", "quota", "配额",
+		"ai对话", "ai 对话", "qianwen", "千问", "token账户", "token 账户", "token消耗", "token 消耗",
+		"token数量", "token 数量", "token用量", "token 用量", "quota", "配额",
 	)
 }
 
@@ -259,7 +260,7 @@ func classifyHealthFoodType(text string) string {
 		return "每日推荐缺失"
 	case containsAny(text, "周报", "weekly", "weekly report"):
 		return "周报生成异常"
-	case containsAny(text, "配额", "token账户", "token 账户", "次数", "余额不足", "quota"):
+	case containsAny(text, "配额", "token账户", "token 账户", "token消耗", "token 消耗", "token数量", "token 数量", "token用量", "token 用量", "次数", "余额不足", "quota", "消耗", "用量", "扣减", "扣除"):
 		return "AI配额异常"
 	case containsAny(text, "ai对话", "ai 对话", "qianwen", "千问", "模型", "识别失败", "vision failed", "model failed"):
 		return "AI对话失败"

@@ -159,6 +159,89 @@ func TestProcessCaseCanAnswerFromHighConfidenceKnowledge(t *testing.T) {
 	}
 }
 
+func TestProcessHealthFoodTokenComplaintDoesNotAskForTimezone(t *testing.T) {
+	ctx := context.Background()
+	store := caseflow.NewInMemoryStore()
+	c, err := store.CreateCase(ctx, caseflow.CreateCaseInput{
+		OriginalText: "uid:123456 用户反馈 今日 token消耗 数量不对",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolClient := &fakeToolClient{}
+	runner := New(store, llm.NewRuleBasedClient(), toolClient, Config{
+		MaxToolCallsPerCase:     10,
+		MaxToolFailuresPerCase:  3,
+		MaxInvestigationSeconds: 5,
+	})
+
+	result, err := runner.ProcessCase(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status == caseflow.StatusWaitingUserReply {
+		t.Fatalf("should not ask user for internal time fields: %s", result.Reply)
+	}
+	if result.Status != caseflow.StatusNeedHumanConfirmation {
+		t.Fatalf("expected NEED_HUMAN_CONFIRMATION, got %s reply=%s", result.Status, result.Reply)
+	}
+	if strings.Contains(strings.ToLower(result.Reply), "timezone") || strings.Contains(result.Reply, "Asia/Shanghai") {
+		t.Fatalf("reply leaked internal timezone wording: %s", result.Reply)
+	}
+	if toolClient.calls == 0 {
+		t.Fatal("expected health-food readonly tools to be called")
+	}
+}
+
+func TestMissingInfoReplyUsesUserFriendlyTimeWording(t *testing.T) {
+	reply := buildMissingInfoReply("case_1", []string{"abnormal_time"})
+	lower := strings.ToLower(reply)
+	if strings.Contains(lower, "timezone") || strings.Contains(reply, "Asia/Shanghai") {
+		t.Fatalf("reply should not expose internal timezone wording: %s", reply)
+	}
+	if !strings.Contains(reply, "北京时间（UTC+8）") {
+		t.Fatalf("reply should explain default user-facing timezone: %s", reply)
+	}
+}
+
+func TestHealthFoodToolArgsDoNotLeakDayWindowToPointLookups(t *testing.T) {
+	c := &caseflow.Case{
+		IssueDomain:  caseflow.DomainHealthFood,
+		IssueType:    "AI配额异常",
+		OriginalText: "uid:123456 用户反馈 今日 token消耗 数量不对",
+	}
+	entities := map[string]string{"uid": "123456", "issue_type": "AI配额异常", "service_name": "health-food"}
+
+	quotaArgs := buildToolArgs("get_health_food_ai_quota", c, entities)
+	if _, ok := quotaArgs["start_time"]; ok {
+		t.Fatalf("quota point lookup must not receive start_time: %+v", quotaArgs)
+	}
+	if _, ok := quotaArgs["end_time"]; ok {
+		t.Fatalf("quota point lookup must not receive end_time: %+v", quotaArgs)
+	}
+	if quotaArgs["uid"] != "123456" || quotaArgs["at_time"] == "" {
+		t.Fatalf("unexpected quota args: %+v", quotaArgs)
+	}
+
+	similarArgs := buildToolArgs("get_similar_cases", c, entities)
+	if _, ok := similarArgs["start_time"]; ok {
+		t.Fatalf("similar case query must not receive start_time: %+v", similarArgs)
+	}
+
+	logArgs := buildToolArgs("search_logs_by_service", c, entities)
+	start, err := time.Parse(time.RFC3339, logArgs["start_time"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	end, err := time.Parse(time.RFC3339, logArgs["end_time"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if end.Sub(start) > 30*time.Minute {
+		t.Fatalf("log query range must stay within gateway limit, got %s", end.Sub(start))
+	}
+}
+
 type fakeLLM struct {
 	waitForContext bool
 }
