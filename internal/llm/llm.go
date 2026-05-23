@@ -103,6 +103,9 @@ func (RuleBasedClient) ExtractEntities(ctx context.Context, input CaseInput) (Ex
 	if match := firstMatch(text, `(?i)\b(Binance|OKX|Bybit)\b`); match != "" {
 		add("compare_exchange", strings.ToLower(match))
 	}
+	if match := firstDate(text); match != "" {
+		add("abnormal_date", match)
+	}
 	if match := firstTime(text); match != "" {
 		add("abnormal_time", match)
 	}
@@ -141,7 +144,7 @@ func (RuleBasedClient) DecideNextAction(ctx context.Context, state caseflow.Case
 				},
 				Reason: "health-food AI问题需要核对用户资料、会员配额和服务错误日志。",
 			}, nil
-		case "每日推荐缺失", "周报生成异常":
+		case "每日推荐缺失", "推荐不准确", "周报生成异常":
 			return NextAction{
 				ToolNames: []string{
 					"get_health_food_user_profile",
@@ -190,6 +193,9 @@ func (RuleBasedClient) DecideNextAction(ctx context.Context, state caseflow.Case
 
 func (RuleBasedClient) SummarizeFindings(ctx context.Context, state caseflow.Case, observations []ToolObservation) (InvestigationReport, error) {
 	_ = ctx
+	if report, ok := summarizeHealthFoodSpecialCases(state, observations); ok {
+		return report, nil
+	}
 	lines := []string{
 		"初步排查结论：",
 		"",
@@ -251,6 +257,7 @@ func classifyAssetType(text string) string {
 func isHealthFoodText(text string) bool {
 	return containsAny(text,
 		"health-food", "food-health", "健康饮食", "饮食", "餐食", "食物", "营养", "每日推荐", "今日推荐", "周报",
+		"健康目标", "推荐数据", "推荐不准", "推荐不准确",
 		"recommendation", "daily recommend", "today-recommend-food", "meal", "nutrition", "weekly report",
 		"ai对话", "ai 对话", "qianwen", "千问", "token账户", "token 账户", "token消耗", "token 消耗",
 		"token数量", "token 数量", "token用量", "token 用量", "token count", "token usage", "quota", "配额",
@@ -259,6 +266,8 @@ func isHealthFoodText(text string) bool {
 
 func classifyHealthFoodType(text string) string {
 	switch {
+	case containsAny(text, "推荐不准", "推荐不准确", "推荐数据不准", "没有按照", "不符合健康目标", "没按健康目标", "recommendation inaccurate", "recommendation mismatch"):
+		return "推荐不准确"
 	case containsAny(text, "每日推荐", "今日推荐", "推荐缺失", "没有推荐", "不出推荐", "recommendation missing", "missing recommendation", "daily recommend", "today-recommend-food"):
 		return "每日推荐缺失"
 	case containsAny(text, "周报", "weekly", "weekly report"):
@@ -272,6 +281,76 @@ func classifyHealthFoodType(text string) string {
 	default:
 		return "health-food业务异常"
 	}
+}
+
+func summarizeHealthFoodSpecialCases(state caseflow.Case, observations []ToolObservation) (InvestigationReport, bool) {
+	if state.IssueDomain != caseflow.DomainHealthFood {
+		return InvestigationReport{}, false
+	}
+	for _, observation := range observations {
+		if observation.ToolName == "get_health_food_user_profile" && strings.Contains(observation.Summary, "registered=false") {
+			uid := fallback(uidFromSummary(observation.Summary), state.UID)
+			summary := strings.Join([]string{
+				"初步排查结论：",
+				"",
+				"真实 profile 查询显示 uid " + fallback(uid, "用户") + " 在 health-food 用户表中不存在。",
+				"",
+				"已查证据：",
+				"- " + observation.ToolName + "：" + observation.Summary,
+				"",
+				"建议下一步：请反馈方确认并补充正确 uid 后继续排查；当前 uid 无法作为可靠用户证据继续判断推荐、配额或餐食问题。",
+			}, "\n")
+			return InvestigationReport{Summary: summary, Confidence: 0.86}, true
+		}
+	}
+	for _, observation := range observations {
+		if observation.ToolName != "get_health_food_recommendation_status" {
+			continue
+		}
+		summaryLower := strings.ToLower(observation.Summary)
+		switch {
+		case strings.Contains(summaryLower, "source_date_mismatch"):
+			return healthFoodRecommendationReport(state, observations,
+				"推荐记录存在，但真实证据显示 source_meal_ids 包含非推荐日期的餐食，推荐输入和日期不一致。",
+				"优先检查 RecommendFoodJob / FoodServiceImpl 选择餐食窗口、meal_data_fingerprint 和 source_meal_ids 写入逻辑。",
+				0.78), true
+		case strings.Contains(summaryLower, "real db has no meal records"):
+			return healthFoodRecommendationReport(state, observations,
+				"当天没有餐食记录，因此每日推荐没有生成是符合当前真实数据的结果。",
+				"请先确认用户当天是否成功上传/保存餐食；若用户认为已上传，再继续查餐食写入链路和客户端提交记录。",
+				0.74), true
+		case strings.Contains(summaryLower, "no tb_daily_food_recommend"):
+			return healthFoodRecommendationReport(state, observations,
+				"当天存在餐食记录，但没有查到对应 tb_daily_food_recommend 推荐记录。",
+				"优先检查每日推荐任务是否扫描到该用户、任务队列是否执行、AI 生成和落库是否失败。",
+				0.78), true
+		}
+	}
+	return InvestigationReport{}, false
+}
+
+func healthFoodRecommendationReport(state caseflow.Case, observations []ToolObservation, conclusion string, nextStep string, confidence float64) InvestigationReport {
+	lines := []string{
+		"初步排查结论：",
+		"",
+		"问题类型：" + fallback(state.IssueType, "health-food 推荐问题"),
+		"结论：" + conclusion,
+		"",
+		"已查证据：",
+	}
+	for _, observation := range observations {
+		lines = append(lines, "- "+observation.ToolName+"："+fallback(observation.Summary, "工具返回成功"))
+	}
+	lines = append(lines, "", "建议下一步："+nextStep)
+	return InvestigationReport{Summary: strings.Join(lines, "\n"), Confidence: confidence}
+}
+
+func uidFromSummary(summary string) string {
+	match := regexp.MustCompile(`health-food user ([^\s]+) registered=false`).FindStringSubmatch(summary)
+	if len(match) > 1 {
+		return match[1]
+	}
+	return ""
 }
 
 func firstTime(text string) string {
@@ -289,6 +368,10 @@ func firstTime(text string) string {
 		}
 	}
 	return ""
+}
+
+func firstDate(text string) string {
+	return firstMatch(text, `\b(\d{4}-\d{2}-\d{2})\b`)
 }
 
 func normalizeLocalTime(value string) string {

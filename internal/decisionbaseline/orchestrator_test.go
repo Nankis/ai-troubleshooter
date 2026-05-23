@@ -110,6 +110,56 @@ func TestProcessCaseTimeoutFailsCase(t *testing.T) {
 	}
 }
 
+func TestBuildToolArgsUsesExplicitHealthFoodDateForDailyWindow(t *testing.T) {
+	c := &caseflow.Case{
+		IssueDomain:  caseflow.DomainHealthFood,
+		IssueType:    "推荐不准确",
+		OriginalText: "health-food uid:2054603630081875968 用户反馈 2026-05-23 推荐数据不准，没有按照预设的健康目标推荐",
+	}
+	entities := map[string]string{
+		"uid":           "2054603630081875968",
+		"user_id":       "2054603630081875968",
+		"abnormal_date": "2026-05-23",
+	}
+
+	mealArgs := buildToolArgs("get_health_food_meal_records", c, entities)
+	if mealArgs["start_time"] != "2026-05-23T00:00:00+08:00" || mealArgs["end_time"] != "2026-05-24T00:00:00+08:00" {
+		t.Fatalf("expected explicit date full-day meal window, got %+v", mealArgs)
+	}
+	recArgs := buildToolArgs("get_health_food_recommendation_status", c, entities)
+	if recArgs["recommendation_date"] != "2026-05-23" {
+		t.Fatalf("expected explicit recommendation_date, got %+v", recArgs)
+	}
+}
+
+func TestProcessCaseWritesExtractedBusinessUID(t *testing.T) {
+	ctx := context.Background()
+	store := caseflow.NewInMemoryStore()
+	c, err := store.CreateCase(ctx, caseflow.CreateCaseInput{
+		UID:          "web_user",
+		OriginalText: "health-food uid:2054603630081875968 用户反馈 今日没有每日推荐",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := New(store, fakeHealthFoodUIDLLM{}, &fakeToolClient{}, Config{
+		MaxToolCallsPerCase:     3,
+		MaxToolFailuresPerCase:  1,
+		MaxInvestigationSeconds: 5,
+	})
+
+	if _, err := runner.ProcessCase(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.GetCase(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.UID != "2054603630081875968" {
+		t.Fatalf("expected extracted business uid on case, got %q", updated.UID)
+	}
+}
+
 func TestProcessCaseCanAnswerFromHighConfidenceKnowledge(t *testing.T) {
 	ctx := context.Background()
 	store := caseflow.NewInMemoryStore()
@@ -290,6 +340,40 @@ func (fakeLLM) SummarizeFindings(ctx context.Context, state caseflow.Case, obser
 	_ = ctx
 	_ = state
 	return llm.InvestigationReport{Summary: "证据不足，等待人工确认。", Confidence: 0.3}, nil
+}
+
+type fakeHealthFoodUIDLLM struct{}
+
+func (fakeHealthFoodUIDLLM) ClassifyIssue(ctx context.Context, input llm.CaseInput) (llm.IssueClassification, error) {
+	_ = ctx
+	_ = input
+	return llm.IssueClassification{IssueDomain: caseflow.DomainHealthFood, IssueType: "每日推荐缺失", Confidence: 0.9}, nil
+}
+
+func (fakeHealthFoodUIDLLM) ExtractEntities(ctx context.Context, input llm.CaseInput) (llm.ExtractedEntities, error) {
+	_ = ctx
+	_ = input
+	conf := 0.9
+	return llm.ExtractedEntities{Entities: []caseflow.Entity{
+		{Type: "user_id", Value: "2054603630081875968", Source: "test", Confidence: &conf},
+		{Type: "uid", Value: "2054603630081875968", Source: "test", Confidence: &conf},
+		{Type: "issue_type", Value: "每日推荐缺失", Source: "test", Confidence: &conf},
+	}}, nil
+}
+
+func (fakeHealthFoodUIDLLM) DecideNextAction(ctx context.Context, state caseflow.Case, entities map[string]string, tools []string) (llm.NextAction, error) {
+	_ = ctx
+	_ = state
+	_ = entities
+	_ = tools
+	return llm.NextAction{ToolNames: []string{"get_health_food_user_profile"}, Reason: "check health-food user profile"}, nil
+}
+
+func (fakeHealthFoodUIDLLM) SummarizeFindings(ctx context.Context, state caseflow.Case, observations []llm.ToolObservation) (llm.InvestigationReport, error) {
+	_ = ctx
+	_ = state
+	_ = observations
+	return llm.InvestigationReport{Summary: "uid 已回写，等待人工确认。", Confidence: 0.5}, nil
 }
 
 type fakeToolClient struct {

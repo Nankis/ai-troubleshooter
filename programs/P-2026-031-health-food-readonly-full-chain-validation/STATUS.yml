@@ -1,0 +1,20 @@
+program: P-2026-031-health-food-readonly-full-chain-validation
+name: "health-food readonly full chain validation"
+status: ready_to_commit
+updated_at: "2026-05-24"
+tasks:
+  - id: T1
+    name: "health-food 新分支只读接口"
+    status: completed
+  - id: T2
+    name: "决策规则补齐"
+    status: completed
+  - id: T3
+    name: "本地服务启动"
+    status: completed
+  - id: T4
+    name: "Web 端真实验证"
+    status: completed
+  - id: T5
+    name: "证据回写和提交"
+    status: in_progress

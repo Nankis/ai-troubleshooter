@@ -165,9 +165,13 @@ func (o *Runner) ProcessCase(parent context.Context, caseID int64) (result casef
 		return caseflow.ProcessResult{}, err
 	}
 
+	extractedMap := caseflow.EntityMap(extracted.Entities)
 	c, err = o.store.UpdateCase(ctx, c.ID, c.Version, func(next *caseflow.Case) error {
 		next.IssueDomain = classification.IssueDomain
 		next.IssueType = classification.IssueType
+		if businessUID := fallback(extractedMap["uid"], extractedMap["user_id"]); businessUID != "" {
+			next.UID = businessUID
+		}
 		return nil
 	})
 	if err != nil {
@@ -747,6 +751,11 @@ func timeRange(abnormalTime string) (time.Time, time.Time) {
 }
 
 func timeRangeForCase(c *caseflow.Case, entities map[string]string) (time.Time, time.Time) {
+	if c != nil && c.IssueDomain == caseflow.DomainHealthFood && usesHealthFoodDailyWindow(c) {
+		if start, end, ok := dayRangeFromEntity(entities["abnormal_date"], entities["abnormal_time"]); ok {
+			return start, end
+		}
+	}
 	if start, end := timeRange(entities["abnormal_time"]); entities["abnormal_time"] != "" {
 		return start, end
 	}
@@ -759,6 +768,51 @@ func timeRangeForCase(c *caseflow.Case, entities map[string]string) (time.Time, 
 		}
 	}
 	return timeRange("")
+}
+
+func usesHealthFoodDailyWindow(c *caseflow.Case) bool {
+	if c == nil || c.IssueDomain != caseflow.DomainHealthFood {
+		return false
+	}
+	text := strings.ToLower(c.OriginalText + "\n" + c.OCRText + "\n" + c.IssueType)
+	return containsAny(text,
+		"今日", "今天", "当天", "当日", "today",
+		"每日推荐", "今日推荐", "推荐数据", "推荐不准", "推荐不准确", "健康目标",
+		"token", "配额", "消耗", "用量",
+	)
+}
+
+func dayRangeFromEntity(dateText string, timeText string) (time.Time, time.Time, bool) {
+	loc := beijingLocation()
+	if dateText != "" {
+		if t, err := time.ParseInLocation("2006-01-02", dateText, loc); err == nil {
+			return dayRange(t)
+		}
+	}
+	if timeText != "" {
+		if t, err := time.Parse(time.RFC3339, timeText); err == nil {
+			return dayRange(t.In(loc))
+		}
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+func dayRange(t time.Time) (time.Time, time.Time, bool) {
+	loc := beijingLocation()
+	local := t.In(loc)
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	end := start.Add(24 * time.Hour)
+	now := time.Now().In(loc)
+	if sameDay(start, now) && end.After(now) {
+		end = now
+	}
+	return start, end, true
+}
+
+func sameDay(a time.Time, b time.Time) bool {
+	aa := a.In(beijingLocation())
+	bb := b.In(beijingLocation())
+	return aa.Year() == bb.Year() && aa.YearDay() == bb.YearDay()
 }
 
 func logTimeRange(abnormalTime string) (time.Time, time.Time) {
