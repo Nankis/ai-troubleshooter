@@ -77,7 +77,7 @@ func (e *StaticEngine) Authorize(ctx context.Context, req Request) (Decision, er
 	if !agent.AllowedScopes[req.RequiredScope] {
 		return deny("scope %q is not allowed", req.RequiredScope), nil
 	}
-	if len(agent.AllowedTools) > 0 && !agent.AllowedTools[req.ToolName] {
+	if len(agent.AllowedTools) > 0 && !agent.AllowedTools["*"] && !agent.AllowedTools[req.ToolName] {
 		return deny("tool %q is not allowed", req.ToolName), nil
 	}
 	if len(agent.AllowedLarkGroups) > 0 {
@@ -125,8 +125,10 @@ func DefaultAgentsFor(agentID string) []Agent {
 				"health_food:ai_quota:read",
 				"health_food:meal:read",
 				"health_food:recommendation:read",
+				"dynamic:read",
 			),
 			AllowedTools: Set(
+				"*",
 				"search_logs_by_service",
 				"get_recent_deployments",
 				"get_similar_cases",

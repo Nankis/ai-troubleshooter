@@ -26,6 +26,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := gateway.NewCapabilityReloader(gw.Registry(), openedStore.CapabilityStore).Reload(context.Background()); err != nil {
+		log.Printf("dynamic capability reload skipped: %v", err)
+	}
 	addr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)
 	log.Printf("investigation-gateway listening on http://localhost%s", addr)
 	server := &http.Server{Addr: addr, Handler: gw, ReadHeaderTimeout: 5 * time.Second}

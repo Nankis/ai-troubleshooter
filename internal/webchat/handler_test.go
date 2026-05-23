@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Nankis/ai-troubleshooter/internal/capability"
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 	"github.com/Nankis/ai-troubleshooter/internal/tool"
 	"github.com/Nankis/ai-troubleshooter/internal/vision"
@@ -131,8 +132,28 @@ func TestServeChatAsyncReturnsStatusAndProgress(t *testing.T) {
 
 func TestServeOverviewAndKnowledgeMutation(t *testing.T) {
 	store := caseflow.NewInMemoryStore()
+	capStore := capability.NewMemoryStore()
 	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
 	handler.SetToolLister(fakeToolLister{})
+	handler.SetCapabilityStore(capStore)
+	if _, err := capStore.UpsertToolCapability(context.Background(), capability.ToolCapability{
+		ToolName:         "get_demo_status",
+		Description:      "查询 demo 状态",
+		ServiceName:      "demo",
+		SourceType:       capability.SourceHTTPAdapter,
+		InputSchemaJSON:  `{"type":"object"}`,
+		RequiredScope:    "dynamic:read",
+		BackendHandler:   "dynamic_http.get_demo_status",
+		ReadonlyBaseURL:  "http://127.0.0.1:19081",
+		ReadonlyPath:     "/v1/readonly/demo/status",
+		HTTPMethod:       "POST",
+		SafetyStatus:     capability.SafetyReadonlyCandidate,
+		ApprovalStatus:   "pending",
+		ValidationStatus: "not_run",
+		ToolStatus:       capability.StatusDraft,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	createReq := httptest.NewRequest(http.MethodPost, "/web/api/knowledge", strings.NewReader(`{
 		"title":"health-food 推荐缺失",
@@ -192,13 +213,14 @@ func TestServeOverviewAndKnowledgeMutation(t *testing.T) {
 		t.Fatalf("unexpected overview status %d body=%s", overviewRec.Code, overviewRec.Body.String())
 	}
 	var overview struct {
-		Tools     []tool.Spec              `json:"tools"`
-		Knowledge []caseflow.KnowledgeItem `json:"knowledge"`
+		Tools        []tool.Spec                 `json:"tools"`
+		Capabilities []capability.ToolCapability `json:"capabilities"`
+		Knowledge    []caseflow.KnowledgeItem    `json:"knowledge"`
 	}
 	if err := json.Unmarshal(overviewRec.Body.Bytes(), &overview); err != nil {
 		t.Fatal(err)
 	}
-	if len(overview.Tools) != 1 || len(overview.Knowledge) != 1 {
+	if len(overview.Tools) != 1 || len(overview.Knowledge) != 1 || len(overview.Capabilities) != 1 {
 		t.Fatalf("unexpected overview: %+v", overview)
 	}
 
@@ -214,6 +236,53 @@ func TestServeOverviewAndKnowledgeMutation(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected soft-deleted knowledge to be hidden, got %+v", items)
+	}
+}
+
+func TestServeCapabilityImportAndPublish(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	capStore := capability.NewMemoryStore()
+	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
+	handler.SetCapabilityStore(capStore)
+	reloads := 0
+	handler.SetCapabilityReloader(func(ctx context.Context) error {
+		_ = ctx
+		reloads++
+		return nil
+	})
+
+	importReq := httptest.NewRequest(http.MethodPost, "/web/api/capabilities/import", strings.NewReader(`{
+		"raw_config": "{\"service\":{\"service_name\":\"demo\",\"base_url\":\"http://127.0.0.1:19081\"},\"capabilities\":[{\"tool_name\":\"get_demo_status\",\"description\":\"查询 demo 状态\",\"path\":\"/v1/readonly/demo/status\",\"required_params\":[\"uid\"]}]}"
+	}`))
+	importReq.Header.Set("Content-Type", "application/json")
+	importRec := httptest.NewRecorder()
+	handler.ServeCapabilityImport(importRec, importReq)
+	if importRec.Code != http.StatusCreated {
+		t.Fatalf("unexpected import status %d body=%s", importRec.Code, importRec.Body.String())
+	}
+	var imported capability.ImportResult
+	if err := json.Unmarshal(importRec.Body.Bytes(), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Capabilities) != 1 || imported.Capabilities[0].ToolStatus != capability.StatusDraft {
+		t.Fatalf("unexpected imported capabilities: %+v", imported.Capabilities)
+	}
+
+	publishReq := httptest.NewRequest(http.MethodPost, "/web/api/capabilities/"+strconvFormat(imported.Capabilities[0].ID)+"/publish", nil)
+	publishRec := httptest.NewRecorder()
+	handler.ServeCapabilityItem(publishRec, publishReq)
+	if publishRec.Code != http.StatusOK {
+		t.Fatalf("unexpected publish status %d body=%s", publishRec.Code, publishRec.Body.String())
+	}
+	if reloads != 1 {
+		t.Fatalf("expected one reload, got %d", reloads)
+	}
+	var published capability.ToolCapability
+	if err := json.Unmarshal(publishRec.Body.Bytes(), &published); err != nil {
+		t.Fatal(err)
+	}
+	if published.ToolStatus != capability.StatusEnabled || published.PublishedAt == nil {
+		t.Fatalf("expected enabled published capability, got %+v", published)
 	}
 }
 

@@ -2,6 +2,13 @@
 
 本文定义业务服务接入 Investigation Gateway 时需要提供的数据结构。目标是：业务方只声明“我能提供哪些只读证据”，Agent 平台负责鉴权、scope、限流、timeout、审计、脱敏和工具编排。
 
+能力可以通过两种方式注册：
+
+- 提交 manifest 文件，由平台工程合并部署。
+- 在 Web 工作台“能力接入”直接粘贴 YAML/JSON，先落库为 draft/rejected，再由平台发布。
+
+Web 发布不会绕过安全边界：只有名称、描述、scope、method、path 都符合只读信号，且 path 位于 `/readonly/` 下的 capability 才会成为 `readonly_candidate`，其余会保持 `needs_review` 或 `rejected`。
+
 ## 注册对象
 
 业务服务不要把 DB、SQL、Redis key 或生产 token 直接交给 Agent。业务方只提供一个 readonly adapter，并提交一份能力注册 manifest。若业务方已有 MCP server，也必须先用 MCP readonly adapter 映射成同一套 readonly HTTP contract，再注册到 Gateway：
@@ -167,6 +174,7 @@ X-Tool-Name: get_health_food_recommendation_status
 ## 接入检查清单
 
 - Adapter 必须只读，禁止写业务数据。
+- Web 录入时只能填写 `secret_ref`/`token_env` 这样的环境变量名，不能填写真实 token。
 - Adapter 必须校验 Bearer token，并记录 `request_id/case_id/agent_id/tool_name`。
 - Adapter 必须给每个下游查询设置 timeout。
 - 返回前删除原始手机号、邮箱、完整三方 open_id、原始图片 URL、支付凭证、模型 API key 等敏感字段。

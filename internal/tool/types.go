@@ -82,6 +82,13 @@ func (r *Registry) Register(spec Spec, handler HandlerFunc) error {
 	return nil
 }
 
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.specs, name)
+	delete(r.handlers, name)
+}
+
 func (r *Registry) Get(name string) (Spec, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

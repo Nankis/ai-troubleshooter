@@ -23,4 +23,8 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	if len(specs) != 2 || specs[0].Name != "a_tool" {
 		t.Fatalf("expected sorted specs, got %+v", specs)
 	}
+	reg.Unregister("a_tool")
+	if _, ok := reg.Get("a_tool"); ok {
+		t.Fatal("expected a_tool to be unregistered")
+	}
 }

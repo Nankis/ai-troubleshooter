@@ -226,7 +226,7 @@
 
     .ghost-btn:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
 
-    .case-list, .tool-list, .knowledge-list {
+    .case-list, .tool-list, .knowledge-list, .capability-list {
       display: grid;
       gap: 4px;
     }
@@ -361,6 +361,18 @@
       background: var(--green-soft);
     }
 
+    .tag.red {
+      color: var(--red);
+      border-color: rgba(255, 95, 87, .35);
+      background: rgba(255, 95, 87, .1);
+    }
+
+    .tag.yellow {
+      color: var(--yellow);
+      border-color: rgba(255, 189, 46, .35);
+      background: rgba(255, 189, 46, .1);
+    }
+
     .tag.new {
       min-height: 18px;
       padding: 0 6px;
@@ -376,6 +388,31 @@
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 8px;
       align-items: start;
+    }
+
+    .capability-row {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, .12);
+    }
+
+    .capability-row-top {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .capability-meta,
+    .capability-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
     }
 
     .knowledge-main {
@@ -410,7 +447,8 @@
     .action-btn:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
     .delete-btn:hover { background: rgba(255, 95, 87, .12); color: var(--red); }
 
-    .knowledge-form {
+    .knowledge-form,
+    .capability-form {
       display: none;
       gap: 8px;
       padding: 10px;
@@ -421,6 +459,7 @@
     }
 
     .knowledge-form.open { display: grid; }
+    .capability-form.open { display: grid; }
 
     .form-actions {
       display: flex;
@@ -456,6 +495,12 @@
       background: var(--green);
       color: #061006;
       font-weight: 700;
+    }
+
+    .primary-small:disabled,
+    .secondary-small:disabled {
+      opacity: .5;
+      cursor: not-allowed;
     }
 
     .secondary-small {
@@ -1074,6 +1119,24 @@
         </section>
 
         <section class="section">
+          <div class="section-head">
+            <span>能力接入</span>
+            <button class="ghost-btn" type="button" id="toggleCapabilityForm">录入</button>
+          </div>
+          <form class="capability-form" id="capabilityForm">
+            <input class="input" name="service_name" placeholder="服务名，可从配置读取">
+            <input class="input" name="base_url" placeholder="readonly adapter base URL">
+            <input class="input" name="secret_ref" placeholder="token 环境变量名，不填真实密钥">
+            <textarea class="mini-textarea" name="raw_config" placeholder="粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON"></textarea>
+            <div class="form-actions">
+              <button class="secondary-small" type="button" id="cancelCapabilityImport">取消</button>
+              <button class="primary-small" type="submit" id="capabilitySubmit">导入能力</button>
+            </div>
+          </form>
+          <div class="capability-list" id="capabilityList"></div>
+        </section>
+
+        <section class="section">
           <div class="section-head section-head-tools">
             <button class="section-toggle section-toggle-main" type="button" id="toggleToolPanel" aria-expanded="true">
               <span class="section-head-main truncate">
@@ -1209,6 +1272,7 @@
       currentDraftID: "",
       polling: null,
       tools: [],
+      capabilities: [],
       knowledge: [],
       cases: [],
       drafts: [],
@@ -1242,6 +1306,10 @@
       toolPanelCaret: document.getElementById("toolPanelCaret"),
       toggleToolPanel: document.getElementById("toggleToolPanel"),
       refreshTools: document.getElementById("refreshTools"),
+      capabilityList: document.getElementById("capabilityList"),
+      capabilityForm: document.getElementById("capabilityForm"),
+      capabilitySubmit: document.getElementById("capabilitySubmit"),
+      cancelCapabilityImport: document.getElementById("cancelCapabilityImport"),
       knowledgeList: document.getElementById("knowledgeList"),
       knowledgeForm: document.getElementById("knowledgeForm"),
       knowledgeSubmit: document.getElementById("knowledgeSubmit"),
@@ -1273,6 +1341,11 @@
     el.toggleToolPanel.addEventListener("click", toggleToolPanel);
     el.refreshTools.addEventListener("click", refreshTools);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    document.getElementById("toggleCapabilityForm").addEventListener("click", toggleCapabilityForm);
+    el.cancelCapabilityImport.addEventListener("click", () => {
+      el.capabilityForm.reset();
+      el.capabilityForm.classList.remove("open");
+    });
     document.getElementById("toggleKnowledgeForm").addEventListener("click", toggleKnowledgeForm);
     el.cancelKnowledgeEdit.addEventListener("click", () => {
       resetKnowledgeForm();
@@ -1329,6 +1402,35 @@
       }
     });
 
+    el.capabilityForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(el.capabilityForm);
+      const payload = {
+        service_name: data.get("service_name"),
+        base_url: data.get("base_url"),
+        secret_ref: data.get("secret_ref"),
+        raw_config: data.get("raw_config"),
+      };
+      try {
+        el.capabilitySubmit.disabled = true;
+        const response = await fetch("/web/api/capabilities/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const imported = await response.json();
+        if (!response.ok) throw new Error(imported.error || "import failed");
+        el.capabilityForm.reset();
+        el.capabilityForm.classList.remove("open");
+        showToast(importSummary(imported));
+        await loadOverview();
+      } catch (error) {
+        showToast("导入失败：" + error.message);
+      } finally {
+        el.capabilitySubmit.disabled = false;
+      }
+    });
+
     el.knowledgeForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const data = new FormData(el.knowledgeForm);
@@ -1376,9 +1478,11 @@
       state.newToolNames = newToolNames;
       state.toolsLoadedOnce = true;
       state.tools = nextTools;
+      state.capabilities = payload.capabilities || [];
       state.knowledge = payload.knowledge || [];
       state.cases = payload.cases || [];
       renderCases();
+      renderCapabilities();
       renderTools();
       renderToolPanel();
       renderKnowledge();
@@ -1403,6 +1507,85 @@
         state.toolRefreshing = false;
         el.refreshTools.disabled = false;
         el.refreshTools.classList.remove("spinning");
+      }
+    }
+
+    function toggleCapabilityForm() {
+      el.capabilityForm.classList.toggle("open");
+      if (el.capabilityForm.classList.contains("open")) {
+        el.capabilityForm.elements.raw_config.focus();
+      }
+    }
+
+    function importSummary(imported) {
+      const capabilityCount = (imported.capabilities || []).length;
+      const serverCount = (imported.mcp_servers || []).length;
+      if (capabilityCount > 0) return "已导入 " + String(capabilityCount) + " 个能力";
+      if (serverCount > 0) return "已记录 " + String(serverCount) + " 个 MCP server，需补充 readonly routes 后发布";
+      return "配置已导入，暂无可发布能力";
+    }
+
+    function renderCapabilities() {
+      if (!state.capabilities.length) {
+        el.capabilityList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无动态能力</div>`;
+        return;
+      }
+      el.capabilityList.innerHTML = state.capabilities.map((item) => {
+        const enabled = item.tool_status === "enabled";
+        const rejected = item.tool_status === "rejected" || item.safety_status === "rejected";
+        const publishable = !enabled && !rejected && item.safety_status === "readonly_candidate";
+        return `
+          <div class="capability-row">
+            <div class="capability-row-top">
+              <span class="truncate">
+                <span class="row-title truncate">${escapeHTML(item.tool_name || "-")}</span>
+                <span class="row-meta truncate">${escapeHTML([item.service_name, item.source_type].filter(Boolean).join(" · "))}</span>
+              </span>
+              <span class="tag ${statusTagClass(item.tool_status)}">${escapeHTML(capabilityStatusText(item.tool_status))}</span>
+            </div>
+            <div class="capability-meta">
+              <span class="tag ${safetyTagClass(item.safety_status)}">${escapeHTML(safetyStatusText(item.safety_status))}</span>
+              <span class="tag">${escapeHTML(item.required_scope || "dynamic:read")}</span>
+            </div>
+            <div class="row-meta truncate">${escapeHTML(item.readonly_path || item.description || "")}</div>
+            <div class="capability-actions">
+              <button class="secondary-small" type="button" data-capability-publish="${escapeAttr(item.id)}" ${publishable ? "" : "disabled"}>发布</button>
+              <button class="secondary-small" type="button" data-capability-disable="${escapeAttr(item.id)}" ${enabled ? "" : "disabled"}>停用</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      el.capabilityList.querySelectorAll("[data-capability-publish]").forEach((button) => {
+        button.addEventListener("click", () => publishCapability(button.dataset.capabilityPublish));
+      });
+      el.capabilityList.querySelectorAll("[data-capability-disable]").forEach((button) => {
+        button.addEventListener("click", () => disableCapability(button.dataset.capabilityDisable));
+      });
+    }
+
+    async function publishCapability(id) {
+      if (!id) return;
+      try {
+        const response = await fetch("/web/api/capabilities/" + encodeURIComponent(id) + "/publish", { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "publish failed");
+        showToast("能力已发布到 Gateway");
+        await loadOverview({ toolFeedback: true });
+      } catch (error) {
+        showToast("发布失败：" + error.message);
+      }
+    }
+
+    async function disableCapability(id) {
+      if (!id) return;
+      try {
+        const response = await fetch("/web/api/capabilities/" + encodeURIComponent(id) + "/disable", { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "disable failed");
+        showToast("能力已停用");
+        await loadOverview();
+      } catch (error) {
+        showToast("停用失败：" + error.message);
       }
     }
 
@@ -2020,6 +2203,38 @@
         FAILED: "失败",
       };
       return map[status] || status || "-";
+    }
+
+    function capabilityStatusText(status) {
+      const map = {
+        draft: "草稿",
+        enabled: "已发布",
+        disabled: "已停用",
+        rejected: "已拒绝",
+      };
+      return map[status] || status || "-";
+    }
+
+    function safetyStatusText(status) {
+      const map = {
+        readonly_candidate: "只读候选",
+        needs_review: "待审核",
+        rejected: "危险拒绝",
+      };
+      return map[status] || status || "-";
+    }
+
+    function statusTagClass(status) {
+      if (status === "enabled") return "green";
+      if (status === "rejected") return "red";
+      if (status === "draft") return "yellow";
+      return "";
+    }
+
+    function safetyTagClass(status) {
+      if (status === "readonly_candidate") return "green";
+      if (status === "rejected") return "red";
+      return "yellow";
     }
 
     function isActive(status) {

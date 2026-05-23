@@ -77,6 +77,7 @@ Web 工作台支持：
 - 图片缩略图预览和单击放大。
 - 新建问题会话、切换会话、继续当前 case。
 - 左侧按服务分组查看 Gateway tools，并可折叠。
+- 在“能力接入”粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON，审核后发布只读工具。
 - 平台经验预览、编辑、录入和软删除。
 - 右侧查看当前排查状态、AI 决策步骤、工具调用进度和运行环境。
 
@@ -195,6 +196,21 @@ curl -s localhost:8080/tools/get_asset_snapshot/invoke \
 ```
 
 推荐用 `GATEWAY_AGENT_CONFIG_FILE` 或 `GATEWAY_AGENT_CONFIG_JSON` 配置 agent、scope、tool、chat allowlist 和 `bearer_token_env`。示例见 [../configs/gateway-agents.example.json](../configs/gateway-agents.example.json)。
+
+## Web 动态能力接入
+
+工作台左侧“能力接入”支持三类配置：
+
+- Claude/Cursor 风格 `mcpServers` JSON：只记录 MCP server 和待发现状态，不执行 command，不发布 tool。
+- MCP readonly adapter `routes` JSON：只接受 `/readonly/` 路径，写操作、任意 SQL、命令执行会进入 rejected。
+- 标准 HTTP readonly manifest YAML/JSON：按 `service` 和 `capabilities` 创建 draft capability。
+
+发布规则：
+
+- 只有 `readonly_candidate` 能点“发布”。
+- 发布后会写入 MySQL `tb_troubleshoot_tool_registry`，并在当前 dev-server 进程热加载到 Gateway tools。
+- 如果生产使用显式 `GATEWAY_AGENT_CONFIG_FILE`，新 tool 对应的 `scope` 和 `tool_name` 仍需要加入 agent allowlist；本地默认 agent 允许已发布且 scope 允许的动态工具。
+- `secret_ref` 只能填环境变量或密钥引用名，例如 `CONNECTOR_API_KEY`，不要填真实 token。
 
 ## 标准 HTTP readonly adapter
 

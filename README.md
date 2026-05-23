@@ -48,8 +48,8 @@ flowchart LR
 | Lark / 飞书入口 | 代码实现，支持 token、encrypted callback、图片下载和平台差异配置；真实 bot 需要公司凭据验收。 |
 | Case / Knowledge / Audit | MySQL 持久化；`DB_DRIVER=mysql` 时没有 `DB_DSN` 会直接失败，避免误用内存。 |
 | Decision Engine | Python 目标层已提供 Supervisor、Kline、Asset、Knowledge、Local Code、Verifier 轻量基线；Go fallback 仍可跑本地闭环。 |
-| Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏和配置化 agent。 |
-| 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、health-food 本地真实 adapter 和生产日志桥接方案。 |
+| Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
+| 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，不返回源码片段。 |
 
 详细能力清单和历史验收记录请看 [programs/README.md](programs/README.md) 以及各 `programs/P-*` 的 `RESULT.md` / `EVIDENCE.md`。
@@ -132,7 +132,7 @@ git diff --check
 ## 当前边界
 
 - Redis Stream 仍未替换内存队列，接口已预留。
-- 真实业务接入需要业务方提供 readonly adapter 或 MCP server，并按 Gateway manifest 注册。
+- 真实业务接入需要业务方提供 readonly adapter 或 MCP server，并在 Web 工作台或 Gateway manifest 注册。
 - 生产问题排查不允许 Agent 直连生产 DB；确需 DB 证据时优先用 DMS MCP 元数据或 named readonly query adapter。
 - Lark/飞书真实端到端需要公司 bot 凭据、回调地址和 allowlist 配置。
 - 图片默认只做短暂下载并传给视觉模型，原图不持久化；如需留存，应接公司对象存储和数据分级策略。

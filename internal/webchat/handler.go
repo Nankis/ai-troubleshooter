@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nankis/ai-troubleshooter/internal/capability"
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 	"github.com/Nankis/ai-troubleshooter/internal/tool"
 	"github.com/Nankis/ai-troubleshooter/internal/vision"
@@ -34,11 +35,13 @@ type Options struct {
 }
 
 type Handler struct {
-	store     caseflow.Store
-	processor CaseProcessor
-	vision    vision.Client
-	options   Options
-	tools     ToolLister
+	store              caseflow.Store
+	processor          CaseProcessor
+	vision             vision.Client
+	options            Options
+	tools              ToolLister
+	capabilities       capability.Store
+	reloadCapabilities func(context.Context) error
 }
 
 func New(store caseflow.Store, processor CaseProcessor, visionClient vision.Client, options Options) *Handler {
@@ -56,6 +59,14 @@ func New(store caseflow.Store, processor CaseProcessor, visionClient vision.Clie
 
 func (h *Handler) SetToolLister(tools ToolLister) {
 	h.tools = tools
+}
+
+func (h *Handler) SetCapabilityStore(store capability.Store) {
+	h.capabilities = store
+}
+
+func (h *Handler) SetCapabilityReloader(fn func(context.Context) error) {
+	h.reloadCapabilities = fn
 }
 
 func (h *Handler) ServeIndex(w http.ResponseWriter, r *http.Request) {
@@ -229,16 +240,165 @@ func (h *Handler) ServeOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	cases, _ := h.store.ListRecentCases(r.Context(), intQuery(r, "case_limit", 30))
 	knowledge, _ := h.store.ListKnowledgeItems(r.Context(), caseflow.KnowledgeFilter{Limit: intQuery(r, "knowledge_limit", 30)})
+	capabilities := []capability.ToolCapability{}
+	if h.capabilities != nil {
+		capabilities, _ = h.capabilities.ListToolCapabilities(r.Context(), capability.ToolFilter{Limit: 200})
+	}
 	tools := []tool.Spec{}
 	if h.tools != nil {
 		tools = h.tools.List()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cases":     cases,
-		"tools":     tools,
-		"knowledge": knowledge,
-		"now":       time.Now(),
+		"cases":        cases,
+		"tools":        tools,
+		"capabilities": capabilities,
+		"knowledge":    knowledge,
+		"now":          time.Now(),
 	})
+}
+
+func (h *Handler) ServeCapabilities(w http.ResponseWriter, r *http.Request) {
+	if h.capabilities == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "capability store is not configured"})
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	items, err := h.capabilities.ListToolCapabilities(r.Context(), capability.ToolFilter{
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+		SourceType: strings.TrimSpace(r.URL.Query().Get("source_type")),
+		Limit:      intQuery(r, "limit", 200),
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) ServeCapabilityImport(w http.ResponseWriter, r *http.Request) {
+	if h.capabilities == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "capability store is not configured"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 2*1024*1024)
+	var input capability.ImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if input.CreatedBy == "" {
+		input.CreatedBy = "web"
+	}
+	result, err := capability.Import(r.Context(), h.capabilities, input)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) ServeCapabilityItem(w http.ResponseWriter, r *http.Request) {
+	if h.capabilities == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "capability store is not configured"})
+		return
+	}
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/web/api/capabilities/"), "/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[0] == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "capability not found"})
+		return
+	}
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid capability id"})
+		return
+	}
+	action := parts[1]
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		return
+	}
+	switch action {
+	case "publish":
+		h.publishCapability(w, r, id)
+	case "disable":
+		h.disableCapability(w, r, id)
+	default:
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown capability action"})
+	}
+}
+
+func (h *Handler) publishCapability(w http.ResponseWriter, r *http.Request, id int64) {
+	item, err := h.capabilities.GetToolCapability(r.Context(), id)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, capability.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	if err := validatePublishableCapability(item); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	item, err = h.capabilities.UpdateToolCapabilityStatus(r.Context(), id, capability.StatusEnabled, "web")
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if h.reloadCapabilities != nil {
+		if err := h.reloadCapabilities(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "published but reload failed: " + err.Error(), "item": item})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) disableCapability(w http.ResponseWriter, r *http.Request, id int64) {
+	item, err := h.capabilities.UpdateToolCapabilityStatus(r.Context(), id, capability.StatusDisabled, "web")
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, capability.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	if h.reloadCapabilities != nil {
+		if err := h.reloadCapabilities(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "disabled but reload failed: " + err.Error(), "item": item})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func validatePublishableCapability(item capability.ToolCapability) error {
+	if item.SafetyStatus != capability.SafetyReadonlyCandidate {
+		return fmt.Errorf("capability safety status is %s; only readonly_candidate can be published", item.SafetyStatus)
+	}
+	if item.ToolStatus == capability.StatusRejected {
+		return fmt.Errorf("rejected capability cannot be published")
+	}
+	if strings.TrimSpace(item.ReadonlyBaseURL) == "" {
+		return fmt.Errorf("readonly_base_url is required before publish")
+	}
+	if strings.TrimSpace(item.ReadonlyPath) == "" || !strings.Contains(item.ReadonlyPath, "/readonly/") {
+		return fmt.Errorf("readonly_path must be under /readonly/")
+	}
+	if strings.TrimSpace(item.RequiredScope) == "" {
+		return fmt.Errorf("required_scope is required before publish")
+	}
+	return nil
 }
 
 func (h *Handler) ServeKnowledge(w http.ResponseWriter, r *http.Request) {

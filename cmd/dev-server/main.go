@@ -47,6 +47,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	capabilityReloader := gateway.NewCapabilityReloader(gw.Registry(), openedStore.CapabilityStore)
+	if err := capabilityReloader.Reload(ctx); err != nil {
+		log.Printf("dynamic capability reload skipped: %v", err)
+	}
 	evolver := evolution.NewService(store)
 	runner := decisionbaseline.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), decisionbaseline.Config{
 		AgentID:                 cfg.Gateway.AgentID,
@@ -86,12 +90,17 @@ func main() {
 		MaxImageBytes: int64(cfg.Vision.MaxImageBytes),
 	})
 	webChat.SetToolLister(gw.Registry())
+	webChat.SetCapabilityStore(openedStore.CapabilityStore)
+	webChat.SetCapabilityReloader(capabilityReloader.Reload)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", webChat.ServeIndex)
 	mux.HandleFunc("/web", webChat.ServeIndex)
 	mux.HandleFunc("/web/api/chat", webChat.ServeChat)
 	mux.HandleFunc("/web/api/overview", webChat.ServeOverview)
 	mux.HandleFunc("/web/api/cases/", webChat.ServeCaseStatus)
+	mux.HandleFunc("/web/api/capabilities", webChat.ServeCapabilities)
+	mux.HandleFunc("/web/api/capabilities/import", webChat.ServeCapabilityImport)
+	mux.HandleFunc("/web/api/capabilities/", webChat.ServeCapabilityItem)
 	mux.HandleFunc("/web/api/knowledge", webChat.ServeKnowledge)
 	mux.HandleFunc("/web/api/knowledge/", webChat.ServeKnowledgeItem)
 	mux.Handle("/lark/events", larkHandler)

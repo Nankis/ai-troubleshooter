@@ -34,6 +34,19 @@ type HTTPHealthFoodConnector struct {
 	client readonlyHTTPClient
 }
 
+type GenericReadonlyConnector struct {
+	client readonlyHTTPClient
+}
+
+type GenericReadonlyResult struct {
+	Source        string         `json:"source"`
+	QueriedAt     time.Time      `json:"queried_at"`
+	DataUpdatedAt time.Time      `json:"data_updated_at"`
+	Version       string         `json:"version"`
+	Data          map[string]any `json:"data"`
+	Warnings      []string       `json:"warnings"`
+}
+
 func NewHTTPKlineConnector(cfg HTTPConfig) (*HTTPKlineConnector, error) {
 	client, err := newReadonlyHTTPClient(cfg)
 	if err != nil {
@@ -64,6 +77,27 @@ func NewHTTPHealthFoodConnector(cfg HTTPConfig) (*HTTPHealthFoodConnector, error
 		return nil, err
 	}
 	return &HTTPHealthFoodConnector{client: client}, nil
+}
+
+func NewGenericReadonlyConnector(cfg HTTPConfig) (*GenericReadonlyConnector, error) {
+	client, err := newReadonlyHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &GenericReadonlyConnector{client: client}, nil
+}
+
+func (c *GenericReadonlyConnector) Invoke(ctx context.Context, path string, params map[string]any) (GenericReadonlyResult, error) {
+	var out readonlyResponse[map[string]any]
+	err := c.client.post(ctx, path, params, &out)
+	return GenericReadonlyResult{
+		Source:        out.Source,
+		QueriedAt:     out.QueriedAt,
+		DataUpdatedAt: out.DataUpdatedAt,
+		Version:       out.Version,
+		Data:          out.Data,
+		Warnings:      out.Warnings,
+	}, err
 }
 
 func (c *HTTPKlineConnector) InternalKline(ctx context.Context, q KlineQuery) (InternalKlineResult, error) {

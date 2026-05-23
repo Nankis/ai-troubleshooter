@@ -79,6 +79,41 @@ go run ./cmd/dev-server
 
 阿里云 DMS MCP 接入方案见 [dms-mcp-integration.md](dms-mcp-integration.md)，元数据 route 示例见 [../configs/mcp-dms-adapter.metadata.example.json](../configs/mcp-dms-adapter.metadata.example.json)。
 
+## Web 录入
+
+如果业务方已经提供 Claude/Cursor 风格 MCP JSON，可以先在 Web 工作台“能力接入”粘贴：
+
+```json
+{
+  "mcpServers": {
+    "demo": {
+      "command": "uvx",
+      "args": ["demo-mcp-server@latest"]
+    }
+  }
+}
+```
+
+平台只会记录 MCP server 和 pending discovery 校验记录，不会执行 command，也不会自动开放 `tools/list`。
+
+真正发布到 Gateway 的仍然必须是 MCP readonly adapter routes：
+
+```json
+{
+  "service_name": "demo",
+  "base_url": "http://127.0.0.1:19085",
+  "routes": [
+    {
+      "path": "/v1/readonly/demo/status",
+      "tool_name": "demo_status",
+      "required_params": ["uid"]
+    }
+  ]
+}
+```
+
+导入后状态为 draft，人工点击发布后才会热加载到当前 Gateway 进程。
+
 ## 安全边界
 
 - 不允许把写工具、文件读取、命令执行、任意 SQL、任意日志 dump 直接配置成 route。
