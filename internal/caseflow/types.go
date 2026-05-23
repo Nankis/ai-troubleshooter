@@ -26,6 +26,7 @@ const (
 type Case struct {
 	ID             int64      `json:"id"`
 	CaseNo         string     `json:"case_no"`
+	Title          string     `json:"title,omitempty"`
 	UID            string     `json:"uid,omitempty"`
 	Source         string     `json:"source"`
 	ChatID         string     `json:"chat_id,omitempty"`

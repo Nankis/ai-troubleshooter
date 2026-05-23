@@ -245,8 +245,9 @@
 
     .case-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 10px;
+      align-items: center;
       width: 100%;
       text-align: left;
     }
@@ -254,6 +255,39 @@
     .case-row:hover, .case-row.active, .tool-row:hover, .knowledge-row:hover {
       background: rgba(255, 255, 255, .07);
     }
+
+    .case-main {
+      appearance: none;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .case-actions {
+      display: inline-flex;
+      gap: 4px;
+      opacity: .78;
+    }
+
+    .case-row:hover .case-actions,
+    .case-row.active .case-actions {
+      opacity: 1;
+    }
+
+    .case-action-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      color: var(--faint);
+      background: transparent;
+    }
+
+    .case-action-btn:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
+    .case-action-btn.delete:hover { background: rgba(255, 95, 87, .12); color: var(--red); }
 
     .tool-group {
       border: 1px solid rgba(255, 255, 255, .06);
@@ -495,6 +529,11 @@
       background: var(--green);
       color: #061006;
       font-weight: 700;
+    }
+
+    .primary-small.delete {
+      background: var(--red);
+      color: #170303;
     }
 
     .primary-small:disabled,
@@ -825,6 +864,38 @@
 
     .knowledge-modal[hidden] {
       display: none;
+    }
+
+    .case-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 36;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .case-modal[hidden] {
+      display: none;
+    }
+
+    .case-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      background: rgba(0, 0, 0, .68);
+    }
+
+    .case-modal-panel {
+      position: relative;
+      width: min(460px, 92vw);
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
     }
 
     .knowledge-modal-backdrop {
@@ -1265,8 +1336,24 @@
       </div>
     </section>
   </div>
+  <div class="case-modal" id="caseModal" role="dialog" aria-modal="true" aria-label="问题会话操作" hidden>
+    <button class="case-modal-backdrop" id="caseModalBackdrop" type="button" aria-label="关闭"></button>
+    <section class="case-modal-panel">
+      <div>
+        <div class="row-title" id="caseModalTitle"></div>
+        <div class="row-meta" id="caseModalDesc"></div>
+      </div>
+      <input class="input" id="caseModalInput" placeholder="问题标题">
+      <div class="form-actions">
+        <button class="secondary-small" type="button" id="caseModalCancel">取消</button>
+        <button class="primary-small" type="button" id="caseModalConfirm">确认</button>
+      </div>
+    </section>
+  </div>
 
   <script>
+    const DRAFT_STORAGE_KEY = "ai-troubleshooter.web.drafts.v1";
+
     const state = {
       currentCaseNo: "",
       currentDraftID: "",
@@ -1287,6 +1374,7 @@
       activeImagePreviewIndex: -1,
       activeKnowledgeId: 0,
       editingKnowledgeId: 0,
+      caseModal: { mode: "", targetType: "", targetID: "" },
     };
 
     const el = {
@@ -1334,6 +1422,13 @@
       knowledgeModalClose: document.getElementById("knowledgeModalClose"),
       knowledgeModalEdit: document.getElementById("knowledgeModalEdit"),
       knowledgeModalDelete: document.getElementById("knowledgeModalDelete"),
+      caseModal: document.getElementById("caseModal"),
+      caseModalTitle: document.getElementById("caseModalTitle"),
+      caseModalDesc: document.getElementById("caseModalDesc"),
+      caseModalInput: document.getElementById("caseModalInput"),
+      caseModalBackdrop: document.getElementById("caseModalBackdrop"),
+      caseModalCancel: document.getElementById("caseModalCancel"),
+      caseModalConfirm: document.getElementById("caseModalConfirm"),
     };
 
     document.getElementById("newCase").addEventListener("click", createDraftCase);
@@ -1361,8 +1456,18 @@
     el.knowledgeModalClose.addEventListener("click", closeKnowledgePreview);
     el.knowledgeModalEdit.addEventListener("click", () => editKnowledge(state.activeKnowledgeId));
     el.knowledgeModalDelete.addEventListener("click", () => deleteKnowledge(state.activeKnowledgeId));
+    el.caseModalBackdrop.addEventListener("click", closeCaseModal);
+    el.caseModalCancel.addEventListener("click", closeCaseModal);
+    el.caseModalConfirm.addEventListener("click", confirmCaseModal);
+    el.caseModalInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") confirmCaseModal();
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
+      if (!el.caseModal.hidden) {
+        closeCaseModal();
+        return;
+      }
       if (!el.imageLightbox.hidden) {
         closeImagePreview();
         return;
@@ -1381,6 +1486,7 @@
       data.append("message", text);
       data.append("async", "1");
       if (state.currentCaseNo) data.append("case_no", state.currentCaseNo);
+      if (!state.currentCaseNo) data.append("title", activeDraftTitle(text));
       for (const file of el.images.files) data.append("images", file);
 
       setBusy(true);
@@ -1596,8 +1702,10 @@
         draft_id: draftID,
         title: "新问题",
         message: "",
+        manual_title: false,
         created_at: new Date().toISOString(),
       });
+      saveDrafts();
       selectDraftCase(draftID);
       renderCases();
       showToast("已新建问题草稿");
@@ -1626,12 +1734,174 @@
       const draft = state.drafts.find((item) => item.draft_id === state.currentDraftID);
       if (!draft) return;
       draft.message = el.message.value;
-      draft.title = draftTitle(el.message.value);
+      if (!draft.manual_title) draft.title = draftTitle(el.message.value);
+      saveDrafts();
       renderCases();
     }
 
     function removeDraft(draftID) {
       state.drafts = state.drafts.filter((item) => item.draft_id !== draftID);
+      saveDrafts();
+    }
+
+    function loadDrafts() {
+      try {
+        const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        state.drafts = Array.isArray(parsed)
+          ? parsed.filter((item) => item && item.draft_id).slice(0, 30)
+          : [];
+        state.draftSeq = state.drafts.length;
+      } catch (_) {
+        state.drafts = [];
+      }
+    }
+
+    function saveDrafts() {
+      try {
+        const compact = state.drafts.slice(0, 30).map((item) => ({
+          draft_id: item.draft_id,
+          title: item.title || "新问题",
+          message: item.message || "",
+          manual_title: Boolean(item.manual_title),
+          created_at: item.created_at || new Date().toISOString(),
+        }));
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(compact));
+      } catch (_) {
+        showToast("草稿本地保存失败");
+      }
+    }
+
+    function activeDraftTitle(text) {
+      const draft = state.drafts.find((item) => item.draft_id === state.currentDraftID);
+      if (!draft) return draftTitle(text);
+      return caseTitle({ title: draft.title, original_text: text }) || draftTitle(text);
+    }
+
+    function renameDraft(draftID) {
+      const draft = state.drafts.find((item) => item.draft_id === draftID);
+      if (!draft) return;
+      openCaseModal("rename", "draft", draftID, caseTitle(draft));
+    }
+
+    async function renameCase(caseNo) {
+      const item = state.cases.find((entry) => entry.case_no === caseNo);
+      if (!item) return;
+      openCaseModal("rename", "case", caseNo, caseTitle(item));
+    }
+
+    async function applyCaseRename(targetType, targetID, title) {
+      if (targetType === "draft") {
+        const draft = state.drafts.find((item) => item.draft_id === targetID);
+        if (!draft) return;
+        draft.title = title;
+        draft.manual_title = true;
+        saveDrafts();
+        renderCases();
+        showToast("草稿已重命名");
+        return;
+      }
+      try {
+        const response = await fetch("/web/api/cases/" + encodeURIComponent(targetID), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "rename failed");
+        const item = state.cases.find((entry) => entry.case_no === targetID);
+        if (!item) return;
+        item.title = payload.title || title;
+        renderCases();
+        showToast("问题已重命名");
+      } catch (error) {
+        showToast("重命名失败：" + error.message);
+      }
+    }
+
+    function deleteDraft(draftID) {
+      const draft = state.drafts.find((item) => item.draft_id === draftID);
+      if (!draft) return;
+      openCaseModal("delete", "draft", draftID, caseTitle(draft));
+    }
+
+    async function deleteCase(caseNo) {
+      const item = state.cases.find((entry) => entry.case_no === caseNo);
+      if (!item) return;
+      openCaseModal("delete", "case", caseNo, caseTitle(item));
+    }
+
+    async function applyCaseDelete(targetType, targetID) {
+      if (targetType === "draft") {
+        removeDraft(targetID);
+        if (state.currentDraftID === targetID) {
+          state.currentDraftID = "";
+          el.message.value = "";
+          clearImages();
+          renderEmpty();
+          renderProgress([]);
+          setBusy(false);
+        }
+        renderCases();
+        showToast("草稿已删除");
+        return;
+      }
+      try {
+        const response = await fetch("/web/api/cases/" + encodeURIComponent(targetID), { method: "DELETE" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "delete failed");
+        state.cases = state.cases.filter((entry) => entry.case_no !== targetID);
+        if (state.currentCaseNo === targetID) {
+          stopPolling();
+          state.currentCaseNo = "";
+          renderEmpty();
+          renderProgress([]);
+          setBusy(false);
+          el.caseStatus.textContent = "ready";
+        }
+        renderCases();
+        showToast("问题会话已删除");
+      } catch (error) {
+        showToast("删除失败：" + error.message);
+      }
+    }
+
+    function openCaseModal(mode, targetType, targetID, title) {
+      state.caseModal = { mode, targetType, targetID };
+      const isDelete = mode === "delete";
+      el.caseModalTitle.textContent = isDelete ? "删除问题会话" : "重命名问题";
+      el.caseModalDesc.textContent = isDelete ? title : "修改左侧列表显示标题，不会改变原始问题内容。";
+      el.caseModalInput.hidden = isDelete;
+      el.caseModalInput.value = isDelete ? "" : title;
+      el.caseModalConfirm.textContent = isDelete ? "删除" : "保存";
+      el.caseModalConfirm.classList.toggle("delete", isDelete);
+      el.caseModal.hidden = false;
+      if (isDelete) {
+        el.caseModalConfirm.focus();
+      } else {
+        el.caseModalInput.focus();
+        el.caseModalInput.select();
+      }
+    }
+
+    function closeCaseModal() {
+      if (el.caseModal.hidden) return;
+      state.caseModal = { mode: "", targetType: "", targetID: "" };
+      el.caseModal.hidden = true;
+      el.caseModalInput.value = "";
+    }
+
+    async function confirmCaseModal() {
+      const { mode, targetType, targetID } = state.caseModal;
+      if (!mode || !targetType || !targetID) return;
+      if (mode === "rename") {
+        const title = compactTitle(el.caseModalInput.value);
+        if (!title) return showToast("标题不能为空");
+        await applyCaseRename(targetType, targetID, title);
+      } else if (mode === "delete") {
+        await applyCaseDelete(targetType, targetID);
+      }
+      closeCaseModal();
     }
 
     function handleComposerPaste(event) {
@@ -1822,24 +2092,40 @@
         return;
       }
       el.caseList.innerHTML = items.map((item) => `
-        <button class="case-row ${caseRowActive(item) ? "active" : ""}" type="button" ${item.isDraft ? `data-draft="${escapeAttr(item.draft_id)}"` : `data-case="${escapeAttr(item.case_no)}"`}>
-          <span class="truncate">
+        <div class="case-row ${caseRowActive(item) ? "active" : ""}">
+          <button class="case-main truncate" type="button" ${item.isDraft ? `data-draft-open="${escapeAttr(item.draft_id)}"` : `data-case-open="${escapeAttr(item.case_no)}"`}>
             <span class="row-title truncate">${escapeHTML(caseTitle(item))}</span>
             <span class="row-meta truncate">${escapeHTML(item.isDraft ? "草稿 · web" : (item.issue_domain || item.source || "web"))}</span>
-          </span>
+          </button>
           <span class="tag ${isActive(item.status) ? "green" : ""}">${escapeHTML(item.isDraft ? "草稿" : shortStatus(item.status))}</span>
-        </button>
+          <span class="case-actions">
+            <button class="case-action-btn" type="button" ${item.isDraft ? `data-draft-rename="${escapeAttr(item.draft_id)}"` : `data-case-rename="${escapeAttr(item.case_no)}"`} aria-label="重命名问题" title="重命名">✎</button>
+            <button class="case-action-btn delete" type="button" ${item.isDraft ? `data-draft-delete="${escapeAttr(item.draft_id)}"` : `data-case-delete="${escapeAttr(item.case_no)}"`} aria-label="删除问题" title="删除">×</button>
+          </span>
+        </div>
       `).join("");
-      el.caseList.querySelectorAll("[data-case]").forEach((button) => {
+      el.caseList.querySelectorAll("[data-case-open]").forEach((button) => {
         button.addEventListener("click", () => {
           updateActiveDraftFromComposer();
           state.currentDraftID = "";
-          state.currentCaseNo = button.dataset.case || "";
+          state.currentCaseNo = button.dataset.caseOpen || "";
           startPolling(state.currentCaseNo);
         });
       });
-      el.caseList.querySelectorAll("[data-draft]").forEach((button) => {
-        button.addEventListener("click", () => selectDraftCase(button.dataset.draft || ""));
+      el.caseList.querySelectorAll("[data-draft-open]").forEach((button) => {
+        button.addEventListener("click", () => selectDraftCase(button.dataset.draftOpen || ""));
+      });
+      el.caseList.querySelectorAll("[data-draft-rename]").forEach((button) => {
+        button.addEventListener("click", () => renameDraft(button.dataset.draftRename || ""));
+      });
+      el.caseList.querySelectorAll("[data-case-rename]").forEach((button) => {
+        button.addEventListener("click", () => renameCase(button.dataset.caseRename || ""));
+      });
+      el.caseList.querySelectorAll("[data-draft-delete]").forEach((button) => {
+        button.addEventListener("click", () => deleteDraft(button.dataset.draftDelete || ""));
+      });
+      el.caseList.querySelectorAll("[data-case-delete]").forEach((button) => {
+        button.addEventListener("click", () => deleteCase(button.dataset.caseDelete || ""));
       });
     }
 
@@ -2171,7 +2457,11 @@
 
     function highlightCurrentCase() {
       document.querySelectorAll(".case-row").forEach((row) => {
-        row.classList.toggle("active", row.dataset.case === state.currentCaseNo || row.dataset.draft === state.currentDraftID);
+        const caseButton = row.querySelector("[data-case-open]");
+        const draftButton = row.querySelector("[data-draft-open]");
+        row.classList.toggle("active",
+          (caseButton && caseButton.dataset.caseOpen === state.currentCaseNo) ||
+          (draftButton && draftButton.dataset.draftOpen === state.currentDraftID));
       });
     }
 
@@ -2188,6 +2478,10 @@
     function draftTitle(text) {
       const value = String(text || "").replace(/\s+/g, " ").trim();
       return value ? value.slice(0, 40) : "新问题";
+    }
+
+    function compactTitle(text) {
+      return String(text || "").replace(/\s+/g, " ").trim().slice(0, 80);
     }
 
     function shortStatus(status) {
@@ -2290,6 +2584,8 @@
       return escapeHTML(value).replace(/`/g, "&#96;");
     }
 
+    loadDrafts();
+    renderCases();
     renderProgress([]);
     loadOverview().catch((error) => showToast("工作台加载失败：" + error.message));
     window.setInterval(() => {

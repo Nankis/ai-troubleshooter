@@ -61,9 +61,9 @@ func (s *Store) CreateCase(ctx context.Context, input caseflow.CreateCaseInput) 
 	tmpNo := fmt.Sprintf("case_pending_%d", now.UnixNano())
 	res, err := tx.ExecContext(ctx, `
 INSERT INTO tb_troubleshoot_case
-(case_no, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text, case_status, priority, timezone, create_time, update_time, version)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-		tmpNo, fallback(input.UID, input.ReporterUserID), source, nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
+(case_no, case_title, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text, case_status, priority, timezone, create_time, update_time, version)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+		tmpNo, nullableString(input.Title), fallback(input.UID, input.ReporterUserID), source, nullableString(input.ChatID), nullableString(input.ThreadID), nullableString(input.MessageID),
 		nullableString(input.ReporterUserID), nullableString(input.OriginalText), nullableString(input.OCRText),
 		caseflow.StatusNew, "normal", tz, now, now)
 	if err != nil {
@@ -88,12 +88,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
 }
 
 func (s *Store) GetCase(ctx context.Context, id int64) (*caseflow.Case, error) {
-	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE id = ? AND status = 1`, id)
 	return scanCase(row)
 }
 
 func (s *Store) FindCaseByNo(ctx context.Context, caseNo string) (*caseflow.Case, error) {
-	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE case_no = ?`, caseNo)
+	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE case_no = ? AND status = 1`, caseNo)
 	return scanCase(row)
 }
 
@@ -101,7 +101,7 @@ func (s *Store) FindCaseByMessageID(ctx context.Context, source string, messageI
 	if strings.TrimSpace(source) == "" || strings.TrimSpace(messageID) == "" {
 		return nil, caseflow.ErrNotFound
 	}
-	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE source = ? AND message_id = ?`, source, messageID)
+	row := s.db.QueryRowContext(ctx, caseSelect()+` WHERE source = ? AND message_id = ? AND status = 1`, source, messageID)
 	return scanCase(row)
 }
 
@@ -109,7 +109,7 @@ func (s *Store) ListRecentCases(ctx context.Context, limit int) ([]caseflow.Case
 	if limit <= 0 || limit > 100 {
 		limit = 30
 	}
-	rows, err := s.db.QueryContext(ctx, caseSelect()+` ORDER BY update_time DESC LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, caseSelect()+` WHERE status = 1 ORDER BY update_time DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (s *Store) UpdateCase(ctx context.Context, id int64, expectedVersion int64,
 	}
 	defer rollback(tx)
 
-	current, err := scanCase(tx.QueryRowContext(ctx, caseSelect()+` WHERE id = ? FOR UPDATE`, id))
+	current, err := scanCase(tx.QueryRowContext(ctx, caseSelect()+` WHERE id = ? AND status = 1 FOR UPDATE`, id))
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +147,10 @@ func (s *Store) UpdateCase(ctx context.Context, id int64, expectedVersion int64,
 	next.UpdatedAt = time.Now()
 	if _, err := tx.ExecContext(ctx, `
 UPDATE tb_troubleshoot_case
-SET uid = ?, source = ?, chat_id = ?, thread_id = ?, message_id = ?, reporter_user_id = ?, original_text = ?, ocr_text = ?,
+SET case_title = ?, uid = ?, source = ?, chat_id = ?, thread_id = ?, message_id = ?, reporter_user_id = ?, original_text = ?, ocr_text = ?,
     issue_domain = ?, issue_type = ?, case_status = ?, priority = ?, timezone = ?, occurred_at = ?, update_time = ?, closed_at = ?, version = ?
 WHERE id = ?`,
-		next.UID, next.Source, nullableString(next.ChatID), nullableString(next.ThreadID), nullableString(next.MessageID), nullableString(next.ReporterUserID),
+		nullableString(next.Title), next.UID, next.Source, nullableString(next.ChatID), nullableString(next.ThreadID), nullableString(next.MessageID), nullableString(next.ReporterUserID),
 		nullableString(next.OriginalText), nullableString(next.OCRText), nullableString(next.IssueDomain), nullableString(next.IssueType),
 		next.Status, next.Priority, next.Timezone, nullableTime(next.OccurredAt), next.UpdatedAt, nullableTime(next.ClosedAt), next.Version, id); err != nil {
 		return nil, err
@@ -159,6 +159,22 @@ WHERE id = ?`,
 		return nil, err
 	}
 	return s.GetCase(ctx, id)
+}
+
+func (s *Store) DeleteCase(ctx context.Context, id int64) error {
+	now := time.Now()
+	res, err := s.db.ExecContext(ctx, `UPDATE tb_troubleshoot_case SET status = 0, update_time = ? WHERE id = ? AND status = 1`, now, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return caseflow.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) AddEntities(ctx context.Context, caseID int64, entities []caseflow.Entity) error {
@@ -604,7 +620,7 @@ FROM tb_troubleshoot_knowledge_evolution_run WHERE case_id = ? ORDER BY id`, cas
 }
 
 func caseSelect() string {
-	return `SELECT id, case_no, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text,
+	return `SELECT id, case_no, case_title, uid, source, chat_id, thread_id, message_id, reporter_user_id, original_text, ocr_text,
 issue_domain, issue_type, case_status, priority, timezone, occurred_at, create_time, update_time, closed_at, version FROM tb_troubleshoot_case`
 }
 
@@ -614,12 +630,13 @@ type scanner interface {
 
 func scanCase(row scanner) (*caseflow.Case, error) {
 	var c caseflow.Case
-	var uid, chatID, threadID, messageID, reporterUserID, originalText, ocrText, issueDomain, issueType sql.NullString
+	var title, uid, chatID, threadID, messageID, reporterUserID, originalText, ocrText, issueDomain, issueType sql.NullString
 	var occurredAt, closedAt sql.NullTime
-	if err := row.Scan(&c.ID, &c.CaseNo, &uid, &c.Source, &chatID, &threadID, &messageID, &reporterUserID, &originalText, &ocrText,
+	if err := row.Scan(&c.ID, &c.CaseNo, &title, &uid, &c.Source, &chatID, &threadID, &messageID, &reporterUserID, &originalText, &ocrText,
 		&issueDomain, &issueType, &c.Status, &c.Priority, &c.Timezone, &occurredAt, &c.CreatedAt, &c.UpdatedAt, &closedAt, &c.Version); err != nil {
 		return nil, normalizeNotFound(err)
 	}
+	c.Title = nullStringValue(title)
 	c.UID = nullStringValue(uid)
 	c.ChatID = nullStringValue(chatID)
 	c.ThreadID = nullStringValue(threadID)

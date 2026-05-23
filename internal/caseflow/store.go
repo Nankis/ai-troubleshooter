@@ -15,6 +15,7 @@ var (
 )
 
 type CreateCaseInput struct {
+	Title          string
 	UID            string
 	Source         string
 	ChatID         string
@@ -33,6 +34,7 @@ type Store interface {
 	FindCaseByMessageID(ctx context.Context, source string, messageID string) (*Case, error)
 	ListRecentCases(ctx context.Context, limit int) ([]Case, error)
 	UpdateCase(ctx context.Context, id int64, expectedVersion int64, update func(*Case) error) (*Case, error)
+	DeleteCase(ctx context.Context, id int64) error
 	AddEntities(ctx context.Context, caseID int64, entities []Entity) error
 	ListEntities(ctx context.Context, caseID int64) ([]Entity, error)
 	AddMessage(ctx context.Context, msg Message) (Message, error)
@@ -125,6 +127,7 @@ func (s *InMemoryStore) CreateCase(ctx context.Context, input CreateCaseInput) (
 	c := &Case{
 		ID:             s.nextCaseID,
 		CaseNo:         fmt.Sprintf("case_%s_%06d", now.Format("20060102"), s.nextCaseID),
+		Title:          input.Title,
 		UID:            fallback(input.UID, input.ReporterUserID),
 		Source:         source,
 		ChatID:         input.ChatID,
@@ -224,6 +227,22 @@ func (s *InMemoryStore) UpdateCase(ctx context.Context, id int64, expectedVersio
 	next.UpdatedAt = time.Now()
 	s.cases[id] = cloneCase(next)
 	return cloneCase(next), nil
+}
+
+func (s *InMemoryStore) DeleteCase(ctx context.Context, id int64) error {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.cases[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(s.casesByNo, c.CaseNo)
+	if key := sourceMessageKey(c.Source, c.MessageID); key != "" {
+		delete(s.casesBySourceMessageID, key)
+	}
+	delete(s.cases, id)
+	return nil
 }
 
 func (s *InMemoryStore) AddEntities(ctx context.Context, caseID int64, entities []Entity) error {

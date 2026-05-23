@@ -76,6 +76,7 @@ Web 工作台支持：
 - 截图复制后直接粘贴上传。
 - 图片缩略图预览和单击放大。
 - 新建问题会话、切换会话、继续当前 case。
+- 问题会话支持重命名和删除；未发送草稿保存在浏览器 localStorage，正式 case/message/AI 决策仍写 MySQL。
 - 左侧按服务分组查看 Gateway tools，并可折叠。
 - 在“能力接入”粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON，审核后发布只读工具。
 - 平台经验预览、编辑、录入和软删除。

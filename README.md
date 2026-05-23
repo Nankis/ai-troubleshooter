@@ -44,7 +44,7 @@ flowchart LR
 
 | 模块 | 状态 |
 | --- | --- |
-| Web Chat 工作台 | 已实现，支持文字、图片粘贴上传、图片预览、case 列表、进度面板、工具分组、知识预览/编辑。 |
+| Web Chat 工作台 | 已实现，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 代码实现，支持 token、encrypted callback、图片下载和平台差异配置；真实 bot 需要公司凭据验收。 |
 | Case / Knowledge / Audit | MySQL 持久化；`DB_DRIVER=mysql` 时没有 `DB_DSN` 会直接失败，避免误用内存。 |
 | Decision Engine | Python 目标层已提供 Supervisor、Kline、Asset、Knowledge、Local Code、Verifier 轻量基线；Go fallback 仍可跑本地闭环。 |

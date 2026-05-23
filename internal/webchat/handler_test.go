@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -53,7 +54,7 @@ func TestServeChatCreatesCaseFromText(t *testing.T) {
 	store := caseflow.NewInMemoryStore()
 	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
 
-	req := multipartRequest(t, map[string]string{"message": "BTCUSDT K线最高价不一致"}, nil)
+	req := multipartRequest(t, map[string]string{"message": "BTCUSDT K线最高价不一致", "title": "行情异常排查"}, nil)
 	rec := httptest.NewRecorder()
 	handler.ServeChat(rec, req)
 
@@ -68,11 +69,52 @@ func TestServeChatCreatesCaseFromText(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Case.Source != "web" || payload.Case.UID != "web_user" || payload.Reply != "ok" {
+	if payload.Case.Source != "web" || payload.Case.UID != "web_user" || payload.Case.Title != "行情异常排查" || payload.Reply != "ok" {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
 	if len(payload.ToolCallIDs) != 1 || payload.ToolCallIDs[0] != "tc_test" {
 		t.Fatalf("unexpected tool ids: %+v", payload.ToolCallIDs)
+	}
+}
+
+func TestServeCaseRenameAndDelete(t *testing.T) {
+	store := caseflow.NewInMemoryStore()
+	handler := New(store, fakeProcessor{}, fakeVision{}, Options{})
+	c, err := store.CreateCase(context.Background(), caseflow.CreateCaseInput{
+		Title:        "旧标题",
+		UID:          "web_user",
+		Source:       "web",
+		ChatID:       "web-local",
+		MessageID:    "msg_case",
+		OriginalText: "用户反馈 token 数量不对",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renameReq := httptest.NewRequest(http.MethodPatch, "/web/api/cases/"+c.CaseNo, strings.NewReader(`{"title":"新标题"}`))
+	renameReq.Header.Set("Content-Type", "application/json")
+	renameRec := httptest.NewRecorder()
+	handler.ServeCaseStatus(renameRec, renameReq)
+	if renameRec.Code != http.StatusOK {
+		t.Fatalf("unexpected rename status %d body=%s", renameRec.Code, renameRec.Body.String())
+	}
+	var renamed caseflow.Case
+	if err := json.Unmarshal(renameRec.Body.Bytes(), &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Title != "新标题" {
+		t.Fatalf("expected renamed title, got %+v", renamed)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/web/api/cases/"+c.CaseNo, nil)
+	deleteRec := httptest.NewRecorder()
+	handler.ServeCaseStatus(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("unexpected delete status %d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	if _, err := store.FindCaseByNo(context.Background(), c.CaseNo); !errors.Is(err, caseflow.ErrNotFound) {
+		t.Fatalf("expected deleted case not found, got %v", err)
 	}
 }
 

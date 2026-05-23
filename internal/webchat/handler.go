@@ -95,6 +95,7 @@ func (h *Handler) ServeChat(w http.ResponseWriter, r *http.Request) {
 
 	userText := strings.TrimSpace(r.FormValue("message"))
 	caseNo := strings.TrimSpace(r.FormValue("case_no"))
+	title := strings.TrimSpace(r.FormValue("title"))
 	images, err := h.readImages(r.MultipartForm)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -114,7 +115,7 @@ func (h *Handler) ServeChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	c, err := h.upsertCase(r.Context(), caseNo, userText, analysis)
+	c, err := h.upsertCase(r.Context(), caseNo, title, userText, analysis)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
@@ -137,7 +138,7 @@ func (h *Handler) ServeChat(w http.ResponseWriter, r *http.Request) {
 	h.writeCaseResponse(w, r, result, http.StatusOK, false)
 }
 
-func (h *Handler) upsertCase(ctx context.Context, caseNo string, userText string, analysis vision.Analysis) (*caseflow.Case, error) {
+func (h *Handler) upsertCase(ctx context.Context, caseNo string, title string, userText string, analysis vision.Analysis) (*caseflow.Case, error) {
 	if caseNo != "" {
 		c, err := h.store.FindCaseByNo(ctx, caseNo)
 		if err != nil {
@@ -153,6 +154,7 @@ func (h *Handler) upsertCase(ctx context.Context, caseNo string, userText string
 		})
 	}
 	c, err := h.store.CreateCase(ctx, caseflow.CreateCaseInput{
+		Title:          trimTitle(title),
 		UID:            "web_user",
 		Source:         "web",
 		ChatID:         "web-local",
@@ -216,10 +218,6 @@ func (h *Handler) casePayload(ctx context.Context, c *caseflow.Case, result case
 }
 
 func (h *Handler) ServeCaseStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
-		return
-	}
 	caseRef := strings.Trim(strings.TrimPrefix(r.URL.Path, "/web/api/cases/"), "/")
 	if caseRef == "" {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "case not found"})
@@ -230,7 +228,54 @@ func (h *Handler) ServeCaseStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, h.casePayload(r.Context(), c, caseflow.ProcessResult{CaseID: c.ID, CaseNo: c.CaseNo, Status: c.Status}, false))
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, h.casePayload(r.Context(), c, caseflow.ProcessResult{CaseID: c.ID, CaseNo: c.CaseNo, Status: c.Status}, false))
+	case http.MethodPatch, http.MethodPut:
+		h.renameCase(w, r, c)
+	case http.MethodDelete:
+		if err := h.store.DeleteCase(r.Context(), c.ID); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, caseflow.ErrNotFound) {
+				status = http.StatusNotFound
+			}
+			writeJSON(w, status, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "case_no": c.CaseNo})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func (h *Handler) renameCase(w http.ResponseWriter, r *http.Request, c *caseflow.Case) {
+	var input struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	title := trimTitle(input.Title)
+	if title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "title is required"})
+		return
+	}
+	updated, err := h.store.UpdateCase(r.Context(), c.ID, c.Version, func(next *caseflow.Case) error {
+		next.Title = title
+		return nil
+	})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, caseflow.ErrNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, caseflow.ErrVersionConflict) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (h *Handler) ServeOverview(w http.ResponseWriter, r *http.Request) {
@@ -575,6 +620,15 @@ func appendBlock(current string, label string, value string) string {
 		return block
 	}
 	return current + "\n" + block
+}
+
+func trimTitle(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if len([]rune(value)) <= 80 {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:80])
 }
 
 type progressStep struct {
