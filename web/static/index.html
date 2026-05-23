@@ -165,6 +165,39 @@
       background: rgba(255, 255, 255, .07);
     }
 
+    .tool-group {
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, .12);
+      overflow: hidden;
+    }
+
+    .tool-group-head {
+      min-height: 36px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+
+    .tool-service-name {
+      color: #ececec;
+      font-weight: 720;
+      min-width: 0;
+    }
+
+    .tool-group-body {
+      display: grid;
+      gap: 1px;
+      padding: 4px;
+    }
+
+    .tool-group .tool-row {
+      padding: 8px 8px;
+    }
+
     .truncate {
       overflow: hidden;
       white-space: nowrap;
@@ -973,12 +1006,56 @@
         el.toolList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无工具</div>`;
         return;
       }
-      el.toolList.innerHTML = state.tools.slice(0, 18).map((item) => `
-        <div class="tool-row">
-          <div class="row-title truncate">${escapeHTML(item.name)}</div>
-          <div class="row-meta">${escapeHTML(item.description || item.required_scope || "")}</div>
+      el.toolList.innerHTML = groupToolsByService(state.tools).map((group) => `
+        <div class="tool-group">
+          <div class="tool-group-head">
+            <span class="tool-service-name truncate">${escapeHTML(group.service)}</span>
+            <span class="tag">${group.tools.length}</span>
+          </div>
+          <div class="tool-group-body">
+            ${group.tools.map((item) => `
+              <div class="tool-row">
+                <div class="row-title truncate">${escapeHTML(item.name)}</div>
+                <div class="row-meta">${escapeHTML(item.description || item.required_scope || "")}</div>
+              </div>
+            `).join("")}
+          </div>
         </div>
       `).join("");
+    }
+
+    function groupToolsByService(tools) {
+      const groups = new Map();
+      for (const tool of tools) {
+        const service = toolService(tool);
+        if (!groups.has(service)) groups.set(service, []);
+        groups.get(service).push(tool);
+      }
+      return Array.from(groups.entries())
+        .map(([service, items]) => ({
+          service,
+          tools: items.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))),
+        }))
+        .sort((a, b) => serviceRank(a.service) - serviceRank(b.service) || a.service.localeCompare(b.service));
+    }
+
+    function toolService(tool) {
+      const handler = String(tool.backend_handler || "");
+      const scope = String(tool.required_scope || "");
+      const name = String(tool.name || "");
+      const signal = [handler, scope, name].join(" ").toLowerCase();
+      if (signal.includes("health_food") || signal.includes("health-food")) return "health-food";
+      if (signal.includes("asset_connector") || signal.includes("asset:") || name.startsWith("get_asset_")) return "asset-service";
+      if (signal.includes("market_connector") || signal.includes("external_exchange") || signal.includes("redis_readonly") || signal.includes("kline") || signal.includes("cache:read")) return "market-service";
+      if (signal.includes("log_connector") || signal.includes("deploy_connector") || signal.includes("logs:") || signal.includes("deploy:")) return "ops/logs";
+      if (signal.includes("case_repository") || signal.includes("similar_case")) return "platform";
+      return "other";
+    }
+
+    function serviceRank(service) {
+      const order = ["health-food", "asset-service", "market-service", "ops/logs", "platform", "other"];
+      const index = order.indexOf(service);
+      return index === -1 ? order.length : index;
     }
 
     function renderKnowledge() {
