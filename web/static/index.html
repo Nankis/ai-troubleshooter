@@ -500,6 +500,22 @@
       overflow: hidden;
     }
 
+    .image-preview-open {
+      appearance: none;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: transparent;
+      cursor: zoom-in;
+    }
+
+    .image-preview-open:focus-visible {
+      outline: 2px solid var(--green);
+      outline-offset: -2px;
+    }
+
     .image-preview img {
       width: 100%;
       height: 100%;
@@ -527,6 +543,74 @@
 
     .image-remove:hover {
       background: rgba(255, 255, 255, .18);
+    }
+
+    .image-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+    }
+
+    .image-lightbox[hidden] {
+      display: none;
+    }
+
+    .image-lightbox-backdrop {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      background: rgba(0, 0, 0, .74);
+      cursor: zoom-out;
+    }
+
+    .image-lightbox-panel {
+      position: relative;
+      display: grid;
+      gap: 8px;
+      max-width: min(960px, 90vw);
+      max-height: 88vh;
+    }
+
+    .image-lightbox-panel img {
+      max-width: 100%;
+      max-height: calc(88vh - 48px);
+      object-fit: contain;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 8px;
+      background: #080808;
+      box-shadow: 0 22px 70px rgba(0, 0, 0, .55);
+    }
+
+    .image-lightbox-footer {
+      min-height: 38px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 34px;
+      align-items: center;
+      gap: 10px;
+      padding: 0 2px;
+      color: #e5e5e5;
+    }
+
+    .image-lightbox-close {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 50%;
+      color: #fff;
+      background: rgba(255, 255, 255, .08);
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .image-lightbox-close:hover {
+      background: rgba(255, 255, 255, .16);
     }
 
     .composer-bar {
@@ -826,6 +910,16 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  <div class="image-lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-label="图片预览" hidden>
+    <button class="image-lightbox-backdrop" id="imageLightboxBackdrop" type="button" aria-label="关闭图片预览"></button>
+    <div class="image-lightbox-panel">
+      <img id="imageLightboxImg" alt="">
+      <div class="image-lightbox-footer">
+        <span class="truncate" id="imageLightboxName"></span>
+        <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="关闭图片预览">×</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -837,6 +931,7 @@
       processing: false,
       collapsedToolServices: new Set(),
       imagePreviewUrls: [],
+      activeImagePreviewIndex: -1,
     };
 
     const el = {
@@ -861,6 +956,11 @@
       envKnowledge: document.getElementById("envKnowledge"),
       caseSource: document.getElementById("caseSource"),
       toast: document.getElementById("toast"),
+      imageLightbox: document.getElementById("imageLightbox"),
+      imageLightboxImg: document.getElementById("imageLightboxImg"),
+      imageLightboxName: document.getElementById("imageLightboxName"),
+      imageLightboxBackdrop: document.getElementById("imageLightboxBackdrop"),
+      imageLightboxClose: document.getElementById("imageLightboxClose"),
     };
 
     document.getElementById("newCase").addEventListener("click", resetCase);
@@ -872,6 +972,11 @@
 
     el.images.addEventListener("change", updateImages);
     el.form.addEventListener("paste", handleComposerPaste);
+    el.imageLightboxBackdrop.addEventListener("click", closeImagePreview);
+    el.imageLightboxClose.addEventListener("click", closeImagePreview);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !el.imageLightbox.hidden) closeImagePreview();
+    });
     window.addEventListener("beforeunload", revokeImagePreviewUrls);
 
     el.form.addEventListener("submit", async (event) => {
@@ -1013,6 +1118,7 @@
     }
 
     function updateImages() {
+      closeImagePreview();
       updateFileCount();
       renderImagePreviews();
     }
@@ -1044,14 +1150,40 @@
         state.imagePreviewUrls.push(url);
         return `
           <div class="image-preview">
-            <img src="${escapeAttr(url)}" alt="${escapeAttr(file.name || "screenshot")}">
+            <button class="image-preview-open" type="button" data-preview-index="${index}" aria-label="预览截图">
+              <img src="${escapeAttr(url)}" alt="${escapeAttr(file.name || "screenshot")}">
+            </button>
             <button class="image-remove" type="button" data-image-index="${index}" aria-label="移除截图">×</button>
           </div>
         `;
       }).join("");
+      el.imagePreviewList.querySelectorAll("[data-preview-index]").forEach((button) => {
+        button.addEventListener("click", () => openImagePreview(Number(button.dataset.previewIndex)));
+      });
       el.imagePreviewList.querySelectorAll("[data-image-index]").forEach((button) => {
         button.addEventListener("click", () => removeImageAt(Number(button.dataset.imageIndex)));
       });
+    }
+
+    function openImagePreview(index) {
+      const url = state.imagePreviewUrls[index];
+      const file = Array.from(el.images.files || [])[index];
+      if (!url || !file) return;
+      state.activeImagePreviewIndex = index;
+      el.imageLightboxImg.src = url;
+      el.imageLightboxImg.alt = file.name || "screenshot";
+      el.imageLightboxName.textContent = file.name || "screenshot";
+      el.imageLightbox.hidden = false;
+      el.imageLightboxClose.focus();
+    }
+
+    function closeImagePreview() {
+      if (el.imageLightbox.hidden) return;
+      state.activeImagePreviewIndex = -1;
+      el.imageLightbox.hidden = true;
+      el.imageLightboxImg.removeAttribute("src");
+      el.imageLightboxImg.alt = "";
+      el.imageLightboxName.textContent = "";
     }
 
     function imageExtension(type) {
