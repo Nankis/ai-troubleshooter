@@ -19,3 +19,7 @@
 - 本轮真实 LLM 验证使用 health-food 本地库和本地 readonly 服务，不是生产 health-food。
 - 图片真实视觉模型未在本轮重新验收；本轮配置使用 `VISION_PROVIDER=local_mock` 避免把无关图片链路混入文本决策验收。
 - Go baseline 仍是 phase-0；Python agents team 仍是目标决策层方向。
+
+## Git
+
+- `58143dd P-2026-034 enable real LLM profiles` 已推送 `origin/main`。

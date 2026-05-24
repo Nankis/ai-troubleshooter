@@ -35,10 +35,10 @@
 
 ## 下一步
 
-- 提交并推送 main。
 - 结束前停止本轮启动的本地服务，除非用户要求保留。
 
 ## 工作树
 
-- 当前有本 Program 代码、文档和截图改动未提交。
+- 实现提交：`58143dd P-2026-034 enable real LLM profiles`，已推送 `origin/main`。
+- 本文件和 `STATUS.yml` 是推送后状态回写，需随最终 handoff 提交推送。
 - 不要提交任何本地密钥或 health-food 配置文件。
