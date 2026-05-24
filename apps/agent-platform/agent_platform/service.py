@@ -438,7 +438,7 @@ class AgentPlatform:
                 title=row.get("title") or "",
                 confidence=float(row.get("confidence") or 0),
                 observed_case_count=int(row.get("observed_case_count") or 0),
-                requires_realtime_check=_requires_realtime(case),
+                requires_realtime_check=False,
                 source=f"knowledge:{row.get('id')}",
                 summary=row.get("typical_description") or "",
             )
@@ -808,37 +808,6 @@ def _friendly_field(field: str) -> str:
         "abnormal_time": "异常发生的大概时间",
     }
     return mapping.get(field, field)
-
-
-def _requires_realtime(case: dict[str, Any]) -> bool:
-    text = f"{case.get('original_text') or ''}\n{case.get('ocr_text') or ''}"
-    if re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text):
-        return True
-    return any(
-        word in text
-        for word in [
-            "今日",
-            "今天",
-            "刚刚",
-            "现在",
-            "生产",
-            "不准",
-            "没有",
-            "查真实",
-            "真实数据",
-            "实际数据",
-            "查数据库",
-            "查db",
-            "Gateway",
-            "gateway",
-            "网关",
-            "证据不足",
-            "本地代码",
-            "代码检查",
-            "debug_local_code",
-            "gateway_evidence_status",
-        ]
-    )
 
 
 def _safe_case(case: dict[str, Any]) -> dict[str, Any]:

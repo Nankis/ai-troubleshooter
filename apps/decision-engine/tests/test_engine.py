@@ -192,6 +192,33 @@ class DecisionEngineTest(unittest.TestCase):
 
         self.assertEqual(response.action, "invoke_tools")
 
+    def test_decision_engine_realtime_gate_uses_problem_text(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(
+                    case_no="case_1",
+                    issue_domain="health_food",
+                    issue_type="餐食数据异常",
+                    original_text="health-food uid hf-1 2026-05-23 请查真实数据，确认推荐来源餐食是否错配",
+                ),
+                entities={"uid": "hf-1", "issue_type": "餐食数据异常", "recommendation_date": "2026-05-23"},
+                knowledge_candidates=[
+                    KnowledgeCandidate(
+                        title="历史 SOP",
+                        confidence=0.96,
+                        observed_case_count=5,
+                        requires_realtime_check=False,
+                        source="knowledge:1",
+                    )
+                ],
+                available_tools=[ToolSpec(name="get_health_food_recommendation_status")],
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertIn("realtime_check_required=True", response.agent_reports[1].observations)
+
     def test_unknown_domain_uses_fallback_agent(self) -> None:
         engine = DecisionEngine()
         response = engine.plan(

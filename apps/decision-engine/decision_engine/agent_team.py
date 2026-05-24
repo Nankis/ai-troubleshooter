@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import re
 
 from .models import (
     AgentReport,
@@ -62,7 +63,7 @@ class KnowledgeAgent:
                 agent_name=self.name,
                 action="skip",
                 reason="没有满足直接复用条件的平台经验，继续走实时只读证据排查。",
-                observations=[observation],
+                observations=[observation, f"realtime_check_required={_request_requires_realtime(request)}"],
             )
 
         source = best.source or best.title
@@ -84,7 +85,12 @@ class KnowledgeAgent:
         if not candidates:
             return None
         best = candidates[0]
-        if best.confidence >= 0.88 and best.observed_case_count >= 2 and not best.requires_realtime_check:
+        if (
+            best.confidence >= 0.88
+            and best.observed_case_count >= 2
+            and not best.requires_realtime_check
+            and not _request_requires_realtime(request)
+        ):
             return best
         return None
 
@@ -473,3 +479,39 @@ class SupervisorAgentTeam:
             knowledge_source=report.knowledge_source,
             confidence=report.confidence,
         )
+
+
+def _request_requires_realtime(request: DecisionRequest) -> bool:
+    text_parts = [
+        request.case.original_text,
+        request.case.ocr_text,
+        " ".join(str(value) for value in request.entities.values()),
+    ]
+    text = "\n".join(part for part in text_parts if part)
+    if re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text):
+        return True
+    return any(
+        word in text
+        for word in [
+            "今日",
+            "今天",
+            "刚刚",
+            "现在",
+            "生产",
+            "不准",
+            "没有",
+            "查真实",
+            "真实数据",
+            "实际数据",
+            "查数据库",
+            "查db",
+            "Gateway",
+            "gateway",
+            "网关",
+            "证据不足",
+            "本地代码",
+            "代码检查",
+            "debug_local_code",
+            "gateway_evidence_status",
+        ]
+    )

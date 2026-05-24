@@ -29,13 +29,14 @@ flowchart LR
   Engine --> Knowledge["Platform Knowledge<br/>历史 case / root cause / SOP"]
   Engine --> Model["Platform LLM / Vision"]
   Platform --> Store[("Platform MySQL<br/>case / decision log / context ledger / knowledge")]
-  Engine --> Platform
+  Engine -- "answer / ask / tool_plan" --> Platform
   Knowledge --> Store
-  Platform -- "按计划调用只读工具" --> Gateway["Go Investigation Gateway<br/>鉴权 / scope / 限流 / timeout / 审计 / 脱敏"]
+  Engine -- "决定是否查 Gateway<br/>生成已验证 tool plan" --> Executor["Platform Tool Executor<br/>只执行决策层计划"]
+  Executor -- "执行只读工具调用" --> Gateway["Go Investigation Gateway<br/>鉴权 / scope / 限流 / timeout / 审计 / 脱敏"]
   Gateway --> Tools["注册只读工具<br/>logs / market / asset / risk / MCP"]
   Tools --> Business["业务 readonly adapters"]
   Business --> BusinessDB[("业务侧数据")]
-  Platform --> Input
+  Platform -- "回复用户 / 更新会话" --> Input
 ```
 
 ## 当前状态
@@ -46,7 +47,7 @@ flowchart LR
 | Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。 |
 | Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。新增 Context Ledger 只保存压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
-| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Supervisor 只读取 case snapshot、Context Ledger 摘要和 specialist 报告。 |
+| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；是否复用经验、是否查询 Gateway、查询哪些工具都由决策层决定。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，不返回源码片段。 |

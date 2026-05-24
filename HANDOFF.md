@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-040-real-qwen-health-food-full-flow/HANDOFF.md`
+- `programs/P-2026-041-decision-owned-gateway-read-policy/HANDOFF.md`
 
 当前状态：
 
-- L3 真实依赖复验已完成；ai-troubleshooter 已推送 main，health-food `31657fe` 已推送 feature 分支。
+- Gateway 读取策略归属已修正：由 Decision Engine 决定是否查 Gateway，Agent Platform runtime 只执行已验证计划。
 
 接手规则：
 
