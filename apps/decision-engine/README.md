@@ -64,7 +64,12 @@ The response action is `local_code_inspection`. Evidence contains relative file 
 - `analysis_backends` reports the active lightweight resolver and any configured `tree_sitter` / `lsp` / `lsif` backend slot.
 - The analyzer interface can later be backed by tree-sitter, LSP, or LSIF without changing the Local Code Agent safety contract.
 
-Run locally:
+Runtime shape:
+
+- Normal Web Chat / Lark / Feishu troubleshooting does use this Decision Engine, but it is embedded in the Python Agent Platform process. Agent Platform constructs a `DecisionRequest` and calls `DecisionEngine.plan(request)` directly.
+- The standalone HTTP server below is only for protocol debugging and local smoke tests. Do not interpret "no separate process" as "Decision Engine is skipped".
+
+Run standalone for debugging:
 
 ```bash
 cd apps/decision-engine

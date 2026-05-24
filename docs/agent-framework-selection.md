@@ -4,7 +4,7 @@
 
 一期本地 MVP 继续使用轻量有限状态编排，不立即引入 LangGraph / LangChain 作为运行时强依赖。Python `apps/decision-engine` 已实现轻量 Agent Team 基线：Supervisor、Kline Agent、Asset Agent、Knowledge Agent 和 Verifier。
 
-目标形态仍然是 Python `apps/decision-engine` 承接 Agent Orchestrator。当前 Go `decisionbaseline` 只用于本地 smoke/fallback，并复用同一套限制：必要字段检查、平台经验优先、有限工具计划、Gateway 只读调用、决策日志和停止条件。
+目标形态已经收敛为 Python `apps/decision-engine` 承接 Agent Orchestrator。正常 Web Chat / Lark / 飞书主路径由 Agent Platform 进程内调用 `DecisionEngine.plan()`；Go 侧不再保留决策 fallback，只负责 Investigation Gateway 的只读工具边界、安全、限流、审计和脱敏。
 
 ## 调研摘要
 

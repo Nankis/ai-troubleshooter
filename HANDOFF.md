@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-043-local-code-actionable-report/HANDOFF.md`
+- `programs/P-2026-044-decision-engine-runtime-clarity/HANDOFF.md`
 
 当前状态：
 
-- P-2026-043 已完成：本地代码辅助排查已从路径命中列表升级为文件、方法、行范围、疑点、下一步核对建议和有界代码摘录；准备推送 `main`。
+- P-2026-044 已完成：Web Chat 不需要单独启动外部 Decision Engine 服务，但排查主路径必须在 Agent Platform 进程内调用 `DecisionEngine.plan()`；已加回归测试防止绕过。
 
 接手规则：
 

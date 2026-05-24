@@ -16,6 +16,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from decision_engine import DecisionRequest, DecisionResponse, VerificationReport
+
 from agent_platform.config import ChatPlatformConfig, Config, LLMConfig, VisionConfig, load_config
 from agent_platform.gateway import GatewayHTTPClient
 from agent_platform.llm import LLMResult
@@ -239,6 +241,20 @@ class CapturingLLM:
         return LLMResult({"summary": "LLM saw compact evidence only", "confidence": 0.81}, "capture", "test")
 
 
+class RecordingDecisionEngine:
+    def __init__(self) -> None:
+        self.requests: list[DecisionRequest] = []
+
+    def plan(self, request: DecisionRequest) -> DecisionResponse:
+        self.requests.append(request)
+        return DecisionResponse(
+            action="ask_user",
+            reason="unit test decision engine asked for uid",
+            missing_fields=["user_id_or_uid"],
+            verification=VerificationReport(accepted=True, reason="unit test"),
+        )
+
+
 class AgentPlatformFastAPITest(unittest.TestCase):
     def setUp(self) -> None:
         web_file = Path(tempfile.gettempdir()) / "agent-platform-test.html"
@@ -283,6 +299,18 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
         self.assertIn("orchestrator_plan", decision_types)
         self.assertIn("tool_invocation", decision_types)
+
+    def test_web_chat_must_call_decision_engine_plan(self) -> None:
+        decision_engine = RecordingDecisionEngine()
+        platform = AgentPlatform(self.config, MemoryRepository(), gateway=FakeGateway(), decision_engine=decision_engine)
+
+        result = platform.submit_chat(message="health-food 今日没有每日推荐", async_process=False)
+
+        self.assertEqual(len(decision_engine.requests), 1)
+        request = decision_engine.requests[0]
+        self.assertEqual(request.case.issue_domain, "health_food")
+        self.assertEqual([tool.name for tool in request.available_tools], [item["name"] for item in FakeGateway().list_tools()])
+        self.assertIn("业务 uid", result["reply"])
 
     def test_context_ledger_records_agent_reports_tool_evidence_and_summary(self) -> None:
         response = self.client.post(

@@ -47,7 +47,7 @@ flowchart LR
 | Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。 |
 | Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。新增 Context Ledger 只保存压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
-| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；是否复用经验、是否查询 Gateway、查询哪些工具都由决策层决定。 |
+| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Web Chat/Lark/飞书主路径都会在 Agent Platform 进程内调用 `DecisionEngine.plan()`，是否复用经验、是否查询 Gateway、查询哪些工具都由决策层决定。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，并返回有界脱敏代码摘录、具体方法、行范围、疑点和下一步核对建议。 |

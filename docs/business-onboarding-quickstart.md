@@ -277,7 +277,19 @@ Agent Platform 的常用 API：
 
 ### 6.3 Decision Engine 是否单独启动
 
-正常 Web Chat 场景不要求业务方单独启动 Decision Engine。Agent Platform 会走 Python 决策路径。
+正常 Web Chat 场景不要求业务方单独启动一个外部 Decision Engine 服务，但排查必须经过 Decision Engine。Agent Platform 会在同一个 Python 进程内加载 `apps/decision-engine`，并在每个 case 的 `process_case()` 中调用 `DecisionEngine.plan(request)`。
+
+因此主路径是：
+
+```text
+Web Chat / Lark / Feishu
+  -> Agent Platform
+  -> DecisionEngine.plan()
+  -> Supervisor / Specialist Agents / Knowledge Agent / Local Code Agent / Verifier
+  -> 按决策结果询问用户、复用经验、调用 Gateway tools，或进入本地代码辅助排查
+```
+
+判断是否真的经过 Decision Engine，可以看平台 MySQL 的 `tb_troubleshoot_ai_decision_log`：正常排查会有 `decision_type=orchestrator_plan`，`reason` 通常包含 `Python Supervisor selected next action and verifier checked tool budget/safety`。
 
 需要调试协议时可以单独启动：
 
@@ -285,7 +297,7 @@ Agent Platform 的常用 API：
 make decision-engine
 ```
 
-这只用于调试，不改变架构边界。
+这只用于调试 Decision Engine HTTP/CLI 协议，不是业务方接入或 Web Chat 必需进程，也不改变架构边界。
 
 ## 7. Gateway 鉴权、scope 和 Bearer 配置
 
