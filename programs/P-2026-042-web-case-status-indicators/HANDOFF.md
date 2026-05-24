@@ -13,11 +13,11 @@
 - 已启动 `http://127.0.0.1:19091/web`，Browser 1600x950 验证通过。
 - 已清理验证用 MySQL fixture。
 - 已运行 `node -e` inline script parse、`git diff --check`、`make test`、`make secret-scan`。
-- 已提交：`P-2026-042 add web case status indicators`（最终 hash 以 `git log` 为准）。
+- 已提交并推送：`5cdeede P-2026-042 add web case status indicators`。
 
 下一步：
 
-- 推送 main。
+- 无；本 Program 已完成。
 
 风险：
 

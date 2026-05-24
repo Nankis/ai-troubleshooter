@@ -19,7 +19,8 @@
 
 ## Commit
 
-- `P-2026-042 add web case status indicators`（最终 hash 以 `git log` 为准）
+- `5cdeede P-2026-042 add web case status indicators`
+- 已推送 `main`。
 
 ## 残留风险
 
