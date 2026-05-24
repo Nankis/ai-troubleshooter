@@ -1,0 +1,13 @@
+program: P-2026-039-business-onboarding-docs
+level: Full
+type: documentation
+in_scope:
+  - docs/business-onboarding-quickstart.md
+  - README.md
+  - HANDOFF.md
+  - programs/P-2026-039-business-onboarding-docs
+out_of_scope:
+  - runtime code changes
+  - schema changes
+  - real adapter validation
+validation_level: L0-L1

@@ -132,7 +132,7 @@ web/                       内置 Web Chat 静态页面
 | 开发规则 | [AGENTS.md](AGENTS.md), [docs/ai-workflow.md](docs/ai-workflow.md), [docs/VERIFICATION.md](docs/VERIFICATION.md), [docs/LESSONS.md](docs/LESSONS.md) |
 | 架构与边界 | [docs/architecture-decisions.md](docs/architecture-decisions.md), [docs/phase1.md](docs/phase1.md) |
 | 本地运行 | [docs/local-runbook.md](docs/local-runbook.md), [docs/web-workbench.md](docs/web-workbench.md), [apps/decision-engine/README.md](apps/decision-engine/README.md) |
-| 新手接入 | [docs/business-onboarding-quickstart.md](docs/business-onboarding-quickstart.md) |
+| 业务方从零接入 | [docs/business-onboarding-quickstart.md](docs/business-onboarding-quickstart.md) |
 | 业务接入 | [docs/ai-connector-integration.md](docs/ai-connector-integration.md), [docs/business-service-registration.md](docs/business-service-registration.md), [configs/business-capabilities.health-food.example.yaml](configs/business-capabilities.health-food.example.yaml) |
 | 安全与控制 | [docs/gateway-security.md](docs/gateway-security.md), [docs/decision-logging-and-limits.md](docs/decision-logging-and-limits.md), [docs/deployment-checklist.md](docs/deployment-checklist.md) |
 | MCP / DMS | [docs/mcp-gateway-adapter.md](docs/mcp-gateway-adapter.md), [docs/dms-mcp-integration.md](docs/dms-mcp-integration.md) |

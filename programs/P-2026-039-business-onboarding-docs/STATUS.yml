@@ -1,0 +1,12 @@
+program: P-2026-039-business-onboarding-docs
+status: completed
+updated_at: "2026-05-25T00:00:00+08:00"
+validation:
+  level: L0-L1
+  commands:
+    - git diff --check
+    - make secret-scan
+  skipped:
+    - make test: docs-only change
+commit:
+  status: final_commit_includes_this_program
