@@ -6,7 +6,7 @@
 
 当前状态：
 
-- L3 真实依赖复验已完成；ai-troubleshooter `0834090` 已推送 main，health-food `31657fe` 已推送 feature 分支。
+- L3 真实依赖复验已完成；ai-troubleshooter 已推送 main，health-food `31657fe` 已推送 feature 分支。
 
 接手规则：
 

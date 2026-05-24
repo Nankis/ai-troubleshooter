@@ -28,7 +28,7 @@
 
 ## 提交
 
-- ai-troubleshooter：`0834090`，已推送 `origin/main`。
+- ai-troubleshooter：实现提交和收尾状态提交均已推送 `origin/main`。
 - health-food：`31657fe`，已推送 `origin/feature/P-2026-009-health-food-readonly`。
 
 ## 残留风险

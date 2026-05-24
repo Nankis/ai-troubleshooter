@@ -8,5 +8,5 @@ services:
   agent_platform: verified
 commit:
   status: pushed
-  ai_troubleshooter_main: 0834090
-  health_food_feature: 31657fe
+  ai_troubleshooter_main: pushed
+  health_food_feature: pushed
