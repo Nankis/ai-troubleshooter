@@ -23,7 +23,7 @@
 | T2 | done | EV-T2-001, EV-T2-002 |
 | T3 | done | EV-T3-001 |
 | T4 | done | EV-T4-001, EV-T4-002, EV-T4-003, EV-T4-004, EV-T4-005, EV-T4-006 |
-| T5 | in_progress | commit 待完成 |
+| T5 | done | 8f66fc2 |
 
 ## 验证摘要
 
@@ -45,7 +45,7 @@
 
 ## Commit
 
-- 待提交后更新。
+- `8f66fc2 P-2026-038 remove legacy go llm paths`
 
 ## 残留风险
 
