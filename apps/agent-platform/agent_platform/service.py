@@ -192,7 +192,7 @@ class AgentPlatform:
                 "orchestrator_plan",
                 "Python Supervisor selected next action and verifier checked tool budget/safety",
                 {"case": _safe_case(case), "entities": entities, "available_tool_count": len(tools)},
-                decision.to_dict(),
+                _decision_log_snapshot(decision),
                 "success",
                 latency_ms=_elapsed_ms(step_start),
                 selected_tools=[item.tool_name for item in decision.tool_plan],
@@ -569,17 +569,24 @@ class AgentPlatform:
         report = next((item for item in decision.agent_reports if item.agent_name == "local_code_agent"), None)
         evidence = report.evidence if report else []
         top_hits = _local_code_top_hits(evidence, 4)
+        findings = _local_code_findings(evidence, 4)
         lines = [
             f"[{case['case_no']}] 本地代码辅助排查已完成：{decision.reason}",
-            "这不是生产证据，只能作为最后手段的代码定位线索。",
+            "注意：这不是生产证据，只能作为最后手段的本地代码定位线索；最终仍要用 Gateway/DB/日志确认。",
         ]
-        if top_hits:
+        if findings:
+            lines.append("")
+            lines.append("优先定位：")
+            lines.extend(findings)
+        elif top_hits:
+            lines.append("")
             lines.append("优先查看：" + "；".join(top_hits))
         if report and report.observations:
             modes = [item for item in report.observations if item.startswith("analysis_modes=") or item.startswith("analysis_backends=")]
             if modes:
+                lines.append("")
                 lines.append("分析范围：" + "，".join(modes))
-        reply = " ".join(lines)
+        reply = "\n".join(lines)
         self.repository.add_message(int(case["id"]), "agent", reply)
         self._record_context_ledger(
             case,
@@ -781,23 +788,120 @@ def _missing_reply(case_no: str, missing_fields: list[str]) -> str:
     return f"[{case_no}] 我还需要补充：{friendly}。如果不确定时间，可以直接说“今天/刚刚/大约几点”；默认按 UTC+8 处理。"
 
 
+def _decision_log_snapshot(decision: DecisionResponse) -> dict[str, Any]:
+    payload = decision.to_dict()
+    compact_reports: list[dict[str, Any]] = []
+    for report in payload.get("agent_reports") or []:
+        if not isinstance(report, dict):
+            continue
+        item = dict(report)
+        item["observations"] = [str(value)[:240] for value in (item.get("observations") or [])[:16]]
+        item["risks"] = list((item.get("risks") or [])[:8])
+        item["evidence"] = _compact_decision_evidence(str(item.get("agent_name") or ""), item.get("evidence") or [])
+        compact_reports.append(item)
+    payload["agent_reports"] = compact_reports
+    return payload
+
+
+def _compact_decision_evidence(agent_name: str, evidence: Any) -> list[dict[str, Any]]:
+    if not isinstance(evidence, list):
+        return []
+    if agent_name != "local_code_agent":
+        return evidence[:20]
+    compact: list[dict[str, Any]] = []
+    for row in evidence[:8]:
+        if not isinstance(row, dict):
+            continue
+        compact.append(
+            {
+                "file_path": row.get("file_path"),
+                "primary_symbol": row.get("primary_symbol"),
+                "line_range": row.get("line_range"),
+                "line_numbers": row.get("line_numbers"),
+                "suspect_reasons": list((row.get("suspect_reasons") or [])[:4]),
+                "follow_up_checks": list((row.get("follow_up_checks") or [])[:3]),
+                "code_excerpt_line_count": len(row.get("code_excerpt") or []),
+                "analysis_modes": row.get("analysis_modes"),
+            }
+        )
+    return compact
+
+
 def _local_code_top_hits(evidence: list[dict[str, Any]], limit: int) -> list[str]:
     hits: list[str] = []
     for item in evidence[:limit]:
         file_path = str(item.get("file_path") or "").strip()
         if not file_path:
             continue
+        primary = item.get("primary_symbol") if isinstance(item.get("primary_symbol"), dict) else {}
+        line_range = item.get("line_range") if isinstance(item.get("line_range"), dict) else {}
         raw_lines = item.get("line_numbers") or []
         line_numbers = [str(value) for value in raw_lines[:5]]
         raw_terms = item.get("matched_terms") or []
         terms = [str(value) for value in raw_terms[:4] if str(value).strip()]
         detail = file_path
-        if line_numbers:
+        if line_range.get("start") and line_range.get("end"):
+            detail += f":{line_range.get('start')}-{line_range.get('end')}"
+        elif line_numbers:
             detail += f":{','.join(line_numbers)}"
+        if primary.get("name"):
+            detail += f" `{primary.get('name')}`"
         if terms:
             detail += f" ({'/'.join(terms)})"
         hits.append(detail)
     return hits
+
+
+def _local_code_findings(evidence: list[dict[str, Any]], limit: int) -> list[str]:
+    findings: list[str] = []
+    for index, item in enumerate(evidence[:limit], start=1):
+        file_path = str(item.get("file_path") or "").strip()
+        if not file_path:
+            continue
+        primary = item.get("primary_symbol") if isinstance(item.get("primary_symbol"), dict) else {}
+        line_range = item.get("line_range") if isinstance(item.get("line_range"), dict) else {}
+        line_numbers = [str(value) for value in (item.get("line_numbers") or [])[:8]]
+        reasons = [str(value) for value in (item.get("suspect_reasons") or [])[:4] if str(value).strip()]
+        checks = [str(value) for value in (item.get("follow_up_checks") or [])[:3] if str(value).strip()]
+        excerpt = item.get("code_excerpt") if isinstance(item.get("code_excerpt"), list) else []
+
+        block = [
+            f"{index}. {file_path}{_format_line_range(line_range)}",
+        ]
+        if primary.get("name"):
+            symbol_line = f"L{primary.get('line_number')}" if primary.get("line_number") else "-"
+            block.append(f"   - 方法/符号：`{primary.get('name')}`（{primary.get('kind') or 'symbol'}，{symbol_line}）")
+        if line_numbers:
+            block.append(f"   - 命中行：{', '.join('L' + value for value in line_numbers)}")
+        if reasons:
+            block.append("   - 可疑点：" + "；".join(reasons))
+        if checks:
+            block.append("   - 建议核对：" + "；".join(checks))
+        code_lines = _format_code_excerpt(excerpt)
+        if code_lines:
+            block.append("   - 相关代码：")
+            block.extend(code_lines)
+        findings.append("\n".join(block))
+    return findings
+
+
+def _format_line_range(value: dict[str, Any]) -> str:
+    start = value.get("start")
+    end = value.get("end")
+    if start and end:
+        return f":{start}-{end}"
+    return ""
+
+
+def _format_code_excerpt(excerpt: list[Any], limit: int = 8) -> list[str]:
+    lines: list[str] = []
+    for item in excerpt[:limit]:
+        if not isinstance(item, dict):
+            continue
+        line_number = item.get("line_number")
+        text = str(item.get("text") or "")
+        lines.append(f"     L{line_number}: {text}")
+    return lines
 
 
 def _friendly_field(field: str) -> str:

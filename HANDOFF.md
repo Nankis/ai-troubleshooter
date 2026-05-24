@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-042-web-case-status-indicators/HANDOFF.md`
+- `programs/P-2026-043-local-code-actionable-report/HANDOFF.md`
 
 当前状态：
 
-- Web 左侧问题状态增强已实现并验证：排查中显示 spinner，AI 结果未查看显示待查看，点击 case 后清除本机提示。
+- P-2026-043 已完成：本地代码辅助排查已从路径命中列表升级为文件、方法、行范围、疑点、下一步核对建议和有界代码摘录；准备推送 `main`。
 
 接手规则：
 

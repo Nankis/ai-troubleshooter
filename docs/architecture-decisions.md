@@ -119,7 +119,7 @@ flowchart LR
 - 平台数据、知识库和 LLM/Vision 由 Agent 平台统一提供；业务方不需要提供平台 MySQL 或模型接口。
 - 业务方只需要提供业务只读 adapter，例如行情、资产、日志、缓存和发布记录等证据源。
 - 决策层可以本地运行用于开发、联调和评测；稳定后应部署到受控环境。
-- 本地代码查看只是最后手段，输出应标记为 `suspected_code_bug`，不能直接当作最终根因；证据只返回相对路径、符号、调用边、resolved symbol、receiver type 和接口实现关系，不返回源码片段。
+- 本地代码查看只是最后手段，输出应标记为 `suspected_code_bug`，不能直接当作最终根因；本地 debug-only 场景允许返回 allowlist 仓库内的相对路径、具体符号、行范围、调用边、resolved symbol、receiver type、接口实现关系、有界脱敏代码摘录、疑点和下一步核对建议。
 - 任何决策链路都必须保留 tool call budget、model call budget、case timeout 和 decision logs。
 - 任何进入 LLM 的工具结果都必须先压缩为 Context Ledger observation；原始 Gateway `data` 只允许进入脱敏审计，不允许直接进入主 Agent 上下文。
 
@@ -187,7 +187,7 @@ Phase 2：完整 RAG
 - 不把向量数据库当主库。
 - 不用向量库保存审计日志、状态机、工具调用记录、幂等键或权限数据。
 - 不让模型只凭相似 case 给最终根因。
-- 不把本地代码检索结果写成未脱敏的大段源码日志。
+- 不把本地代码检索结果写成未脱敏的大段源码日志；如需代码摘录，只允许本地 debug-only、短行、脱敏和 allowlist。
 - 不把 tree-sitter、LSP 或 LSIF 后端结果绕过 Local Code Agent 的安全契约直接暴露给用户。
 
 ### 引入向量库的触发条件

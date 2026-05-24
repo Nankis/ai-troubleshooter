@@ -55,7 +55,7 @@ Gateway / adapter may provide `service_name`、`repo_hint`、`suspect_area`, but
 }
 ```
 
-The response action is `local_code_inspection`. Evidence contains only relative file paths, matched terms, symbols, call edges, resolved symbols, interface implementation relations, and line numbers; no source snippets are returned. The built-in analyzer is intentionally lightweight:
+The response action is `local_code_inspection`. Evidence contains relative file paths, matched terms, primary symbols, line ranges, bounded redacted code excerpts, suspect reasons, follow-up checks, call edges, resolved symbols, interface implementation relations, and line numbers. The built-in analyzer is intentionally lightweight:
 
 - Python uses stdlib AST for classes, functions, and calls.
 - Java / Go / TypeScript / JavaScript use language-aware structure scanning for classes/functions/methods and bounded call edges.

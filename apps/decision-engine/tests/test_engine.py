@@ -344,7 +344,16 @@ class DecisionEngineTest(unittest.TestCase):
             self.assertIn("analysis_backends=lightweight,cross_module_resolver", local_report.observations)
             self.assertNotIn("application-prod.yml", str(local_report.evidence))
             self.assertNotIn("should_not_be_returned", str(local_report.evidence))
-            self.assertIn("no_source_snippets", response.verification.checks)
+            self.assertIn("bounded_code_excerpt", response.verification.checks)
+            self.assertIn("secret_line_masking", response.verification.checks)
+            first_hit = local_report.evidence[0]
+            self.assertEqual(first_hit["primary_symbol"]["name"], "RecommendationJob.run")
+            self.assertEqual(first_hit["primary_symbol"]["kind"], "method")
+            self.assertIn("line_range", first_hit)
+            self.assertIn("code_excerpt", first_hit)
+            self.assertIn("suspect_reasons", first_hit)
+            self.assertIn("follow_up_checks", first_hit)
+            self.assertIn("foodService.generateDailyFoodRecommendWithFingerprint(uid, meals);", str(first_hit["code_excerpt"]))
 
     def test_local_code_config_accepts_semantic_backend_slots(self) -> None:
         config = LocalRepoConfig.from_dict(

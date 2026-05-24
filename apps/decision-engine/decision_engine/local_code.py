@@ -52,7 +52,10 @@ DEFAULT_DENY_GLOBS = (
 TEXT_FILE_MAX_BYTES = 256 * 1024
 MAX_SYMBOLS_PER_HIT = 8
 MAX_CALL_EDGES_PER_HIT = 12
+MAX_CODE_EXCERPT_LINES = 14
+MAX_CODE_EXCERPT_LINE_CHARS = 180
 CALL_IGNORED_NAMES = {
+    "add",
     "if",
     "for",
     "while",
@@ -67,9 +70,73 @@ CALL_IGNORED_NAMES = {
     "finally",
     "synchronized",
     "assert",
+    "asList",
+    "build",
+    "builder",
+    "collect",
+    "contains",
+    "debug",
+    "emptyList",
+    "equals",
+    "error",
+    "filter",
+    "format",
+    "get",
+    "info",
+    "isEmpty",
+    "joining",
+    "map",
+    "now",
+    "of",
+    "put",
+    "remove",
+    "set",
+    "size",
+    "sorted",
+    "stream",
     "sizeof",
+    "toList",
+    "toString",
     "typeof",
     "await",
+    "valueOf",
+    "warn",
+}
+
+SECRET_LINE_RE = re.compile(r"(?i)(password|passwd|secret|token|credential|api[_-]?key|authorization)\s*[:=]")
+QUERY_STOP_TERMS = {
+    "area",
+    "code",
+    "data",
+    "debug",
+    "debuglocalcode",
+    "debug_local_code",
+    "evidence",
+    "evidencestatus",
+    "food",
+    "gateway",
+    "gatewayevidencestatus",
+    "gateway_evidence_status",
+    "health",
+    "healthfood",
+    "health-food",
+    "impl",
+    "insufficient",
+    "local",
+    "localcode",
+    "meal",
+    "name",
+    "service",
+    "servicename",
+    "service_name",
+    "status",
+    "suspect",
+    "suspectarea",
+    "suspect_area",
+    "true",
+    "false",
+    "uid",
+    "user",
 }
 
 
@@ -200,6 +267,11 @@ class LocalCodeHit:
     file_path: str
     matched_terms: list[str] = field(default_factory=list)
     line_numbers: list[int] = field(default_factory=list)
+    primary_symbol: CodeSymbol | None = None
+    line_range: tuple[int, int] = (0, 0)
+    code_excerpt: list[dict[str, Any]] = field(default_factory=list)
+    suspect_reasons: list[str] = field(default_factory=list)
+    follow_up_checks: list[str] = field(default_factory=list)
     symbols: list[CodeSymbol] = field(default_factory=list)
     call_edges: list[CallEdge] = field(default_factory=list)
     implement_relations: list[ImplementRelation] = field(default_factory=list)
@@ -211,6 +283,16 @@ class LocalCodeHit:
             "matched_terms": self.matched_terms,
             "line_numbers": self.line_numbers,
         }
+        if self.primary_symbol:
+            value["primary_symbol"] = self.primary_symbol.to_dict()
+        if self.line_range != (0, 0):
+            value["line_range"] = {"start": self.line_range[0], "end": self.line_range[1]}
+        if self.code_excerpt:
+            value["code_excerpt"] = self.code_excerpt
+        if self.suspect_reasons:
+            value["suspect_reasons"] = self.suspect_reasons
+        if self.follow_up_checks:
+            value["follow_up_checks"] = self.follow_up_checks
         if self.symbols:
             value["symbols"] = [symbol.to_dict() for symbol in self.symbols]
         if self.call_edges:
@@ -244,9 +326,10 @@ class LocalCodeInspection:
 
 
 class LocalCodeInspector:
-    def __init__(self, repos: dict[str, LocalRepoConfig] | None = None, enabled: bool = True) -> None:
+    def __init__(self, repos: dict[str, LocalRepoConfig] | None = None, enabled: bool = True, include_snippets: bool = True) -> None:
         self.repos = repos or {}
         self.enabled = enabled
+        self.include_snippets = include_snippets
 
     @classmethod
     def from_env(cls) -> "LocalCodeInspector":
@@ -262,7 +345,7 @@ class LocalCodeInspector:
                 raise ValueError(f"repo config for {service_name} must be an object")
             config = LocalRepoConfig.from_dict(str(service_name), value)
             repos[config.service_name] = config
-        return cls(repos=repos, enabled=True)
+        return cls(repos=repos, enabled=True, include_snippets=_truthy(os.getenv("LOCAL_CODE_INCLUDE_SNIPPETS", "true")))
 
     def inspect(
         self,
@@ -343,7 +426,7 @@ class LocalCodeInspector:
                 status="matched",
                 summary=(
                     f"本地代码只读分析命中 {len(hits)} 个文件；"
-                    "结果仅包含相对路径、命中词、符号、调用边和行号。"
+                    "结果包含相对路径、符号、行范围、调用边、疑点和有界代码摘录。"
                 ),
                 hits=hits,
                 skipped_denied_files=skipped_denied,
@@ -380,17 +463,33 @@ class LocalCodeInspector:
     def _query_terms(self, text: str) -> list[str]:
         terms: list[str] = []
         seen: set[str] = set()
-        for item in re.findall(r"[A-Za-z0-9_.$:-]{3,}", text.lower()):
-            normalized = item.strip("_.$:-")
-            if len(normalized) < 3 or normalized in seen:
-                continue
+
+        def add_term(candidate: str) -> bool:
+            normalized = candidate.lower().strip("_.$:-")
+            compact = self._compact(normalized)
+            if (
+                len(normalized) < 3
+                or normalized.isdigit()
+                or normalized in seen
+                or normalized in QUERY_STOP_TERMS
+                or compact in QUERY_STOP_TERMS
+            ):
+                return False
             seen.add(normalized)
             terms.append(normalized)
-            compact = self._compact(normalized)
             if len(compact) >= 3 and compact not in seen:
                 seen.add(compact)
                 terms.append(compact)
-            if len(terms) >= 16:
+            return True
+
+        for item in re.findall(r"[A-Za-z0-9_.$:-]{3,}", text):
+            normalized = item.strip("_.$:-")
+            add_term(normalized)
+            for part in re.split(r"[_.$:-]+", normalized):
+                add_term(part)
+            for part in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)|[0-9]+", normalized):
+                add_term(part)
+            if len(terms) >= 32:
                 break
         return terms
 
@@ -451,22 +550,287 @@ class LocalCodeInspector:
         if not matched_terms and not symbols and not call_edges and not implement_relations:
             return None
 
-        line_numbers: list[int] = []
-        for idx, line in enumerate(scanned_file.content.splitlines(), start=1):
-            if self._matches_text(line, matched_terms):
-                line_numbers.append(idx)
-                if len(line_numbers) >= 8:
-                    break
+        content_line_numbers = self._matched_content_line_numbers(scanned_file.content, matched_terms)
+        structural_line_numbers = self._merge_line_numbers(
+            [symbol.line_number for symbol in symbols],
+            [edge.line_number for edge in call_edges],
+            [relation.line_number for relation in implement_relations],
+        )
+        candidate_line_numbers = self._merge_line_numbers(
+            structural_line_numbers,
+            content_line_numbers,
+        )
+        primary_symbol = self._primary_symbol(
+            scanned_file.symbols,
+            matched_terms,
+            symbols,
+            call_edges,
+            implement_relations,
+            candidate_line_numbers,
+        )
+        line_numbers = candidate_line_numbers
+        if primary_symbol:
+            scope_start, scope_end = self._symbol_scope_range(scanned_file.content, primary_symbol, scanned_file.language)
+            scoped_line_numbers = [
+                line
+                for line in self._merge_line_numbers(content_line_numbers, structural_line_numbers)
+                if scope_start <= line <= scope_end
+            ]
+            line_numbers = self._merge_line_numbers(scoped_line_numbers, candidate_line_numbers)
+        line_numbers = line_numbers[:8]
+        line_range = self._line_range(scanned_file.content, line_numbers, primary_symbol, scanned_file.language)
+        code_excerpt = self._code_excerpt(scanned_file.content, line_range) if self.include_snippets else []
+        suspect_reasons = self._suspect_reasons(matched_terms, primary_symbol, call_edges, implement_relations)
+        follow_up_checks = self._follow_up_checks(primary_symbol, call_edges, implement_relations)
 
         return LocalCodeHit(
             file_path=scanned_file.relative_path,
             matched_terms=matched_terms[:8],
             line_numbers=line_numbers,
+            primary_symbol=primary_symbol,
+            line_range=line_range,
+            code_excerpt=code_excerpt,
+            suspect_reasons=suspect_reasons,
+            follow_up_checks=follow_up_checks,
             symbols=symbols[:MAX_SYMBOLS_PER_HIT],
             call_edges=call_edges[:MAX_CALL_EDGES_PER_HIT],
             implement_relations=implement_relations[:MAX_SYMBOLS_PER_HIT],
             analysis_modes=self._hit_modes(bool(matched_terms), bool(symbols), bool(call_edges), has_resolved_call_edges, bool(implement_relations)),
         )
+
+    def _merge_line_numbers(self, *groups: list[int]) -> list[int]:
+        merged: list[int] = []
+        seen: set[int] = set()
+        for group in groups:
+            for line_number in group:
+                if line_number <= 0 or line_number in seen:
+                    continue
+                seen.add(line_number)
+                merged.append(line_number)
+        return merged
+
+    def _matched_content_line_numbers(self, content: str, matched_terms: list[str]) -> list[int]:
+        candidates: list[tuple[int, int]] = []
+        for idx, line in enumerate(content.splitlines(), start=1):
+            if self._is_low_signal_code_line(line):
+                continue
+            if self._matches_text(line, matched_terms):
+                candidates.append((self._line_specificity_score(line, matched_terms), idx))
+        candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+        return [idx for _, idx in candidates[:8]]
+
+    def _line_specificity_score(self, line: str, terms: list[str]) -> int:
+        compacted = self._compact(line)
+        score = 0
+        for term in terms:
+            compact = self._compact(term)
+            if len(compact) < 3 or compact not in compacted:
+                continue
+            score += 4 if len(compact) >= 10 else 2 if len(compact) >= 7 else 1
+        return score
+
+    def _is_low_signal_code_line(self, line: str) -> bool:
+        stripped = line.strip()
+        if not stripped:
+            return True
+        return stripped.startswith(("package ", "import ", "from ", "using ", "//", "/*", "*", "@"))
+
+    def _primary_symbol(
+        self,
+        symbols: list[CodeSymbol],
+        matched_terms: list[str],
+        direct_symbols: list[CodeSymbol],
+        call_edges: list[CallEdge],
+        implement_relations: list[ImplementRelation],
+        line_numbers: list[int],
+    ) -> CodeSymbol | None:
+        if not symbols:
+            return None
+        anchors = self._merge_line_numbers(
+            [edge.line_number for edge in call_edges],
+            [relation.line_number for relation in implement_relations],
+            line_numbers,
+            [symbol.line_number for symbol in direct_symbols],
+        )
+        anchor = anchors[0] if anchors else symbols[0].line_number
+        direct_ids = {(symbol.name, symbol.line_number) for symbol in direct_symbols}
+
+        def score(symbol: CodeSymbol) -> tuple[int, int, int, int, int]:
+            symbol_text = symbol.search_text()
+            term_score = sum(1 for term in matched_terms if self._matches_text(symbol_text, [term]))
+            direct_score = 1 if (symbol.name, symbol.line_number) in direct_ids else 0
+            kind_score = 2 if symbol.kind in {"method", "function"} else 1 if symbol.kind in {"class", "interface"} else 0
+            before_anchor = 1 if symbol.line_number <= anchor else 0
+            distance = min(abs(symbol.line_number - item) for item in anchors) if anchors else 0
+            return (kind_score, term_score, direct_score, before_anchor, -distance)
+
+        candidates = sorted(symbols, key=score, reverse=True)
+        return candidates[0]
+
+    def _line_range(
+        self,
+        content: str,
+        line_numbers: list[int],
+        primary_symbol: CodeSymbol | None,
+        language: str,
+    ) -> tuple[int, int]:
+        total_lines = max(1, len(content.splitlines()))
+        if primary_symbol:
+            scope_start, scope_end = self._symbol_scope_range(content, primary_symbol, language)
+            scoped_lines = [line for line in line_numbers if scope_start <= line <= scope_end]
+            if scoped_lines:
+                first = min(scoped_lines)
+                last = max(scoped_lines)
+                if last - first + 1 > MAX_CODE_EXCERPT_LINES:
+                    focus = scoped_lines[0]
+                    start = max(scope_start, focus - 3)
+                    end = min(scope_end, start + MAX_CODE_EXCERPT_LINES - 1)
+                else:
+                    start = max(scope_start, first - 2)
+                    end = min(scope_end, last + 4)
+            else:
+                start = max(1, primary_symbol.line_number - 1)
+                end = min(total_lines, primary_symbol.line_number + 5)
+        elif line_numbers:
+            first = min(line_numbers)
+            last = max(line_numbers)
+            start = max(1, first - 2)
+            end = min(total_lines, last + 4)
+        else:
+            return (0, 0)
+        return self._bounded_range(start, end, total_lines)
+
+    def _symbol_scope_range(self, content: str, primary_symbol: CodeSymbol, language: str) -> tuple[int, int]:
+        if language == "python":
+            return self._python_scope_range(content, primary_symbol.line_number)
+        if language in {"java", "go", "typescript", "javascript"}:
+            return self._braced_scope_range(content, primary_symbol.line_number)
+        total_lines = max(1, len(content.splitlines()))
+        return (max(1, primary_symbol.line_number), min(total_lines, primary_symbol.line_number + MAX_CODE_EXCERPT_LINES - 1))
+
+    def _braced_scope_range(self, content: str, start_line: int) -> tuple[int, int]:
+        lines = content.splitlines()
+        total_lines = max(1, len(lines))
+        start = min(max(1, start_line), total_lines)
+        brace_depth = 0
+        found_open = False
+        for idx in range(start, total_lines + 1):
+            line = lines[idx - 1]
+            brace_depth += line.count("{") - line.count("}")
+            if "{" in line:
+                found_open = True
+            if found_open and brace_depth <= 0:
+                return (start, idx)
+            if idx - start > 240:
+                break
+        return (start, min(total_lines, start + MAX_CODE_EXCERPT_LINES - 1))
+
+    def _python_scope_range(self, content: str, start_line: int) -> tuple[int, int]:
+        lines = content.splitlines()
+        total_lines = max(1, len(lines))
+        start = min(max(1, start_line), total_lines)
+        base_indent = len(lines[start - 1]) - len(lines[start - 1].lstrip())
+        end = min(total_lines, start + MAX_CODE_EXCERPT_LINES - 1)
+        for idx in range(start + 1, total_lines + 1):
+            line = lines[idx - 1]
+            if not line.strip():
+                continue
+            indent = len(line) - len(line.lstrip())
+            if indent <= base_indent and line.lstrip().startswith(("def ", "async def ", "class ")):
+                end = idx - 1
+                break
+        return (start, end)
+
+    def _bounded_range(self, start: int, end: int, total_lines: int) -> tuple[int, int]:
+        start = max(1, min(start, total_lines))
+        end = max(start, min(end, total_lines))
+        if end - start + 1 <= MAX_CODE_EXCERPT_LINES:
+            return (start, end)
+        return (start, min(total_lines, start + MAX_CODE_EXCERPT_LINES - 1))
+
+    def _code_excerpt(self, content: str, line_range: tuple[int, int]) -> list[dict[str, Any]]:
+        start, end = line_range
+        if start <= 0 or end < start:
+            return []
+        lines = content.splitlines()
+        excerpt: list[dict[str, Any]] = []
+        for line_number in range(start, min(end, len(lines)) + 1):
+            raw = lines[line_number - 1].rstrip()
+            excerpt.append(
+                {
+                    "line_number": line_number,
+                    "text": self._sanitize_code_line(raw),
+                }
+            )
+        return excerpt
+
+    def _sanitize_code_line(self, line: str) -> str:
+        if SECRET_LINE_RE.search(line):
+            return "<masked secret-like line>"
+        clipped = line[:MAX_CODE_EXCERPT_LINE_CHARS]
+        return clipped + "..." if len(line) > MAX_CODE_EXCERPT_LINE_CHARS else clipped
+
+    def _suspect_reasons(
+        self,
+        matched_terms: list[str],
+        primary_symbol: CodeSymbol | None,
+        call_edges: list[CallEdge],
+        implement_relations: list[ImplementRelation],
+    ) -> list[str]:
+        reasons: list[str] = []
+        useful_terms = [term for term in matched_terms if term not in {"call_graph_context", "interface_implementation_context"}]
+        if useful_terms:
+            reasons.append("命中问题关键词：" + ", ".join(useful_terms[:5]))
+        compact_terms = {self._compact(term) for term in useful_terms}
+        if any("recommend" in term for term in compact_terms):
+            reasons.append("推荐链路相关：重点核对生成条件、日期窗口、uid/tenant 过滤、健康目标和餐食输入是否让推荐被跳过。")
+        if any("fingerprint" in term for term in compact_terms):
+            reasons.append("数据指纹相关：需要核对 source_meal_ids、健康目标更新时间和当前指纹是否导致复用或误判。")
+        if any(term.endswith("job") or "job" == term for term in compact_terms):
+            reasons.append("异步任务相关：需要确认定时任务触发、批量过滤、队列去重、失败重试和限流是否影响该用户。")
+        if primary_symbol:
+            reasons.append(f"主要落点是 {primary_symbol.kind} `{primary_symbol.name}`，从 L{primary_symbol.line_number} 开始。")
+        if call_edges:
+            edge = call_edges[0]
+            reasons.append(f"该位置存在调用链线索：`{edge.caller}` -> `{edge.callee}` @ L{edge.line_number}。")
+            resolved = self._strong_resolved_symbols(call_edges)
+            if resolved:
+                target = resolved[0]
+                reasons.append(f"跨模块解析到 `{target.name}`（{target.file_path}:L{target.line_number}）。")
+        if implement_relations:
+            relation = implement_relations[0]
+            reasons.append(f"存在接口实现关系：`{relation.type_name}` implements `{relation.interface_name}` @ L{relation.line_number}。")
+        return reasons[:5]
+
+    def _follow_up_checks(
+        self,
+        primary_symbol: CodeSymbol | None,
+        call_edges: list[CallEdge],
+        implement_relations: list[ImplementRelation],
+    ) -> list[str]:
+        checks: list[str] = []
+        if primary_symbol:
+            checks.append(f"先从 `{primary_symbol.name}` 入手，核对入参、时间范围、uid/tenant 过滤和异常分支。")
+        if call_edges:
+            resolved = self._strong_resolved_symbols(call_edges)
+            if resolved:
+                target = resolved[0]
+                checks.append(f"继续跳到 `{target.name}`（{target.file_path}:L{target.line_number}），确认真实实现是否符合预期。")
+            else:
+                edge = call_edges[0]
+                checks.append(f"沿 `{edge.callee}` 调用继续向下查，确认返回值、空值和错误吞掉路径。")
+        if implement_relations:
+            checks.append("如果是接口调用，优先核对运行时注入的具体实现和配置是否匹配。")
+        checks.append("最后用 Gateway/DB/日志证据确认线上实际参数和代码假设是否一致。")
+        return checks[:5]
+
+    def _strong_resolved_symbols(self, call_edges: list[CallEdge]) -> list[CodeSymbol]:
+        return [
+            symbol
+            for edge in call_edges
+            if edge.confidence >= 0.62
+            for symbol in edge.resolved_symbols
+        ]
 
     def _add_call_graph_context(
         self,
@@ -548,9 +912,38 @@ class LocalCodeInspector:
                 if "interface_implementation" not in hit.analysis_modes:
                     hit.analysis_modes.append("interface_implementation")
 
-    def _hit_rank(self, hit: LocalCodeHit) -> tuple[int, int, int, int, int]:
+    def _hit_rank(self, hit: LocalCodeHit) -> tuple[int, int, int, int, int, int, int]:
+        production_score = self._production_path_score(hit.file_path)
+        specific_score = self._hit_specificity_score(hit)
         has_structure = 1 if hit.symbols or hit.call_edges else 0
-        return (has_structure, len(hit.matched_terms), len(hit.call_edges), len(hit.symbols), len(hit.line_numbers))
+        return (production_score, specific_score, has_structure, len(hit.call_edges), len(hit.symbols), len(hit.matched_terms), len(hit.line_numbers))
+
+    def _production_path_score(self, file_path: str) -> int:
+        lowered = file_path.lower()
+        if "/src/test/" in lowered or "testcontroller" in lowered or "/demo/" in lowered:
+            return 0
+        if "/service/" in lowered or "/dao/service/" in lowered or "/common/util/" in lowered:
+            return 3
+        if "/common/" in lowered or "/dao/" in lowered:
+            return 2
+        if "/controller/" in lowered:
+            return 1
+        return 1
+
+    def _hit_specificity_score(self, hit: LocalCodeHit) -> int:
+        text_parts = [hit.file_path]
+        if hit.primary_symbol:
+            text_parts.append(hit.primary_symbol.name)
+        text_parts.extend(symbol.name for symbol in hit.symbols)
+        text_parts.extend(f"{edge.caller} {edge.callee} {edge.receiver_type}" for edge in hit.call_edges)
+        compacted = self._compact(" ".join(text_parts))
+        score = 0
+        for term in hit.matched_terms:
+            compact = self._compact(term)
+            if len(compact) < 3 or compact not in compacted:
+                continue
+            score += 4 if len(compact) >= 10 else 2 if len(compact) >= 7 else 1
+        return score
 
     def _edge_match_text(self, edge: CallEdge) -> str:
         caller_method = edge.caller.rsplit(".", 1)[-1]
@@ -987,3 +1380,7 @@ class LocalCodeInspector:
 
     def _relative_posix(self, root: Path, path: Path) -> str:
         return path.resolve().relative_to(root).as_posix()
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}

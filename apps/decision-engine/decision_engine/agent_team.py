@@ -322,7 +322,7 @@ class Verifier:
             proposal.verification = VerificationReport(
                 accepted=True,
                 reason="本地代码检查已通过 debug-only、无工具调用和 allowlist 约束。",
-                checks=checks + ["debug_local_code_explicit", "local_repo_allowlist", "no_source_snippets"],
+                checks=checks + ["debug_local_code_explicit", "local_repo_allowlist", "bounded_code_excerpt", "secret_line_masking"],
                 tool_budget=budget,
                 tool_count=0,
             )

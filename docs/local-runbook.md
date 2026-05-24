@@ -371,6 +371,12 @@ make dev
 
 验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库。必要时再启用 debug-only Local Code Agent，根据 `service_name` 定位本地代码路径和调用关系。
 
+本地代码辅助输出面向开发者：会返回相对文件、具体类/方法/函数、命中行、建议查看行范围、可疑原因、下一步核对建议，以及 allowlist 仓库内的短行脱敏代码摘录。共享/生产部署如不希望返回摘录，可设置：
+
+```bash
+export LOCAL_CODE_INCLUDE_SNIPPETS=false
+```
+
 ## health-food 生产只读日志
 
 生产问题排查优先查询生产只读证据，不直连生产 DB。health-food 生产日志接入通过本地 adapter 桥接内部日志查询接口，并在返回前做服务名 allowlist、时间窗、limit、超时和脱敏。
