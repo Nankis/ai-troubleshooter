@@ -1,0 +1,21 @@
+program: P-2026-040-real-qwen-health-food-full-flow
+level: Full
+type: validation_and_bugfix
+primary_repo: /Users/ginseng/Documents/AI工作区/ai-troubleshooter
+external_repos:
+  - /Users/ginseng/IdeaProjects/health-workspace/repos/health-food
+in_scope:
+  - Start local health-food service
+  - Start Go Investigation Gateway
+  - Start Python Agent Platform with real Qwen
+  - Validate platform MySQL persistence
+  - Validate health-food readonly APIs through Gateway
+  - Validate platform knowledge hit and miss
+  - Validate debug-only local code inspection
+  - Fix issues discovered in ai-troubleshooter if required
+out_of_scope:
+  - Production API calls
+  - Lark/Feishu real callbacks
+  - Business write operations
+  - Production DB migration
+validation_target: L3

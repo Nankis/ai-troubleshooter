@@ -2,7 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-039-business-onboarding-docs/HANDOFF.md`
+- `programs/P-2026-040-real-qwen-health-food-full-flow/HANDOFF.md`
+
+当前状态：
+
+- L3 真实依赖复验已完成，正在收尾测试、提交和推送。
 
 接手规则：
 

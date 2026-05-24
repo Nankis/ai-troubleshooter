@@ -189,6 +189,27 @@ func TestGatewayMasksToolOutputAndAuditArguments(t *testing.T) {
 	}
 }
 
+func TestHealthFoodAIQuotaSummaryDoesNotExposeTokenBalance(t *testing.T) {
+	gw := NewDefault(time.Second)
+	resp, err := gw.Invoke(context.Background(), tool.InvocationRequest{
+		CaseID:   "case_1",
+		AgentID:  "business-troubleshooter-v1",
+		ToolName: "get_health_food_ai_quota",
+		Arguments: map[string]any{
+			"uid": "hf_user_001",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(resp.Summary, "tokens=0") {
+		t.Fatalf("quota summary exposes token balance: %s", resp.Summary)
+	}
+	if !strings.Contains(resp.Summary, "available_tokens=<redacted>") {
+		t.Fatalf("quota summary should explicitly mark token balance redacted: %s", resp.Summary)
+	}
+}
+
 func TestGatewayHTTPReturnsGatewayTimeoutOnToolTimeout(t *testing.T) {
 	registry := tool.NewRegistry()
 	if err := registry.Register(tool.Spec{

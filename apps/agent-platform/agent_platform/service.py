@@ -212,7 +212,7 @@ class AgentPlatform:
             if decision.action == "answer_from_knowledge":
                 return self._answer_from_knowledge(case, decision.knowledge_source, decision.reason, decision.confidence)
             if decision.action == "local_code_inspection":
-                return self._need_human(case, decision.reason, decision.confidence)
+                return self._answer_from_local_code(case, decision)
             if decision.action != "invoke_tools":
                 return self._need_human(case, decision.reason, decision.confidence)
 
@@ -565,6 +565,39 @@ class AgentPlatform:
         latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "NEED_HUMAN_CONFIRMATION"})
         return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply}
 
+    def _answer_from_local_code(self, case: dict[str, Any], decision: DecisionResponse) -> dict[str, Any]:
+        report = next((item for item in decision.agent_reports if item.agent_name == "local_code_agent"), None)
+        evidence = report.evidence if report else []
+        top_hits = _local_code_top_hits(evidence, 4)
+        lines = [
+            f"[{case['case_no']}] 本地代码辅助排查已完成：{decision.reason}",
+            "这不是生产证据，只能作为最后手段的代码定位线索。",
+        ]
+        if top_hits:
+            lines.append("优先查看：" + "；".join(top_hits))
+        if report and report.observations:
+            modes = [item for item in report.observations if item.startswith("analysis_modes=") or item.startswith("analysis_backends=")]
+            if modes:
+                lines.append("分析范围：" + "，".join(modes))
+        reply = " ".join(lines)
+        self.repository.add_message(int(case["id"]), "agent", reply)
+        self._record_context_ledger(
+            case,
+            "final_summary",
+            "local_code_inspection_summary",
+            reply,
+            [],
+            {
+                "summary": reply,
+                "confidence": decision.confidence or 0.5,
+                "top_hits": top_hits,
+                "risk": "local_code_evidence_is_debug_only",
+            },
+            "local_code_agent",
+        )
+        latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "NEED_HUMAN_CONFIRMATION"})
+        return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply, "confidence": decision.confidence}
+
     def _need_human(self, case: dict[str, Any], reason: str, confidence: float) -> dict[str, Any]:
         reply = f"[{case['case_no']}] 当前无法形成安全可执行的只读工具计划：{reason}"
         self.repository.add_message(int(case["id"]), "agent", reply)
@@ -642,7 +675,7 @@ class AgentPlatform:
                 "case_id": int(case["id"]),
                 "ledger_type": ledger_type,
                 "ledger_key": ledger_key,
-                "summary": summary,
+                "summary": str(_mask(summary)),
                 "evidence_refs": _mask(evidence_refs),
                 "payload": _mask(payload),
                 "source_agent": source_agent,
@@ -748,6 +781,25 @@ def _missing_reply(case_no: str, missing_fields: list[str]) -> str:
     return f"[{case_no}] 我还需要补充：{friendly}。如果不确定时间，可以直接说“今天/刚刚/大约几点”；默认按 UTC+8 处理。"
 
 
+def _local_code_top_hits(evidence: list[dict[str, Any]], limit: int) -> list[str]:
+    hits: list[str] = []
+    for item in evidence[:limit]:
+        file_path = str(item.get("file_path") or "").strip()
+        if not file_path:
+            continue
+        raw_lines = item.get("line_numbers") or []
+        line_numbers = [str(value) for value in raw_lines[:5]]
+        raw_terms = item.get("matched_terms") or []
+        terms = [str(value) for value in raw_terms[:4] if str(value).strip()]
+        detail = file_path
+        if line_numbers:
+            detail += f":{','.join(line_numbers)}"
+        if terms:
+            detail += f" ({'/'.join(terms)})"
+        hits.append(detail)
+    return hits
+
+
 def _friendly_field(field: str) -> str:
     mapping = {
         "user_id_or_uid": "业务 uid",
@@ -760,7 +812,33 @@ def _friendly_field(field: str) -> str:
 
 def _requires_realtime(case: dict[str, Any]) -> bool:
     text = f"{case.get('original_text') or ''}\n{case.get('ocr_text') or ''}"
-    return any(word in text for word in ["今日", "今天", "刚刚", "现在", "生产", "不准", "没有"])
+    if re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text):
+        return True
+    return any(
+        word in text
+        for word in [
+            "今日",
+            "今天",
+            "刚刚",
+            "现在",
+            "生产",
+            "不准",
+            "没有",
+            "查真实",
+            "真实数据",
+            "实际数据",
+            "查数据库",
+            "查db",
+            "Gateway",
+            "gateway",
+            "网关",
+            "证据不足",
+            "本地代码",
+            "代码检查",
+            "debug_local_code",
+            "gateway_evidence_status",
+        ]
+    )
 
 
 def _safe_case(case: dict[str, Any]) -> dict[str, Any]:
@@ -796,7 +874,7 @@ def _mask(value: Any) -> Any:
     if isinstance(value, list):
         return [_mask(item) for item in value]
     if isinstance(value, str):
-        value = re.sub(r"(?i)(token|secret|password|api_key)=([A-Za-z0-9._\-]+)", r"\1=<redacted>", value)
+        value = re.sub(r"(?i)\b(available[_-]?tokens?|tokens?|secret|password|api[_-]?key|authorization)\s*[:=]\s*([A-Za-z0-9._\-]+)", r"\1=<redacted>", value)
         value = re.sub(r"1[3-9]\d{9}", "<redacted_phone>", value)
         value = re.sub(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", "<redacted_email>", value)
     return value

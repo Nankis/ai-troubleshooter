@@ -370,7 +370,7 @@ func RegisterDefaultTools(reg *tool.Registry, kline connectors.KlineConnector, a
 		return tool.InvocationResponse{
 			Status:  "success",
 			Data:    result,
-			Summary: fmt.Sprintf("health-food ai quota %s: tokens=%s daily_chat=%d/%d reason=%s", status, result.AvailableTokens, result.DailyChatCount, result.LimitChat, result.Reason),
+			Summary: fmt.Sprintf("health-food ai quota %s: available_tokens=<redacted> daily_chat=%d/%d reason=%s", status, result.DailyChatCount, result.LimitChat, result.Reason),
 		}, err
 	})
 
