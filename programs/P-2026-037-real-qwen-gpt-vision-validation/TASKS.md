@@ -8,4 +8,4 @@
 | T4 | done | 更新 README / runbook / Agent Platform / 接入文档。 |
 | T5 | done | 本地 MySQL + Gateway + Agent Platform 启动，用真实 Qwen key 在 API 和 Web 上传图片验收。 |
 | T6 | blocked | GPT provider 已实现和测试；本机未发现真实 OpenAI key，真实 GPT 验收阻塞。 |
-| T7 | done | 已跑 `make test`、`make secret-scan`、`git diff --check`；仍需 commit + push。 |
+| T7 | done | 已跑 `make test`、`make secret-scan`、`git diff --check`，并已 commit + push main。 |

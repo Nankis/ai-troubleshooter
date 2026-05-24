@@ -13,6 +13,7 @@
 - API 链路：`case_20260524_000023`，`tb_troubleshoot_ai_decision_log` 中 `vision_analyze=success`。
 - Web 链路：Chrome 系统文件选择器上传图片，页面显示 OCR 和最终状态；MySQL 中 `case_20260524_000024` 记录 `vision_analyze=success`。
 - 全量验证：`make test`、`make secret-scan`、`git diff --check` 通过；agent-platform 单测 17 条通过。
+- Git：实现提交 `204eec2` 已推送到 `origin/main`。
 
 ## 残留风险
 
