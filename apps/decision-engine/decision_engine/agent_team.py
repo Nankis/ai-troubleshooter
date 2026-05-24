@@ -248,6 +248,8 @@ class Verifier:
     ) -> DecisionResponse:
         budget = self._tool_budget(request.max_tool_calls)
         checks = ["tool_budget_bounded", "gateway_only_tools", "dedupe_tool_plan"]
+        if request.context_ledger:
+            checks.append("context_ledger_snapshot_loaded")
         violations: list[str] = []
 
         if proposal.action == "ask_user":
@@ -393,8 +395,11 @@ class SupervisorAgentTeam:
             AgentReport(
                 agent_name="supervisor",
                 action="route",
-                reason="Supervisor 按问题域选择 specialist，并要求最终输出经过 Verifier。",
-                observations=[f"issue_domain={request.case.issue_domain or 'default'}"],
+                reason="Supervisor 保持短上下文，只读取 case snapshot、context ledger 摘要和 specialist 报告，最终输出经过 Verifier。",
+                observations=[
+                    f"issue_domain={request.case.issue_domain or 'default'}",
+                    f"context_ledger_items={len(request.context_ledger)}",
+                ],
             )
         ]
 

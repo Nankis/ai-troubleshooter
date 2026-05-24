@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
 from decision_engine.agent_team import LocalCodeAgent, SupervisorAgentTeam, Verifier
 from decision_engine.local_code import LocalCodeInspector, LocalRepoConfig
-from decision_engine.models import AgentReport, DecisionResponse, KnowledgeCandidate, ToolPlan, ToolSpec
+from decision_engine.models import AgentReport, ContextLedgerItem, DecisionResponse, KnowledgeCandidate, ToolPlan, ToolSpec
 
 
 class DecisionEngineTest(unittest.TestCase):
@@ -84,6 +84,29 @@ class DecisionEngineTest(unittest.TestCase):
             ["get_health_food_user_profile", "get_health_food_recommendation_status", "search_logs_by_service"],
         )
         self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
+
+    def test_supervisor_tracks_context_ledger_without_expanding_context(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_hf", issue_domain="health_food", issue_type="每日推荐缺失"),
+                entities={"uid": "hf-user-001", "issue_type": "每日推荐缺失"},
+                available_tools=[ToolSpec(name="get_health_food_recommendation_status")],
+                context_ledger=[
+                    ContextLedgerItem(
+                        ledger_type="tool_evidence",
+                        ledger_key="get_health_food_recommendation_status",
+                        summary="上一次查询未发现推荐记录",
+                        evidence_refs=[{"ref_type": "gateway_tool_call", "ref_id": "tc_1"}],
+                        source_agent="tool:get_health_food_recommendation_status",
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertIn("context_ledger_items=1", response.agent_reports[0].observations)
+        self.assertIn("context_ledger_snapshot_loaded", response.verification.checks)
 
     def test_health_food_requires_uid_before_tools(self) -> None:
         engine = DecisionEngine()

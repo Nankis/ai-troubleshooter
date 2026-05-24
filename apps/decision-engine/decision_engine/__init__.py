@@ -6,6 +6,7 @@ from .local_code import LocalCodeInspector, LocalRepoConfig
 from .models import (
     AgentReport,
     CaseSnapshot,
+    ContextLedgerItem,
     DecisionRequest,
     DecisionResponse,
     KnowledgeCandidate,
@@ -16,6 +17,7 @@ from .models import (
 __all__ = [
     "AgentReport",
     "CaseSnapshot",
+    "ContextLedgerItem",
     "DecisionEngine",
     "DecisionRequest",
     "DecisionResponse",

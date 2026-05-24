@@ -29,6 +29,8 @@ class Repository(Protocol):
     def finish_investigation(self, investigation_id: int, status: str, summary: str, confidence: float | None) -> dict[str, Any]: ...
     def add_decision_log(self, item: dict[str, Any]) -> dict[str, Any]: ...
     def list_decision_logs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]: ...
+    def add_context_ledger(self, item: dict[str, Any]) -> dict[str, Any]: ...
+    def list_context_ledger(self, case_id: int, limit: int = 100, ledger_type: str = "") -> list[dict[str, Any]]: ...
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]: ...
     def get_knowledge(self, knowledge_id: int) -> dict[str, Any] | None: ...
     def upsert_knowledge(self, item: dict[str, Any]) -> dict[str, Any]: ...
@@ -313,6 +315,45 @@ class MySQLRepository:
         )
         return list(reversed(rows))
 
+    def add_context_ledger(self, item: dict[str, Any]) -> dict[str, Any]:
+        now = item.get("created_at") or datetime.now()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tb_troubleshoot_context_ledger
+                (case_id, ledger_type, ledger_key, summary, evidence_refs_json, payload_json, source_agent, create_time, update_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    item["case_id"],
+                    item["ledger_type"],
+                    item.get("ledger_key") or "",
+                    _none_if_empty(item.get("summary")),
+                    _json_or_none(item.get("evidence_refs")),
+                    _json_or_none(item.get("payload")),
+                    _none_if_empty(item.get("source_agent")),
+                    now,
+                    now,
+                ),
+            )
+            ledger_id = int(cur.lastrowid)
+        found = self._fetch_one(_context_ledger_select() + " WHERE id = %s AND status = 1", (ledger_id,))
+        if found is None:
+            raise RuntimeError("created context ledger not found")
+        return _decode_context_ledger_row(found)
+
+    def list_context_ledger(self, case_id: int, limit: int = 100, ledger_type: str = "") -> list[dict[str, Any]]:
+        limit = _bounded(limit, 1, 500, 100)
+        query = _context_ledger_select() + " WHERE case_id = %s AND status = 1"
+        args: list[Any] = [case_id]
+        if ledger_type:
+            query += " AND ledger_type = %s"
+            args.append(ledger_type)
+        query += " ORDER BY id DESC LIMIT %s"
+        args.append(limit)
+        rows = self._fetch_all(query, tuple(args))
+        return [_decode_context_ledger_row(row) for row in reversed(rows)]
+
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]:
         limit = _bounded(limit, 1, 100, 30)
         query = _knowledge_select() + " WHERE status = 1"
@@ -556,6 +597,21 @@ def _capability_select() -> str:
     """
 
 
+def _context_ledger_select() -> str:
+    return """
+    SELECT id, case_id, ledger_type, ledger_key, summary, evidence_refs_json, payload_json,
+           source_agent, create_time AS created_at, update_time AS updated_at
+    FROM tb_troubleshoot_context_ledger
+    """
+
+
+def _decode_context_ledger_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["evidence_refs"] = _loads_json(out.pop("evidence_refs_json", None), [])
+    out["payload"] = _loads_json(out.pop("payload_json", None), {})
+    return out
+
+
 def _normalize_capability(item: dict[str, Any]) -> dict[str, Any]:
     required = [str(v) for v in item.get("required_params", []) if str(v).strip()]
     optional = [str(v) for v in item.get("optional_params", []) if str(v).strip()]
@@ -589,7 +645,18 @@ def _json_or_none(value: Any) -> str | None:
         return None
     if isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _loads_json(value: Any, default: Any) -> Any:
+    if not value:
+        return default
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
 
 
 def _bounded(value: int, minimum: int, maximum: int, default: int) -> int:

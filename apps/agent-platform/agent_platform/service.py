@@ -13,6 +13,15 @@ from decision_engine.models import KnowledgeCandidate, ToolPlan, ToolSpec
 from .capabilities import import_capabilities
 from .classifier import classify_and_extract_rules, merge_llm_result
 from .config import Config
+from .context_ledger import (
+    compact_decision_payload,
+    compact_failed_observation,
+    compact_gateway_tools_payload,
+    compact_knowledge_payload,
+    compact_tool_observation,
+    evidence_refs_from_observations,
+    final_answer_verification,
+)
 from .gateway import GatewayHTTPClient
 from .llm import LLMClient
 from .repository import Repository
@@ -153,6 +162,20 @@ class AgentPlatform:
                     "uid": entities.get("uid") or entities.get("user_id") or case.get("uid") or "",
                 },
             )
+            self._record_context_ledger(
+                case,
+                "case_state",
+                "classified_entities",
+                f"domain={issue_domain or 'unknown'} issue_type={issue_type or 'unknown'} entity_keys={','.join(sorted(entities))}",
+                [],
+                {
+                    "case": _safe_case(case),
+                    "entity_keys": sorted(entities.keys()),
+                    "max_tool_calls": self.config.max_tool_calls_per_case,
+                    "max_tool_failures": self.config.max_tool_failures_per_case,
+                },
+                "agent-platform",
+            )
 
             tools = self._list_gateway_tools(case)
             knowledge = self._knowledge_candidates(case)
@@ -169,6 +192,15 @@ class AgentPlatform:
                 "success",
                 latency_ms=_elapsed_ms(step_start),
                 selected_tools=[item.tool_name for item in decision.tool_plan],
+            )
+            self._record_context_ledger(
+                case,
+                "agent_report",
+                "orchestrator_plan",
+                decision.reason,
+                [],
+                compact_decision_payload(decision),
+                "supervisor",
             )
 
             if decision.action == "ask_user":
@@ -238,6 +270,7 @@ class AgentPlatform:
             "entities": self.repository.list_entities(int(case["id"])),
             "messages": self.repository.list_messages(int(case["id"])),
             "ai_decision_logs": logs,
+            "context_ledger": self.repository.list_context_ledger(int(case["id"]), 100),
             "evolution_runs": [],
             "progress": build_progress(status, logs),
             "processing": processing or status in ACTIVE_STATUSES,
@@ -361,6 +394,7 @@ class AgentPlatform:
                 for item in tools
             ],
             knowledge_candidates=knowledge,
+            context_ledger=self.repository.list_context_ledger(int(case["id"]), 50),
             max_tool_calls=self.config.max_tool_calls_per_case,
         )
 
@@ -369,6 +403,15 @@ class AgentPlatform:
         try:
             tools = self.gateway.list_tools()
             self._record_decision(case, None, "gateway_tool_discovery", "list registered readonly tools from Go Investigation Gateway", {}, {"tool_count": len(tools)}, "success", latency_ms=_elapsed_ms(step_start))
+            self._record_context_ledger(
+                case,
+                "gateway_tools",
+                "registered_readonly_tools",
+                f"Gateway registered readonly tool count={len(tools)}",
+                [],
+                compact_gateway_tools_payload(tools),
+                "gateway-discovery",
+            )
             return tools
         except Exception as exc:
             self._record_decision(case, None, "gateway_tool_discovery", "failed to list Gateway tools", {}, {"error": str(exc)}, "failed", latency_ms=_elapsed_ms(step_start), error_message=str(exc))
@@ -377,6 +420,15 @@ class AgentPlatform:
     def _knowledge_candidates(self, case: dict[str, Any]) -> list[KnowledgeCandidate]:
         rows = self.repository.list_knowledge(3, str(case.get("issue_domain") or ""), str(case.get("issue_type") or ""), "active")
         self._record_decision(case, None, "knowledge_retrieval", "retrieve platform knowledge before querying downstream business tools", {"issue_domain": case.get("issue_domain"), "issue_type": case.get("issue_type")}, {"matched_count": len(rows)}, "success")
+        self._record_context_ledger(
+            case,
+            "knowledge_retrieval",
+            "platform_knowledge_candidates",
+            f"matched platform knowledge count={len(rows)}",
+            [{"ref_type": "knowledge_item", "ref_id": str(row.get("id")), "tool_name": "platform_knowledge"} for row in rows if row.get("id")],
+            compact_knowledge_payload(rows),
+            "knowledge_agent",
+        )
         return [
             KnowledgeCandidate(
                 title=row.get("title") or "",
@@ -412,11 +464,31 @@ class AgentPlatform:
                 if status != "success":
                     failures += 1
                 tool_call_ids.append(str(response.get("tool_call_id") or ""))
-                observations.append({"tool_name": plan.tool_name, "status": status, "summary": response.get("summary") or "", "data": response.get("data")})
+                observation = compact_tool_observation(plan.tool_name, str(status), response)
+                observations.append(observation)
+                self._record_context_ledger(
+                    case,
+                    "tool_evidence",
+                    plan.tool_name,
+                    observation["summary"],
+                    observation.get("evidence_refs") or [],
+                    observation,
+                    f"tool:{plan.tool_name}",
+                )
                 self._record_decision(case, investigation, "tool_invocation", plan.reason, {"tool_name": plan.tool_name, "arguments": plan.arguments}, response, status, latency_ms=_elapsed_ms(step_start), selected_tools=[plan.tool_name])
             except Exception as exc:
                 failures += 1
-                observations.append({"tool_name": plan.tool_name, "status": "failed", "summary": str(exc)})
+                observation = compact_failed_observation(plan.tool_name, str(exc))
+                observations.append(observation)
+                self._record_context_ledger(
+                    case,
+                    "tool_evidence",
+                    plan.tool_name,
+                    observation["summary"],
+                    [],
+                    observation,
+                    f"tool:{plan.tool_name}",
+                )
                 self._record_decision(case, investigation, "tool_invocation", plan.reason, {"tool_name": plan.tool_name, "arguments": plan.arguments}, {"error": str(exc)}, "failed", latency_ms=_elapsed_ms(step_start), error_message=str(exc), selected_tools=[plan.tool_name])
         return tool_call_ids, observations
 
@@ -435,7 +507,33 @@ class AgentPlatform:
             if self.llm.is_real and not self.config.llm.allow_rule_fallback:
                 self._record_decision(case, None, "summarize_findings", "LLM summary failed and fallback is disabled", {"observations": observations}, {"error": str(exc)}, "failed", latency_ms=_elapsed_ms(step_start), error_message=str(exc))
                 raise
+        verification = final_answer_verification(observations, confidence)
+        confidence = float(verification["adjusted_confidence"])
         self._record_decision(case, None, "summarize_findings", "summarize bounded tool observations and ask human owner for confirmation", {"observations": observations}, {"summary": summary, "confidence": confidence, "llm_result": llm_payload}, "success", latency_ms=_elapsed_ms(step_start))
+        self._record_decision(
+            case,
+            None,
+            "verifier_final_answer",
+            verification["reason"],
+            {"observation_count": len(observations)},
+            verification,
+            "success" if verification["accepted"] else "needs_human",
+            latency_ms=0,
+        )
+        self._record_context_ledger(
+            case,
+            "final_summary",
+            "bounded_evidence_summary",
+            summary,
+            evidence_refs_from_observations(observations),
+            {
+                "summary": summary,
+                "confidence": confidence,
+                "verification": verification,
+                "observation_count": len(observations),
+            },
+            "verifier",
+        )
         return summary, confidence
 
     def _ask_user(self, case: dict[str, Any], missing_fields: list[str]) -> dict[str, Any]:
@@ -451,6 +549,15 @@ class AgentPlatform:
         reply = f"[{case['case_no']}] 平台经验命中：{source}。{reason} 请业务 Owner 确认根因后沉淀为正式经验。"
         self.repository.finish_investigation(int(inv["id"]), "finished", reply, confidence or 0.8)
         self.repository.add_message(int(case["id"]), "agent", reply)
+        self._record_context_ledger(
+            case,
+            "final_summary",
+            "knowledge_answer",
+            reply,
+            [{"ref_type": "knowledge_item", "ref_id": source, "tool_name": "platform_knowledge"}] if source else [],
+            {"summary": reply, "confidence": confidence or 0.8, "knowledge_source": source},
+            "knowledge_agent",
+        )
         latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "NEED_HUMAN_CONFIRMATION"})
         return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply}
 
@@ -493,6 +600,28 @@ class AgentPlatform:
             }
         )
 
+    def _record_context_ledger(
+        self,
+        case: dict[str, Any],
+        ledger_type: str,
+        ledger_key: str,
+        summary: str,
+        evidence_refs: list[dict[str, Any]],
+        payload: Any,
+        source_agent: str,
+    ) -> None:
+        self.repository.add_context_ledger(
+            {
+                "case_id": int(case["id"]),
+                "ledger_type": ledger_type,
+                "ledger_key": ledger_key,
+                "summary": summary,
+                "evidence_refs": _mask(evidence_refs),
+                "payload": _mask(payload),
+                "source_agent": source_agent,
+            }
+        )
+
     def _require_case(self, ref: str) -> dict[str, Any]:
         case = self.repository.get_case_by_no(ref)
         if case is None and ref.isdigit():
@@ -531,6 +660,7 @@ def build_progress(status: str, logs: list[dict[str, Any]]) -> list[dict[str, An
         {"key": "orchestrator_plan", "title": "Python Supervisor 制定排查计划"},
         {"key": "tool_invocation", "title": "调用只读工具收集证据"},
         {"key": "summarize_findings", "title": "总结证据并输出结论"},
+        {"key": "verifier_final_answer", "title": "校验证据引用和最终置信度"},
     ]
     by_key: dict[str, list[dict[str, Any]]] = {}
     for item in logs:

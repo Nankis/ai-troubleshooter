@@ -41,7 +41,7 @@ flowchart LR
   subgraph Platform["Agent 问题排查平台"]
     PyPlatform["Python Agent Platform<br/>Web / Lark / 图片 / Case API"]
     PyEngine["Python Decision Engine<br/>Supervisor / Agents / Verifier"]
-    Store["Platform MySQL<br/>tb_troubleshoot_*"]
+    Store["Platform MySQL<br/>case / decision log / context ledger / knowledge"]
     Knowledge["Platform Knowledge<br/>历史 case / root cause / SOP"]
     Admin["Knowledge Admin<br/>人工录入排查经验"]
     Model["LLM / Vision Provider<br/>platform config"]
@@ -116,6 +116,7 @@ flowchart LR
 - 决策层可以本地运行用于开发、联调和评测；稳定后应部署到受控环境。
 - 本地代码查看只是最后手段，输出应标记为 `suspected_code_bug`，不能直接当作最终根因；证据只返回相对路径、符号、调用边、resolved symbol、receiver type 和接口实现关系，不返回源码片段。
 - 任何决策链路都必须保留 tool call budget、model call budget、case timeout 和 decision logs。
+- 任何进入 LLM 的工具结果都必须先压缩为 Context Ledger observation；原始 Gateway `data` 只允许进入脱敏审计，不允许直接进入主 Agent 上下文。
 
 ### 迁移方式
 

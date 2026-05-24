@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from agent_platform.config import ChatPlatformConfig, Config, LLMConfig
 from agent_platform.gateway import GatewayHTTPClient
+from agent_platform.llm import LLMResult
+from agent_platform.repository import _json_or_none
 from agent_platform.server import create_app
 from agent_platform.service import AgentPlatform
 
@@ -27,6 +30,7 @@ class MemoryRepository:
         self.entity_ids = itertools.count(1)
         self.investigation_ids = itertools.count(1)
         self.decision_ids = itertools.count(1)
+        self.ledger_ids = itertools.count(1)
         self.knowledge_ids = itertools.count(1)
         self.capability_ids = itertools.count(1)
         self.cases: dict[int, dict[str, Any]] = {}
@@ -34,6 +38,7 @@ class MemoryRepository:
         self.entities: dict[int, list[dict[str, Any]]] = {}
         self.investigations: dict[int, dict[str, Any]] = {}
         self.decisions: dict[int, list[dict[str, Any]]] = {}
+        self.context_ledger: dict[int, list[dict[str, Any]]] = {}
         self.knowledge: dict[int, dict[str, Any]] = {}
         self.capabilities: dict[int, dict[str, Any]] = {}
         self.services: dict[str, dict[str, Any]] = {}
@@ -137,6 +142,17 @@ class MemoryRepository:
     def list_decision_logs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]:
         return [dict(item) for item in self.decisions.get(case_id, [])[-limit:]]
 
+    def add_context_ledger(self, item: dict[str, Any]) -> dict[str, Any]:
+        saved = {"id": next(self.ledger_ids), "created_at": datetime.now(), "updated_at": datetime.now(), **item}
+        self.context_ledger.setdefault(item["case_id"], []).append(saved)
+        return dict(saved)
+
+    def list_context_ledger(self, case_id: int, limit: int = 100, ledger_type: str = "") -> list[dict[str, Any]]:
+        items = self.context_ledger.get(case_id, [])
+        if ledger_type:
+            items = [item for item in items if item.get("ledger_type") == ledger_type]
+        return [dict(item) for item in items[-limit:]]
+
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]:
         items = list(self.knowledge.values())
         if issue_domain:
@@ -197,10 +213,29 @@ class FakeGateway(GatewayHTTPClient):
         self.invocations.append((tool_name, kwargs["arguments"]))
         return {
             "tool_call_id": "tc_" + tool_name,
+            "query_id": "query_" + tool_name,
             "status": "success",
             "summary": f"{tool_name} success",
-            "data": {"tool_name": tool_name, "uid": kwargs["arguments"].get("uid")},
+            "data": {
+                "tool_name": tool_name,
+                "uid": kwargs["arguments"].get("uid"),
+                "records": [{"private_raw_row": "should_not_enter_llm_context"}],
+            },
         }
+
+
+class CapturingLLM:
+    is_real = False
+
+    def __init__(self) -> None:
+        self.summary_observations: list[dict[str, Any]] = []
+
+    def classify_and_extract(self, text: str) -> LLMResult:
+        return LLMResult({}, "local_rules", "rules-v1")
+
+    def summarize(self, case: dict[str, Any], observations: list[dict[str, Any]]) -> LLMResult:
+        self.summary_observations = observations
+        return LLMResult({"summary": "LLM saw compact evidence only", "confidence": 0.81}, "capture", "test")
 
 
 class AgentPlatformFastAPITest(unittest.TestCase):
@@ -246,6 +281,46 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
         self.assertIn("orchestrator_plan", decision_types)
         self.assertIn("tool_invocation", decision_types)
+
+    def test_context_ledger_records_agent_reports_tool_evidence_and_summary(self) -> None:
+        response = self.client.post(
+            "/web/api/chat",
+            data={"message": "health-food uid hf-user-ledger 今日没有每日推荐", "async": "0"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        ledger_types = [item["ledger_type"] for item in body["context_ledger"]]
+        self.assertIn("case_state", ledger_types)
+        self.assertIn("gateway_tools", ledger_types)
+        self.assertIn("knowledge_retrieval", ledger_types)
+        self.assertIn("agent_report", ledger_types)
+        self.assertIn("tool_evidence", ledger_types)
+        self.assertIn("final_summary", ledger_types)
+        tool_evidence = [item for item in body["context_ledger"] if item["ledger_type"] == "tool_evidence"]
+        self.assertTrue(tool_evidence)
+        self.assertIn("gateway_tool_call", {ref["ref_type"] for item in tool_evidence for ref in item["evidence_refs"]})
+        self.assertNotIn("private_raw_row", json.dumps(tool_evidence, ensure_ascii=False))
+        self.assertNotIn('"data"', json.dumps(tool_evidence, ensure_ascii=False))
+
+    def test_llm_summary_receives_compact_evidence_not_raw_tool_data(self) -> None:
+        llm = CapturingLLM()
+        platform = AgentPlatform(self.config, MemoryRepository(), gateway=FakeGateway(), llm_client=llm)
+
+        result = platform.submit_chat(message="health-food uid hf-user-compact 今日 token 消耗数量不对", async_process=False)
+
+        self.assertIn("LLM saw compact evidence only", result["reply"])
+        self.assertTrue(llm.summary_observations)
+        for observation in llm.summary_observations:
+            self.assertNotIn("data", observation)
+            self.assertIn("evidence_refs", observation)
+        self.assertNotIn("private_raw_row", json.dumps(llm.summary_observations, ensure_ascii=False))
+
+    def test_repository_json_serializes_database_scalar_types(self) -> None:
+        encoded = _json_or_none({"confidence": Decimal("0.8000"), "created_at": datetime(2026, 5, 24, 10, 0, 0)})
+
+        self.assertIn('"0.8000"', encoded or "")
+        self.assertIn('"2026-05-24 10:00:00"', encoded or "")
 
     def test_missing_health_food_uid_asks_user_without_gateway_call(self) -> None:
         response = self.client.post("/web/api/chat", data={"message": "health-food 今日没有每日推荐", "async": "0"})
