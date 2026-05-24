@@ -38,12 +38,12 @@
 
 ## 工作树/提交
 
-- ai-troubleshooter：有代码、测试、Program、`.gitignore` 和 `HANDOFF.md` 变更，尚未提交。
-- health-food：`health-food-srv/src/main/java/com/meow/pas/health/food/srv/gateway/filter/AuthInterceptorFilter.java` 有一处 readonly exclude 修复，尚未提交。
+- ai-troubleshooter：`0834090` 已推送到 `origin/main`。
+- health-food：`31657fe` 已推送到 `origin/feature/P-2026-009-health-food-readonly`。
 
 ## 下一步
 
-1. 分别提交 ai-troubleshooter 和 health-food 修复，并按仓库策略推送。
+1. 无。下一轮若继续，需要先确认是否要把 health-food feature 分支合到对应环境。
 
 ## 风险/阻塞
 

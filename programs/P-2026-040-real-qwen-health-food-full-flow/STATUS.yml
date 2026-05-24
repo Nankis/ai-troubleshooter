@@ -1,10 +1,12 @@
 program: P-2026-040-real-qwen-health-food-full-flow
-status: validation_done_pending_final_checks
-updated_at: "2026-05-25T01:05:00+08:00"
+status: completed
+updated_at: "2026-05-25T01:08:00+08:00"
 validation_target: L3
 services:
   health_food: verified
   gateway: verified
   agent_platform: verified
 commit:
-  status: pending
+  status: pushed
+  ai_troubleshooter_main: 0834090
+  health_food_feature: 31657fe

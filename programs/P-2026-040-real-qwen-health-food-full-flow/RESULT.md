@@ -26,6 +26,11 @@
 
 详见 `EVIDENCE.md`。本地原始 JSON、MySQL 查询结果和截图在 `programs/P-2026-040-real-qwen-health-food-full-flow/evidence/`，该目录不提交到 Git。
 
+## 提交
+
+- ai-troubleshooter：`0834090`，已推送 `origin/main`。
+- health-food：`31657fe`，已推送 `origin/feature/P-2026-009-health-food-readonly`。
+
 ## 残留风险
 
 - 本轮未接真实 Lark/飞书。

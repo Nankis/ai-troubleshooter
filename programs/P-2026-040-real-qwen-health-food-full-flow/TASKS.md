@@ -10,4 +10,4 @@
 - [x] T8 浏览器实际打开 Web 端并截图留证。
 - [x] T9 MySQL 反查 case/message/decision/context/tool audit。
 - [x] T10 修复发现的问题，并跑测试、安全扫描和 diff 检查。
-- [ ] T11 写 RESULT/EVIDENCE/HANDOFF 并提交推送。
+- [x] T11 写 RESULT/EVIDENCE/HANDOFF 并提交推送。
