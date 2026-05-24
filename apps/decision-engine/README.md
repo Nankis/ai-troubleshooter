@@ -8,7 +8,7 @@ This service is intentionally small for Phase 1:
 - It only plans readonly tool calls that must go through Investigation Gateway.
 - It keeps explicit budgets for tool calls and missing-field follow-up.
 - It can run locally with the Go Gateway deployed elsewhere.
-- It is the target home for orchestration logic; Go `internal/decisionbaseline` is only a local fallback.
+- It is the target home for orchestration logic; Python `apps/agent-platform` embeds it in the main path.
 
 Current orchestration shape:
 
@@ -16,6 +16,7 @@ Current orchestration shape:
 - `Knowledge Agent` checks platform experience first. It can answer directly only when confidence is high, observed cases are enough, and realtime validation is not required.
 - `Kline Agent` plans bounded K-line readonly tools after `symbol`、`interval`、`abnormal_time`、`issue_type` are present.
 - `Asset Agent` plans bounded asset readonly tools after user/account, `asset_symbol`、`abnormal_time`、`issue_type` are present.
+- `HealthFood Agent` plans bounded health-food readonly tools after `uid/user_id` and `issue_type` are present.
 - `Local Code Agent` is debug-only. It can inspect an allowlisted local repo only when Gateway evidence is insufficient and `debug_local_code=true`; evidence includes keyword hits, language-structure symbols, bounded call graph edges, resolved call targets, and interface implementation relations.
 - `Verifier` deduplicates tool plans, filters unavailable tools, caps tool count, and converts unsafe plans into `need_human`.
 

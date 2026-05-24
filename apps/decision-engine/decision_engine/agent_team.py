@@ -16,6 +16,7 @@ from .local_code import LocalCodeInspector
 REQUIRED_FIELDS_BY_DOMAIN: dict[str, tuple[str, ...]] = {
     "kline": ("symbol", "interval", "abnormal_time", "issue_type"),
     "asset": ("asset_symbol", "abnormal_time", "issue_type"),
+    "health_food": ("issue_type",),
 }
 
 DEFAULT_TOOLS_BY_DOMAIN: dict[str, tuple[str, ...]] = {
@@ -30,6 +31,14 @@ DEFAULT_TOOLS_BY_DOMAIN: dict[str, tuple[str, ...]] = {
         "get_asset_snapshot",
         "get_asset_events",
         "get_user_recent_errors",
+        "get_similar_cases",
+    ),
+    "health_food": (
+        "get_health_food_user_profile",
+        "get_health_food_ai_quota",
+        "get_health_food_meal_records",
+        "get_health_food_recommendation_status",
+        "search_logs_by_service",
         "get_similar_cases",
     ),
     "default": (
@@ -374,6 +383,7 @@ class SupervisorAgentTeam:
         self.knowledge_agent = KnowledgeAgent()
         self.kline_agent = DomainAgent("kline", "kline_agent")
         self.asset_agent = DomainAgent("asset", "asset_agent")
+        self.health_food_agent = DomainAgent("health_food", "health_food_agent")
         self.fallback_agent = FallbackAgent()
         self.local_code_agent = local_code_agent or LocalCodeAgent()
         self.verifier = Verifier()
@@ -417,6 +427,8 @@ class SupervisorAgentTeam:
         missing = [field for field in required if not request.entities.get(field)]
         if selected_domain == "asset" and not (request.entities.get("user_id") or request.entities.get("account_id")):
             missing.insert(0, "user_id_or_account_id")
+        if selected_domain == "health_food" and not (request.entities.get("user_id") or request.entities.get("uid")):
+            missing.insert(0, "user_id_or_uid")
         return missing
 
     def select_tools(self, request: DecisionRequest, domain: str | None = None) -> list[str]:
@@ -443,6 +455,8 @@ class SupervisorAgentTeam:
             return self.kline_agent
         if domain == "asset":
             return self.asset_agent
+        if domain == "health_food":
+            return self.health_food_agent
         return self.fallback_agent
 
     def _response_from_report(self, report: AgentReport) -> DecisionResponse:

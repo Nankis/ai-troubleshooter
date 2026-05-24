@@ -54,8 +54,11 @@
 ## 架构边界
 
 - 平台数据、知识库、AI 决策日志、工具审计、LLM/Vision provider 属于 Agent 平台；业务方只提供 readonly business APIs/adapters。
-- Investigation Gateway 只管业务生产证据查询边界，不查平台 MySQL。
-- Python `apps/decision-engine` 是目标 Agent Orchestrator；Go `internal/decisionbaseline` 只能作为本地 smoke/fallback。
+- Python `apps/agent-platform` 是平台入口：Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator、经验沉淀都在 Python 主路径。
+- Python `apps/decision-engine` 是 Agent Orchestrator：Supervisor、specialist agents、Knowledge Agent、Verifier、本地代码辅助排查都在这里。
+- Go 正式职责只保留 `cmd/investigation-gateway`：业务 readonly tools、安全鉴权、scope、限流、脱敏、审计和超时。
+- Investigation Gateway 只管业务生产证据查询边界，不查平台经验库，也不连接 LLM。
+- Go `cmd/dev-server`、`cmd/worker`、`internal/decisionbaseline`、`internal/llm` 是历史 legacy，不得作为新功能主路径；新增 LLM/决策能力必须写到 Python。
 
 ## 开发规范
 

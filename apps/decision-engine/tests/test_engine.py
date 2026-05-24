@@ -64,6 +64,41 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual([item.tool_name for item in response.tool_plan], ["get_asset_events"])
         self.assertEqual(response.agent_reports[-1].agent_name, "asset_agent")
 
+    def test_health_food_plans_readonly_tools_after_uid(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_hf", issue_domain="health_food", issue_type="每日推荐缺失"),
+                entities={"uid": "hf-user-001", "issue_type": "每日推荐缺失", "recommendation_date": "2026-05-24"},
+                available_tools=[
+                    ToolSpec(name="get_health_food_user_profile"),
+                    ToolSpec(name="get_health_food_recommendation_status"),
+                    ToolSpec(name="search_logs_by_service"),
+                ],
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertEqual(
+            [item.tool_name for item in response.tool_plan],
+            ["get_health_food_user_profile", "get_health_food_recommendation_status", "search_logs_by_service"],
+        )
+        self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
+
+    def test_health_food_requires_uid_before_tools(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_hf", issue_domain="health_food", issue_type="每日推荐缺失"),
+                entities={"issue_type": "每日推荐缺失"},
+                available_tools=[ToolSpec(name="get_health_food_recommendation_status")],
+            )
+        )
+
+        self.assertEqual(response.action, "ask_user")
+        self.assertEqual(response.missing_fields[0], "user_id_or_uid")
+        self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
+
     def test_asset_requires_user_or_account(self) -> None:
         engine = DecisionEngine()
         response = engine.plan(

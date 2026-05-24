@@ -44,7 +44,16 @@ unset DB_DSN
 
 任何要验证 case、消息、AI 决策日志、工具审计或经验沉淀的场景，都必须使用 MySQL 并查询表确认。
 
-## Web Chat
+## 主路径服务
+
+生产化主路径由两个服务组成：
+
+- `apps/agent-platform`：Python FastAPI Agent Platform，负责 Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator、经验沉淀。
+- `cmd/investigation-gateway`：Go Investigation Gateway，负责业务 readonly tools、鉴权、scope、限流、超时、审计和脱敏。
+
+Go `cmd/dev-server`、`cmd/worker`、`cmd/baseline-orchestrator` 是历史 legacy，不作为新功能主路径。
+
+## Web Chat / Agent Platform
 
 真实模型启动：
 
@@ -56,20 +65,43 @@ export AI_MODEL_PROFILE=qwen
 export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG" # 可选：读取本机已有 application-local.yml
 export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"    # 或直接给环境变量
 export LLM_ALLOW_RULE_FALLBACK=false
-export HTTP_PORT=8080
+
+# Gateway 端口
+export HTTP_PORT=18080
+
+# Agent Platform 端口
+export AGENT_PLATFORM_PORT=19091
+export GATEWAY_ENDPOINT=http://127.0.0.1:18080
+export PYTHONPATH=apps/agent-platform:apps/decision-engine
+
+# 终端 1
+make gateway
+
+# 终端 2
 make dev
 ```
 
 浏览器打开：
 
 ```text
-http://localhost:8080/web
+http://localhost:19091/web
+```
+
+同一套 handler 也挂在正式 API 前缀下，便于自动化验收和其他入口复用：
+
+```bash
+curl -s -X POST http://localhost:19091/api/v1/chat \
+  -F 'message=health-food uid hf-user-001 today token quota wrong' \
+  -F 'async=0'
+
+curl -s http://localhost:19091/api/v1/cases/case_20260524_000001
+curl -s http://localhost:19091/api/v1/overview
 ```
 
 端口冲突时：
 
 ```bash
-HTTP_PORT=18088 make dev
+AGENT_PLATFORM_PORT=18088 make dev
 ```
 
 Web 工作台支持：
@@ -110,6 +142,31 @@ export LLM_ALLOW_RULE_FALLBACK=false
 
 当前内置 profile：`qwen`/`dashscope`、`deepseek`、`moonshot`、`openai`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
 
+GPT/OpenAI：
+
+```bash
+export AI_MODEL_PROFILE=gpt
+export OPENAI_API_KEY="$LOCAL_OPENAI_API_KEY"
+export OPENAI_MODEL="replace-with-approved-model"
+```
+
+Claude/Anthropic：
+
+```bash
+export AI_MODEL_PROFILE=claude
+export ANTHROPIC_API_KEY="$LOCAL_ANTHROPIC_API_KEY"
+export ANTHROPIC_MODEL="replace-with-approved-model"
+```
+
+Claude Code 或公司本地代理：
+
+```bash
+export AI_MODEL_PROFILE=claude_code
+export CLAUDE_CODE_BASE_URL=http://127.0.0.1:19093
+export CLAUDE_CODE_API_KEY="$LOCAL_PROXY_TOKEN"
+export CLAUDE_CODE_MODEL="replace-with-proxy-model"
+```
+
 接 OpenAI-compatible 文本模型：
 
 ```bash
@@ -119,7 +176,7 @@ export LLM_API_KEY="$LOCAL_LLM_API_KEY"
 export LLM_MODEL=replace-with-model
 ```
 
-图片识别默认复用主 LLM。只有主模型不支持图片，或需要单独用 Qwen-VL 等视觉模型时，再配置独立视觉 provider：
+图片入口归 Python Agent Platform。当前未配置真实 Vision provider 时只保留附件证据说明；如果需要图片识别，按平台统一模型封装接入 Vision provider，推荐公司模型网关或 Qwen-VL：
 
 ```bash
 export VISION_PROVIDER=qwen_openai_compatible
@@ -132,7 +189,7 @@ export VISION_MAX_IMAGE_BYTES=10485760
 
 ## Python Decision Engine
 
-单独启动 Python 决策层：
+`apps/decision-engine` 是可独立运行的 orchestrator 内核；正常主路径由 Agent Platform 内嵌调用，不需要单独启动。调试决策协议时可以单独启动：
 
 ```bash
 cd apps/decision-engine
@@ -142,18 +199,18 @@ python3.13 -m decision_engine --host 127.0.0.1 --port 19092
 本地单测：
 
 ```bash
-PYTHONPATH=apps/decision-engine python3.13 -m unittest discover -s apps/decision-engine/tests -p 'test_*.py'
-python3.13 -m unittest discover -s tests -p 'test_*.py'
+PYTHONPATH=apps/agent-platform:apps/decision-engine .venv/bin/python -m unittest discover -s apps/decision-engine/tests -p 'test_*.py'
+PYTHONPATH=apps/agent-platform:apps/decision-engine .venv/bin/python -m unittest discover -s apps/agent-platform/tests -p 'test_*.py'
 ```
 
-Go worker 当前仍可使用 Go fallback 跑本地闭环。切换到 Python 决策层时，外部契约保持不变：输入入口、Case API、Gateway tools 和 MySQL 表结构不因为决策层语言切换而改变。
+Go worker / Go fallback 不再作为主路径。
 
 ## Lark / 飞书本地 payload
 
-启动 dev server 后，可以用本地 payload 模拟事件：
+启动 Python Agent Platform 后，可以用本地 payload 模拟事件：
 
 ```bash
-curl -s localhost:8080/lark/events \
+curl -s localhost:19091/lark/events \
   -H 'Content-Type: application/json' \
   -d '{
     "chat_id":"oc_dev",
@@ -167,7 +224,7 @@ curl -s localhost:8080/lark/events \
 飞书中国站兼容入口：
 
 ```bash
-curl -s localhost:8080/feishu/events \
+curl -s localhost:19091/feishu/events \
   -H 'Content-Type: application/json' \
   -d '{
     "chat_id":"oc_dev",
@@ -178,20 +235,31 @@ curl -s localhost:8080/feishu/events \
   }'
 ```
 
-真实 bot 需要按公司环境配置 `LARK_PLATFORM`、`LARK_VERIFICATION_TOKEN`、`LARK_ENCRYPT_KEY`、`LARK_ALLOWED_CHAT_IDS`、`LARK_APP_ID`、`LARK_APP_SECRET`。配置细节见 [gateway-security.md](gateway-security.md) 和 [deployment-checklist.md](deployment-checklist.md)。
+真实 bot 需要按公司环境配置 `LARK_PLATFORM`、`LARK_VERIFICATION_TOKEN`、`LARK_ENCRYPT_KEY`、`LARK_ALLOWED_CHAT_IDS`、`LARK_APP_ID`、`LARK_APP_SECRET`。Python Agent Platform 配置 `LARK_ENCRYPT_KEY` 后会拒绝明文回调，避免生产降级；配置 `LARK_APP_ID/LARK_APP_SECRET` 后才会尝试下载图片资源并交给 Vision provider。配置细节见 [gateway-security.md](gateway-security.md) 和 [deployment-checklist.md](deployment-checklist.md)。
+
+密文回调本地验证建议：
+
+```bash
+export LARK_VERIFICATION_TOKEN="$LOCAL_LARK_TOKEN"
+export LARK_ENCRYPT_KEY="$LOCAL_LARK_ENCRYPT_KEY"
+export LARK_ALLOWED_CHAT_IDS=oc_dev
+make dev
+```
+
+然后用测试脚本或平台回调发送 `{"encrypt":"..."}` 到 `/lark/events`；预期 challenge 返回 200，明文 payload 返回 400。
 
 ## Gateway tools
 
 查看工具：
 
 ```bash
-curl -s localhost:8080/tools
+curl -s localhost:18080/tools
 ```
 
 直接调用工具：
 
 ```bash
-curl -s localhost:8080/tools/get_asset_snapshot/invoke \
+curl -s localhost:18080/tools/get_asset_snapshot/invoke \
   -H 'Content-Type: application/json' \
   -d '{
     "case_id":"case_dev",
@@ -209,7 +277,7 @@ curl -s localhost:8080/tools/get_asset_snapshot/invoke \
 如果开启 `GATEWAY_AUTH_ENABLED=true`，需要带 Bearer：
 
 ```bash
-curl -s localhost:8080/tools/get_asset_snapshot/invoke \
+curl -s localhost:18080/tools/get_asset_snapshot/invoke \
   -H "Authorization: Bearer $GATEWAY_BEARER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"case_id":"case_dev","agent_id":"business-troubleshooter-v1","caller_user_id":"ou_dev","chat_id":"oc_dev","arguments":{"user_id":"user_123","asset_symbol":"USDT"}}'
