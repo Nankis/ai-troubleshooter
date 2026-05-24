@@ -256,6 +256,14 @@
       background: rgba(255, 255, 255, .07);
     }
 
+    .case-row.running {
+      background: rgba(48, 209, 88, .04);
+    }
+
+    .case-row.needs-view .row-title {
+      color: #ffffff;
+    }
+
     .case-main {
       appearance: none;
       min-width: 0;
@@ -415,6 +423,74 @@
       background: rgba(46, 160, 67, .11);
       font-size: 11px;
       font-weight: 700;
+    }
+
+    .case-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 24px;
+      min-width: 54px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .case-status.running {
+      color: #f3f3f3;
+      border-color: rgba(48, 209, 88, .28);
+      background: rgba(48, 209, 88, .08);
+    }
+
+    .case-status.review {
+      color: #9be7c6;
+      border-color: rgba(155, 231, 198, .34);
+      background: rgba(46, 160, 67, .11);
+    }
+
+    .case-status.waiting {
+      color: var(--yellow);
+      border-color: rgba(255, 189, 46, .35);
+      background: rgba(255, 189, 46, .08);
+    }
+
+    .case-status.done {
+      color: var(--green);
+      border-color: rgba(48, 209, 88, .3);
+      background: var(--green-soft);
+    }
+
+    .case-status.failed {
+      color: var(--red);
+      border-color: rgba(255, 95, 87, .35);
+      background: rgba(255, 95, 87, .1);
+    }
+
+    .case-status.draft {
+      min-width: 44px;
+    }
+
+    .status-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255, 255, 255, .22);
+      border-top-color: #f4f4f4;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      flex: 0 0 auto;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(48, 209, 88, .11);
+      flex: 0 0 auto;
     }
 
     .knowledge-row {
@@ -1353,6 +1429,7 @@
 
   <script>
     const DRAFT_STORAGE_KEY = "ai-troubleshooter.web.drafts.v1";
+    const CASE_READ_STORAGE_KEY = "ai-troubleshooter.web.caseReads.v1";
 
     const state = {
       currentCaseNo: "",
@@ -1370,6 +1447,10 @@
       newToolNames: new Set(),
       toolRefreshing: false,
       draftSeq: 0,
+      caseReads: loadCaseReads(),
+      caseSeen: {},
+      overviewLoadedOnce: false,
+      appStartedAt: Date.now(),
       imagePreviewUrls: [],
       activeImagePreviewIndex: -1,
       activeKnowledgeId: 0,
@@ -1587,6 +1668,7 @@
       state.capabilities = payload.capabilities || [];
       state.knowledge = payload.knowledge || [];
       state.cases = payload.cases || [];
+      syncCaseReadState(state.cases);
       renderCases();
       renderCapabilities();
       renderTools();
@@ -1811,7 +1893,9 @@
         if (!response.ok) throw new Error(payload.error || "rename failed");
         const item = state.cases.find((entry) => entry.case_no === targetID);
         if (!item) return;
+        Object.assign(item, payload);
         item.title = payload.title || title;
+        markCaseViewed(item);
         renderCases();
         showToast("问题已重命名");
       } catch (error) {
@@ -2072,13 +2156,15 @@
     function applyCasePayload(payload) {
       const c = payload.case || {};
       state.currentCaseNo = c.case_no || state.currentCaseNo;
+      mergeCaseIntoList(c);
+      markCaseViewed(c);
       renderMessages(payload.messages || []);
       renderProgress(payload.progress || []);
       renderDecisionStrip(payload.ai_decision_logs || []);
       setBusy(Boolean(payload.processing));
       el.caseStatus.textContent = c.status || "ready";
       el.caseSource.textContent = c.source || "web";
-      highlightCurrentCase();
+      renderCases();
     }
 
     function renderCases() {
@@ -2092,12 +2178,12 @@
         return;
       }
       el.caseList.innerHTML = items.map((item) => `
-        <div class="case-row ${caseRowActive(item) ? "active" : ""}">
+        <div class="${escapeAttr(caseRowClasses(item))}">
           <button class="case-main truncate" type="button" ${item.isDraft ? `data-draft-open="${escapeAttr(item.draft_id)}"` : `data-case-open="${escapeAttr(item.case_no)}"`}>
             <span class="row-title truncate">${escapeHTML(caseTitle(item))}</span>
             <span class="row-meta truncate">${escapeHTML(item.isDraft ? "草稿 · web" : (item.issue_domain || item.source || "web"))}</span>
           </button>
-          <span class="tag ${isActive(item.status) ? "green" : ""}">${escapeHTML(item.isDraft ? "草稿" : shortStatus(item.status))}</span>
+          ${caseStatusHTML(item)}
           <span class="case-actions">
             <button class="case-action-btn" type="button" ${item.isDraft ? `data-draft-rename="${escapeAttr(item.draft_id)}"` : `data-case-rename="${escapeAttr(item.case_no)}"`} aria-label="重命名问题" title="重命名">✎</button>
             <button class="case-action-btn delete" type="button" ${item.isDraft ? `data-draft-delete="${escapeAttr(item.draft_id)}"` : `data-case-delete="${escapeAttr(item.case_no)}"`} aria-label="删除问题" title="删除">×</button>
@@ -2107,8 +2193,12 @@
       el.caseList.querySelectorAll("[data-case-open]").forEach((button) => {
         button.addEventListener("click", () => {
           updateActiveDraftFromComposer();
+          const caseNo = button.dataset.caseOpen || "";
+          const item = state.cases.find((entry) => entry.case_no === caseNo);
+          if (item) markCaseViewed(item);
           state.currentDraftID = "";
-          state.currentCaseNo = button.dataset.caseOpen || "";
+          state.currentCaseNo = caseNo;
+          renderCases();
           startPolling(state.currentCaseNo);
         });
       });
@@ -2453,6 +2543,138 @@
       el.send.disabled = value;
       el.status.textContent = value ? "investigating" : "ready";
       el.pulse.classList.toggle("on", value);
+    }
+
+    function loadCaseReads() {
+      try {
+        const raw = window.localStorage.getItem(CASE_READ_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function saveCaseReads() {
+      try {
+        window.localStorage.setItem(CASE_READ_STORAGE_KEY, JSON.stringify(state.caseReads));
+      } catch (_) {
+        showToast("问题已读状态本地保存失败");
+      }
+    }
+
+    function syncCaseReadState(cases) {
+      const firstLoad = !state.overviewLoadedOnce;
+      const nextSeen = {};
+      let changed = false;
+      for (const item of cases) {
+        const caseNo = String(item.case_no || "");
+        if (!caseNo) continue;
+        const status = String(item.status || "");
+        const revision = caseRevision(item);
+        nextSeen[caseNo] = { status, revision };
+        if (caseNo === state.currentCaseNo) {
+          changed = markCaseViewed(item, { save: false }) || changed;
+          continue;
+        }
+        if (!isReviewableStatus(status) || state.caseReads[caseNo] === revision) continue;
+        if (firstLoad && !updatedDuringCurrentSession(item)) {
+          state.caseReads[caseNo] = revision;
+          changed = true;
+        }
+      }
+      state.caseSeen = nextSeen;
+      state.overviewLoadedOnce = true;
+      if (changed) saveCaseReads();
+    }
+
+    function markCaseViewed(item, options = {}) {
+      const caseNo = String(item && item.case_no || "");
+      if (!caseNo) return false;
+      const revision = caseRevision(item);
+      if (state.caseReads[caseNo] === revision) return false;
+      state.caseReads[caseNo] = revision;
+      if (options.save !== false) saveCaseReads();
+      return true;
+    }
+
+    function mergeCaseIntoList(item) {
+      if (!item || !item.case_no) return;
+      const index = state.cases.findIndex((entry) => entry.case_no === item.case_no);
+      if (index >= 0) {
+        state.cases[index] = { ...state.cases[index], ...item };
+        return;
+      }
+      state.cases.unshift(item);
+    }
+
+    function caseRevision(item) {
+      return String(item.updated_at || item.updatedAt || item.version || item.status || "");
+    }
+
+    function updatedDuringCurrentSession(item) {
+      const raw = item.updated_at || item.updatedAt || "";
+      const updatedAt = Date.parse(raw);
+      return Number.isFinite(updatedAt) && updatedAt >= state.appStartedAt - 5000;
+    }
+
+    function caseRowClasses(item) {
+      const classes = ["case-row"];
+      if (caseRowActive(item)) classes.push("active");
+      if (caseProcessing(item)) classes.push("running");
+      if (caseNeedsView(item)) classes.push("needs-view");
+      return classes.join(" ");
+    }
+
+    function caseStatusHTML(item) {
+      const meta = caseStatusMeta(item);
+      return `
+        <span class="case-status ${escapeAttr(meta.className)}" aria-label="${escapeAttr(meta.title)}" title="${escapeAttr(meta.title)}">
+          ${meta.icon || ""}${escapeHTML(meta.label)}
+        </span>
+      `;
+    }
+
+    function caseStatusMeta(item) {
+      if (item.isDraft) return { label: "草稿", className: "draft", title: "草稿" };
+      if (caseProcessing(item)) {
+        return {
+          label: "排查中",
+          className: "running",
+          title: "AI 正在排查",
+          icon: `<span class="status-spinner" aria-hidden="true"></span>`,
+        };
+      }
+      if (caseNeedsView(item)) {
+        return {
+          label: "待查看",
+          className: "review",
+          title: "AI 已有结果，点击查看",
+          icon: `<span class="status-dot" aria-hidden="true"></span>`,
+        };
+      }
+      const status = String(item.status || "");
+      if (status === "FAILED") return { label: "失败", className: "failed", title: "排查失败" };
+      if (status === "DONE") return { label: "完成", className: "done", title: "已完成" };
+      if (status === "NEED_MORE_INFO" || status === "WAITING_USER_REPLY" || status === "NEED_HUMAN_CONFIRMATION") {
+        return { label: shortStatus(status), className: "waiting", title: shortStatus(status) };
+      }
+      return { label: shortStatus(status), className: "", title: shortStatus(status) };
+    }
+
+    function caseProcessing(item) {
+      if (item.isDraft) return false;
+      return isActive(item.status) || (item.case_no === state.currentCaseNo && state.processing);
+    }
+
+    function caseNeedsView(item) {
+      if (item.isDraft || caseProcessing(item)) return false;
+      const caseNo = String(item.case_no || "");
+      return isReviewableStatus(item.status) && caseNo && state.caseReads[caseNo] !== caseRevision(item);
+    }
+
+    function isReviewableStatus(status) {
+      return ["NEED_HUMAN_CONFIRMATION", "DONE", "FAILED"].includes(String(status || ""));
     }
 
     function highlightCurrentCase() {

@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-041-decision-owned-gateway-read-policy/HANDOFF.md`
+- `programs/P-2026-042-web-case-status-indicators/HANDOFF.md`
 
 当前状态：
 
-- Gateway 读取策略归属已修正：由 Decision Engine 决定是否查 Gateway，Agent Platform runtime 只执行已验证计划。
+- Web 左侧问题状态增强已实现并验证：排查中显示 spinner，AI 结果未查看显示待查看，点击 case 后清除本机提示。
 
 接手规则：
 
