@@ -47,7 +47,7 @@ flowchart LR
 | Web Chat 工作台 | 已实现，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 代码实现，支持 token、encrypted callback、图片下载和平台差异配置；真实 bot 需要公司凭据验收。 |
 | Case / Knowledge / Audit | MySQL 持久化；`DB_DRIVER=mysql` 时没有 `DB_DSN` 会直接失败，避免误用内存。 |
-| Decision Engine | Python 目标层已提供 Supervisor、Kline、Asset、Knowledge、Local Code、Verifier 轻量基线；Go fallback 仍可跑本地闭环。 |
+| Decision Engine | Python 目标层已提供 Supervisor、Kline、Asset、Knowledge、Local Code、Verifier 轻量基线；Go fallback 支持 `AI_MODEL_PROFILE` 真实 LLM 严格模式和本地闭环。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，不返回源码片段。 |
@@ -72,13 +72,16 @@ make migrate-mysql
 export DB_DRIVER=mysql
 export DB_DSN="$LOCAL_DB_DSN"
 export CONNECTOR_MODE=mock
-export LLM_PROVIDER=local_rules
-export VISION_PROVIDER=local_rules
+export AI_MODEL_PROFILE=qwen
+export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG" # 可选：读取本机已有模型配置
+export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"    # 或直接通过环境变量给 key
 export HTTP_PORT=8080
 make dev
 ```
 
 打开 `http://localhost:8080/web`。本地开发如果端口冲突，可以改 `HTTP_PORT`，例如 `HTTP_PORT=18088 make dev`。
+
+没有模型 key 时可以临时用 `LLM_PROVIDER=local_rules` 做页面 smoke，但这不是大模型验收，不能把结果当成真实排障结论。
 
 更完整的本地运行、Web Chat、模型、health-food、MCP、DMS 和容器命令已经移到 [docs/local-runbook.md](docs/local-runbook.md)。
 

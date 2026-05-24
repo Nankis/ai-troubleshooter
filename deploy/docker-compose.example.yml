@@ -11,5 +11,6 @@ services:
       APP_ENV: dev
       HTTP_PORT: 8080
       CONNECTOR_MODE: mock
-      LLM_PROVIDER: local_rules
-      LLM_MODEL: rules-v1
+      AI_MODEL_PROFILE: qwen
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?set in local shell}
+      LLM_ALLOW_RULE_FALLBACK: "false"

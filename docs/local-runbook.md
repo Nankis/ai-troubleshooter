@@ -46,14 +46,16 @@ unset DB_DSN
 
 ## Web Chat
 
-最小启动：
+真实模型启动：
 
 ```bash
 export DB_DRIVER=mysql
 export DB_DSN="$LOCAL_DB_DSN"
 export CONNECTOR_MODE=mock
-export LLM_PROVIDER=local_rules
-export VISION_PROVIDER=local_rules
+export AI_MODEL_PROFILE=qwen
+export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG" # 可选：读取本机已有 application-local.yml
+export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"    # 或直接给环境变量
+export LLM_ALLOW_RULE_FALLBACK=false
 export HTTP_PORT=8080
 make dev
 ```
@@ -84,12 +86,29 @@ Web 工作台支持：
 
 ## 模型配置
 
-本地 smoke 可以用规则模型：
+本地 smoke 可以用规则模型，但只能证明页面和链路能跑，不能作为真实大模型排障验收：
 
 ```bash
 export LLM_PROVIDER=local_rules
 export VISION_PROVIDER=local_rules
 ```
+
+推荐的统一模型入口：
+
+```bash
+# 方式 1：profile + 环境变量
+export AI_MODEL_PROFILE=qwen
+export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"
+
+# 方式 2：profile + 本机已有配置文件，例如 health-food 的 application-local.yml
+export AI_MODEL_PROFILE=qwen
+export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
+
+# 强制真实模型失败时暴露错误，禁止静默降级到规则
+export LLM_ALLOW_RULE_FALLBACK=false
+```
+
+当前内置 profile：`qwen`/`dashscope`、`deepseek`、`moonshot`、`openai`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
 
 接 OpenAI-compatible 文本模型：
 

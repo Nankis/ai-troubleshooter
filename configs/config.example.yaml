@@ -16,12 +16,18 @@ lark:
     - oc_dev
 
 llm:
-  provider: local_rules
+  # Runtime env is preferred for secrets and model switching:
+  # AI_MODEL_PROFILE=qwen
+  # AI_MODEL_CONFIG_FILE=/path/to/application-local.yml
+  # DASHSCOPE_API_KEY=replace-with-local-env-only-secret
+  # LLM_ALLOW_RULE_FALLBACK=false
+  provider: qwen
   base_url: ""
   api_key: ""
-  model: rules-v1
+  model: qwen-plus
   timeout_seconds: 30
   max_concurrency: 10
+  allow_rule_fallback: false
 
 vision:
   # same_as_llm: reuse the main LLM config for image analysis if the model supports vision.

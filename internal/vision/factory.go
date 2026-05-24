@@ -18,7 +18,7 @@ func NewFromConfigs(cfg config.VisionConfig, llmCfg config.LLMConfig) Client {
 		return nil
 	case "same_as_llm", "llm", "main_llm":
 		return newFromLLMConfig(cfg, llmCfg)
-	case "qwen", "qwen_vl", "qwen_openai_compatible", "openai_compatible":
+	case "qwen", "dashscope", "deepseek", "moonshot", "openai", "qwen_vl", "qwen_openai_compatible", "openai_compatible":
 		return NewOpenAICompatibleClient(OpenAICompatibleOptions{
 			Provider: cfg.Provider,
 			BaseURL:  cfg.BaseURL,
@@ -33,7 +33,7 @@ func NewFromConfigs(cfg config.VisionConfig, llmCfg config.LLMConfig) Client {
 
 func newFromLLMConfig(visionCfg config.VisionConfig, llmCfg config.LLMConfig) Client {
 	switch strings.ToLower(strings.TrimSpace(llmCfg.Provider)) {
-	case "openai_compatible", "gpt", "claude", "llm_gateway":
+	case "openai", "openai_compatible", "gpt", "claude", "llm_gateway", "qwen", "dashscope", "deepseek", "moonshot":
 		timeoutSeconds := visionCfg.TimeoutSeconds
 		if timeoutSeconds <= 0 {
 			timeoutSeconds = llmCfg.TimeoutSeconds

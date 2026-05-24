@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	runner := decisionbaseline.New(store, llm.NewRuleBasedClient(), gw.LocalClient(), decisionbaseline.Config{
+	runner := decisionbaseline.New(store, llm.NewFromConfig(cfg.LLM), gw.LocalClient(), decisionbaseline.Config{
 		AgentID:                 cfg.Gateway.AgentID,
 		ModelProvider:           cfg.LLM.Provider,
 		ModelName:               cfg.LLM.Model,

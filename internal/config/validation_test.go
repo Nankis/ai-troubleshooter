@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -132,5 +134,71 @@ func TestValidateForLarkBotRejectsUnknownPlatform(t *testing.T) {
 	err := cfg.ValidateForLarkBot()
 	if err == nil || !strings.Contains(err.Error(), "LARK_PLATFORM") {
 		t.Fatalf("expected platform validation error, got %v", err)
+	}
+}
+
+func TestLoadFromEnvLoadsQwenModelProfileFile(t *testing.T) {
+	modelConfig := `
+spring:
+  ai:
+    qwen:
+      env-api-key: ${TEST_QWEN_KEY}
+      base-url-http: https://dashscope.example/compatible-mode/v1
+      model: qwen-plus
+`
+	path := filepath.Join(t.TempDir(), "application-local.yml")
+	if err := os.WriteFile(path, []byte(modelConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AI_MODEL_PROFILE", "qwen")
+	t.Setenv("AI_MODEL_CONFIG_FILE", path)
+	t.Setenv("TEST_QWEN_KEY", "test-qwen-key")
+	t.Setenv("LLM_PROVIDER", "")
+	t.Setenv("LLM_BASE_URL", "")
+	t.Setenv("LLM_API_KEY", "")
+	t.Setenv("LLM_MODEL", "")
+
+	cfg := LoadFromEnv()
+	if cfg.LLM.Profile != "qwen" || cfg.LLM.Provider != "qwen" {
+		t.Fatalf("expected qwen profile/provider, got %+v", cfg.LLM)
+	}
+	if cfg.LLM.BaseURL != "https://dashscope.example/compatible-mode/v1" || cfg.LLM.APIKey != "test-qwen-key" || cfg.LLM.Model != "qwen-plus" {
+		t.Fatalf("unexpected qwen model config: %+v", cfg.LLM)
+	}
+	if err := cfg.ValidateForLLM(); err != nil {
+		t.Fatalf("expected qwen model config to validate, got %v", err)
+	}
+}
+
+func TestLoadFromEnvAllowsExplicitLLMOverridesAfterProfile(t *testing.T) {
+	modelConfig := `
+qwen:
+  env-api-key: ${TEST_QWEN_KEY}
+  base-url-http: https://dashscope.example/compatible-mode/v1
+  model: qwen-plus
+`
+	path := filepath.Join(t.TempDir(), "application-local.yml")
+	if err := os.WriteFile(path, []byte(modelConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AI_MODEL_PROFILE", "qwen")
+	t.Setenv("AI_MODEL_CONFIG_FILE", path)
+	t.Setenv("TEST_QWEN_KEY", "profile-key")
+	t.Setenv("LLM_PROVIDER", "openai_compatible")
+	t.Setenv("LLM_BASE_URL", "https://override.example/v1")
+	t.Setenv("LLM_API_KEY", "override-key")
+	t.Setenv("LLM_MODEL", "override-model")
+
+	cfg := LoadFromEnv()
+	if cfg.LLM.Provider != "openai_compatible" || cfg.LLM.BaseURL != "https://override.example/v1" || cfg.LLM.APIKey != "override-key" || cfg.LLM.Model != "override-model" {
+		t.Fatalf("explicit LLM env should override profile values: %+v", cfg.LLM)
+	}
+}
+
+func TestValidateForLLMRejectsRealProviderWithoutCredentials(t *testing.T) {
+	cfg := Config{LLM: LLMConfig{Provider: "qwen", BaseURL: "https://dashscope.example/compatible-mode/v1", Model: "qwen-plus"}}
+	err := cfg.ValidateForLLM()
+	if err == nil || !strings.Contains(err.Error(), "LLM_API_KEY") {
+		t.Fatalf("expected missing api key error, got %v", err)
 	}
 }

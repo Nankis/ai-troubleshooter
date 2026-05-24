@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
@@ -25,6 +26,10 @@ func TestOpenAICompatibleClientClassifiesIssue(t *testing.T) {
 		if body["model"] != "gpt-test" {
 			t.Fatalf("unexpected model: %+v", body)
 		}
+		responseFormat := body["response_format"].(map[string]any)
+		if responseFormat["type"] != "json_object" {
+			t.Fatalf("expected json response_format, got %+v", body)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{
 				"message": map[string]any{"content": `{"issue_domain":"kline","issue_type":"价格不一致","confidence":0.91}`},
@@ -44,6 +49,103 @@ func TestOpenAICompatibleClientClassifiesIssue(t *testing.T) {
 	}
 	if got.IssueDomain != caseflow.DomainKline || got.IssueType != "价格不一致" {
 		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestOpenAICompatibleClientClassifiesHealthFoodIssue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{"content": `{"issue_domain":"health_food","issue_type":"每日推荐缺失","confidence":0.88}`},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewOpenAICompatibleClient(OpenAICompatibleOptions{
+		Provider: "qwen",
+		BaseURL:  server.URL + "/v1",
+		APIKey:   "key_1",
+		Model:    "qwen-plus",
+	})
+	got, err := client.ClassifyIssue(context.Background(), CaseInput{Case: caseflow.Case{OriginalText: "health-food uid 123 今日没有每日推荐"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IssueDomain != caseflow.DomainHealthFood || got.IssueType != "每日推荐缺失" {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestOpenAICompatibleClientAcceptsClassificationAliases(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{"content": `{"业务域":"health food","问题类型":"推荐不准确"}`},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewOpenAICompatibleClient(OpenAICompatibleOptions{
+		Provider: "qwen",
+		BaseURL:  server.URL + "/v1",
+		APIKey:   "key_1",
+		Model:    "qwen-plus",
+	})
+	got, err := client.ClassifyIssue(context.Background(), CaseInput{Case: caseflow.Case{OriginalText: "health-food 推荐不准"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IssueDomain != caseflow.DomainHealthFood || got.IssueType != "推荐不准确" || got.Confidence <= 0 {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestOpenAICompatibleClientRejectsInvalidClassificationWithoutFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{"content": `{}`},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	client := NewOpenAICompatibleClient(OpenAICompatibleOptions{
+		Provider: "qwen",
+		BaseURL:  server.URL + "/v1",
+		APIKey:   "key_1",
+		Model:    "qwen-plus",
+	})
+	_, err := client.ClassifyIssue(context.Background(), CaseInput{Case: caseflow.Case{OriginalText: "BTCUSDT K线价格不一致"}})
+	if err == nil || !strings.Contains(err.Error(), "invalid classification") {
+		t.Fatalf("expected strict invalid classification error, got %v", err)
+	}
+}
+
+func TestOpenAICompatibleClientCanExplicitlyFallbackToRules(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]string{"message": "temporary upstream failure"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewOpenAICompatibleClient(OpenAICompatibleOptions{
+		Provider:          "qwen",
+		BaseURL:           server.URL + "/v1",
+		APIKey:            "key_1",
+		Model:             "qwen-plus",
+		AllowRuleFallback: true,
+	})
+	got, err := client.ClassifyIssue(context.Background(), CaseInput{Case: caseflow.Case{OriginalText: "BTCUSDT K线价格不一致"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IssueDomain != caseflow.DomainKline {
+		t.Fatalf("expected rule fallback classification, got %+v", got)
 	}
 }
 

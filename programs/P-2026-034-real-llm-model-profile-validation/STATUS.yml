@@ -1,0 +1,20 @@
+program: P-2026-034-real-llm-model-profile-validation
+name: "real LLM model profile validation"
+status: verifying
+updated_at: "2026-05-24"
+tasks:
+  - id: T1
+    name: "现状审计"
+    status: completed
+  - id: T2
+    name: "真实模型配置与 API 探活"
+    status: completed
+  - id: T3
+    name: "模型 profile 和严格模式实现"
+    status: completed
+  - id: T4
+    name: "Web 真实 LLM 验证"
+    status: completed
+  - id: T5
+    name: "提交推送"
+    status: in_progress

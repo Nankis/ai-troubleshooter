@@ -312,13 +312,14 @@ func (o *Runner) ProcessCase(parent context.Context, caseID int64) (result casef
 	stepStart = time.Now()
 	action, err := o.llm.DecideNextAction(ctx, *c, entityMap, nil)
 	selectedTools := boundedToolNames(action.ToolNames, o.cfg.MaxToolCallsPerCase)
+	selectedTools = ensureEvidenceTools(*c, selectedTools, o.cfg.MaxToolCallsPerCase)
 	o.recordDecision(ctx, decisionRecord{
 		Case:          c,
 		Investigation: inv,
 		DecisionType:  "decide_next_action",
 		Reason:        fallback(action.Reason, "choose readonly tools based on issue domain and extracted entities"),
 		Input:         map[string]any{"issue_domain": c.IssueDomain, "issue_type": c.IssueType, "entities": entityMap, "max_tool_calls": o.cfg.MaxToolCallsPerCase},
-		Output:        map[string]any{"requested_tools": action.ToolNames, "selected_tools": selectedTools, "truncated": len(selectedTools) < len(action.ToolNames)},
+		Output:        map[string]any{"requested_tools": action.ToolNames, "selected_tools": selectedTools, "augmented": len(selectedTools) > len(action.ToolNames), "truncated": len(selectedTools) < len(action.ToolNames)},
 		SelectedTools: selectedTools,
 		Status:        statusForErr(err),
 		Latency:       time.Since(stepStart),
@@ -845,6 +846,44 @@ func boundedToolNames(names []string, max int) []string {
 		}
 	}
 	return out
+}
+
+func ensureEvidenceTools(c caseflow.Case, selected []string, max int) []string {
+	if max <= 0 {
+		max = 10
+	}
+	out := append([]string{}, selected...)
+	add := func(names ...string) {
+		for _, name := range names {
+			if name == "" || containsTool(out, name) || len(out) >= max {
+				continue
+			}
+			out = append(out, name)
+		}
+	}
+	switch c.IssueDomain {
+	case caseflow.DomainHealthFood:
+		add("get_health_food_user_profile")
+		text := strings.ToLower(c.IssueType + " " + c.OriginalText + " " + c.OCRText)
+		switch {
+		case containsAny(text, "推荐", "recommend"):
+			add("get_health_food_meal_records", "get_health_food_recommendation_status", "search_logs_by_service", "get_similar_cases")
+		case containsAny(text, "token", "quota", "配额", "消耗"):
+			add("get_health_food_ai_quota", "search_logs_by_service", "get_similar_cases")
+		default:
+			add("search_logs_by_service", "get_similar_cases")
+		}
+	}
+	return out
+}
+
+func containsTool(names []string, target string) bool {
+	for _, name := range names {
+		if name == target {
+			return true
+		}
+	}
+	return false
 }
 
 func canStartProcessing(status caseflow.Status) bool {

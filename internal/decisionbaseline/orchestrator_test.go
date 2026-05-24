@@ -160,6 +160,40 @@ func TestProcessCaseWritesExtractedBusinessUID(t *testing.T) {
 	}
 }
 
+func TestHealthFoodRecommendationAugmentsMinimumEvidenceTools(t *testing.T) {
+	ctx := context.Background()
+	store := caseflow.NewInMemoryStore()
+	c, err := store.CreateCase(ctx, caseflow.CreateCaseInput{
+		OriginalText: "health-food uid:2054603630081875968 用户反馈 2026-05-23 推荐数据不准",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolClient := &fakeToolClient{}
+	runner := New(store, fakeHealthFoodUIDLLM{}, toolClient, Config{
+		MaxToolCallsPerCase:     5,
+		MaxToolFailuresPerCase:  3,
+		MaxInvestigationSeconds: 5,
+	})
+
+	if _, err := runner.ProcessCase(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"get_health_food_user_profile", "get_health_food_meal_records", "get_health_food_recommendation_status", "search_logs_by_service"} {
+		if !containsTool(toolClient.names, name) {
+			t.Fatalf("expected augmented tool %s, got %v", name, toolClient.names)
+		}
+	}
+	logs, err := store.ListAIDecisionLogs(ctx, c.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := decisionLogBlob(logs)
+	if !strings.Contains(blob, `"augmented":true`) {
+		t.Fatalf("expected decide_next_action to record augmentation, got %s", blob)
+	}
+}
+
 func TestProcessCaseCanAnswerFromHighConfidenceKnowledge(t *testing.T) {
 	ctx := context.Background()
 	store := caseflow.NewInMemoryStore()
@@ -379,10 +413,12 @@ func (fakeHealthFoodUIDLLM) SummarizeFindings(ctx context.Context, state caseflo
 type fakeToolClient struct {
 	calls int
 	err   error
+	names []string
 }
 
 func (c *fakeToolClient) Invoke(ctx context.Context, req tool.InvocationRequest) (tool.InvocationResponse, error) {
 	c.calls++
+	c.names = append(c.names, req.ToolName)
 	if c.err != nil {
 		return tool.InvocationResponse{ToolCallID: "tc_failed", Status: "failed", Summary: c.err.Error()}, c.err
 	}
