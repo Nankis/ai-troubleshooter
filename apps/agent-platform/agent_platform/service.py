@@ -25,7 +25,7 @@ from .context_ledger import (
 from .gateway import GatewayHTTPClient
 from .llm import LLMClient
 from .repository import Repository
-from .vision import ImageInput, LocalVisionClient
+from .vision import ImageInput, LocalVisionClient, build_vision_client
 
 
 ENTRY_STATUSES = {"NEW", "NEED_MORE_INFO", "WAITING_USER_REPLY", "READY_TO_INVESTIGATE"}
@@ -47,7 +47,7 @@ class AgentPlatform:
         self.gateway = gateway or GatewayHTTPClient(config.gateway_endpoint, config.gateway_bearer_token)
         self.decision_engine = decision_engine or DecisionEngine()
         self.llm = llm_client or LLMClient(config.llm)
-        self.vision = vision_client or LocalVisionClient()
+        self.vision = vision_client or build_vision_client(config.vision, config.llm)
 
     def close(self) -> None:
         self.repository.close()
@@ -60,6 +60,8 @@ class AgentPlatform:
             "gateway_endpoint": self.config.gateway_endpoint,
             "llm_provider": self.config.llm.provider,
             "llm_model": self.config.llm.model,
+            "vision_provider": self.config.vision.provider,
+            "vision_model": self.config.vision.model,
         }
 
     def submit_chat(
@@ -77,6 +79,7 @@ class AgentPlatform:
             raise ValueError("message or image is required")
         vision_result = self.vision.analyze(text, images)
         case = self._upsert_case(case_no=case_no, title=title, user_text=text, ocr_text=vision_result.ocr_text)
+        self._record_vision_decision(case, images, vision_result)
         if async_process:
             case = self._transition(case, "READY_TO_INVESTIGATE")
             return self.case_payload(case, {"case_id": case["id"], "case_no": case["case_no"], "status": case["status"], "reply": f"[{case['case_no']}] 已开始排查。"}, processing=True)
@@ -132,6 +135,7 @@ class AgentPlatform:
             }
         )
         self.repository.add_message(int(case["id"]), "user", _message_content(text, combined_ocr))
+        self._record_vision_decision(case, images, vision_result)
         if async_process:
             case = self._transition(case, "READY_TO_INVESTIGATE")
             return self.case_payload(case, {"case_id": case["id"], "case_no": case["case_no"], "status": case["status"], "reply": f"[{case['case_no']}] 已开始排查。"}, processing=True)
@@ -598,6 +602,29 @@ class AgentPlatform:
                 "latency_ms": latency_ms,
                 "error_message": error_message,
             }
+        )
+
+    def _record_vision_decision(self, case: dict[str, Any], images: list[ImageInput], vision_result: Any) -> None:
+        if not images:
+            return
+        self._record_decision(
+            case,
+            None,
+            "vision_analyze",
+            "analyze uploaded images with configured Python Vision provider",
+            {
+                "image_count": len(images),
+                "media_types": [item.media_type for item in images],
+                "filenames": [item.filename for item in images],
+            },
+            {
+                "provider": getattr(vision_result, "provider", ""),
+                "model": getattr(vision_result, "model", ""),
+                "is_real": getattr(vision_result, "is_real", False),
+                "summary": getattr(vision_result, "summary", ""),
+                "ocr_text": getattr(vision_result, "ocr_text", ""),
+            },
+            "success" if getattr(vision_result, "is_real", False) else "fallback",
         )
 
     def _record_context_ledger(

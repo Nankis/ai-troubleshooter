@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -56,7 +57,6 @@ class LLMClient:
         body = {
             "model": self.config.model,
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -91,8 +91,12 @@ class LLMClient:
             method="POST",
             headers={"Content-Type": "application/json", **headers},
         )
-        with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
-            raw = response.read().decode("utf-8")
+        try:
+            with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(_api_error_message(exc.code, raw)) from exc
         return json.loads(raw or "{}")
 
     def _require_real_config(self) -> None:
@@ -117,3 +121,13 @@ def _loads_json_object(text: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("LLM returned non-object JSON")
     return value
+
+
+def _api_error_message(status: int, raw: str) -> str:
+    try:
+        payload = json.loads(raw or "{}")
+        message = payload.get("error", {}).get("message") or payload.get("message") or raw
+    except json.JSONDecodeError:
+        message = raw
+    message = re.sub(r"(?i)(api[_-]?key|token|authorization)[^,}\\n]*", r"\1=<redacted>", str(message))
+    return f"llm api status={status} error={message}"

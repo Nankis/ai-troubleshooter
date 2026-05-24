@@ -45,9 +45,13 @@ LLM/Vision 配置属于 Python Agent Platform，不属于 Go Gateway。
 ```bash
 export AI_MODEL_PROFILE=qwen
 export DASHSCOPE_API_KEY="$DASHSCOPE_API_KEY"
+export QWEN_MODEL=qwen-plus
+export QWEN_VISION_MODEL=qwen-vl-plus
 
 export AI_MODEL_PROFILE=gpt
 export OPENAI_API_KEY="$OPENAI_API_KEY"
+export OPENAI_MODEL=gpt-4.1-mini
+export OPENAI_VISION_MODEL=gpt-4.1-mini
 
 export AI_MODEL_PROFILE=claude
 export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
@@ -57,4 +61,13 @@ export CLAUDE_CODE_BASE_URL=http://127.0.0.1:19093
 export CLAUDE_CODE_API_KEY="$LOCAL_PROXY_TOKEN"
 ```
 
-`LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 可以覆盖 profile，用于公司统一模型网关。
+也可以只读本机已有 Spring AI YAML，例如 health-food 的 `application-local.yml`：
+
+```bash
+export AI_MODEL_PROFILE=qwen
+export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
+```
+
+`AI_MODEL_PROFILE=qwen` 默认把文本模型接到 DashScope OpenAI-compatible，把图片理解接到 `qwen-vl-plus`；`AI_MODEL_PROFILE=gpt` 默认文本和图片都走 OpenAI。`LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 可以覆盖主模型；`VISION_PROVIDER`、`VISION_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL` 可以单独覆盖图片模型，用于“主模型 GPT、图片 Qwen-VL”这类组合。
+
+没有真实 key 时可用 `LLM_PROVIDER=local_rules VISION_PROVIDER=local_rules` 做页面 smoke，但不能把结果记录成真实大模型或真实 Vision 验收。

@@ -46,6 +46,7 @@ Qwen / DashScope：
 export AI_MODEL_PROFILE=qwen
 export DASHSCOPE_API_KEY="$DASHSCOPE_API_KEY"
 export QWEN_MODEL=qwen-plus
+export QWEN_VISION_MODEL=qwen-vl-plus
 ```
 
 GPT / OpenAI：
@@ -53,7 +54,8 @@ GPT / OpenAI：
 ```bash
 export AI_MODEL_PROFILE=gpt
 export OPENAI_API_KEY="$OPENAI_API_KEY"
-export OPENAI_MODEL="replace-with-approved-model"
+export OPENAI_MODEL=gpt-4.1-mini
+export OPENAI_VISION_MODEL=gpt-4.1-mini
 ```
 
 Claude / Anthropic：
@@ -80,6 +82,15 @@ export LLM_PROVIDER=openai_compatible
 export LLM_BASE_URL=https://llm-gateway.example.internal/v1
 export LLM_API_KEY="$MODEL_GATEWAY_TOKEN"
 export LLM_MODEL=replace-with-model
+```
+
+图片识别也只在 Python Agent Platform 配置。默认 Qwen profile 使用 Qwen-VL，GPT profile 复用 OpenAI vision-capable 模型；如果主模型和图片模型要分开，可显式配置：
+
+```bash
+export VISION_PROVIDER=qwen_openai_compatible
+export VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+export VISION_API_KEY="$DASHSCOPE_API_KEY"
+export VISION_MODEL=qwen-vl-plus
 ```
 
 真实验收建议：

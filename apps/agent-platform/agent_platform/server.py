@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .chat_platform import ChatPlatformError, LarkImageDownloader, parse_chat_event
-from .config import Config, load_config
+from .config import Config, VisionConfig, load_config
 from .gateway import GatewayHTTPClient
 from .repository import MySQLRepository, Repository
 from .service import AgentPlatform
@@ -90,9 +90,10 @@ def create_app(config: Config | None = None, repository: Repository | None = Non
         title: str = Form(""),
         images: list[UploadFile] = File(default=[]),
     ) -> JSONResponse:
-        image_inputs = _read_images(images)
+        platform = _platform(request)
+        image_inputs = _read_images(images, platform.config.vision)
         async_process = _truthy(async_)
-        payload = _platform(request).submit_chat(
+        payload = platform.submit_chat(
             message=message,
             title=title,
             case_no=case_no,
@@ -101,7 +102,7 @@ def create_app(config: Config | None = None, repository: Repository | None = Non
         )
         if async_process:
             case_id = int(payload["case"]["id"])
-            background_tasks.add_task(_platform(request).process_case, case_id)
+            background_tasks.add_task(platform.process_case, case_id)
             return _json(payload, 202)
         return _json(payload)
 
@@ -236,14 +237,16 @@ def _json(payload: Any, status_code: int = 200) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=jsonable_encoder(payload))
 
 
-def _read_images(files: list[UploadFile]) -> list[ImageInput]:
+def _read_images(files: list[UploadFile], config: VisionConfig) -> list[ImageInput]:
     out: list[ImageInput] = []
+    if len(files or []) > config.max_images_per_message:
+        raise ValueError(f"too many images, max {config.max_images_per_message}")
     for item in files or []:
         data = item.file.read()
         if not data:
             continue
-        if len(data) > 10 * 1024 * 1024:
-            raise ValueError(f"image {item.filename} exceeds max 10485760 bytes")
+        if len(data) > config.max_image_bytes:
+            raise ValueError(f"image {item.filename} exceeds max {config.max_image_bytes} bytes")
         media_type = item.content_type or "application/octet-stream"
         if not media_type.startswith("image/"):
             raise ValueError(f"file {item.filename} is not an image")

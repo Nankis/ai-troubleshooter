@@ -2,7 +2,7 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-036-context-ledger-agent-isolation/HANDOFF.md`
+- `programs/P-2026-037-real-qwen-gpt-vision-validation/HANDOFF.md`
 
 接手规则：
 

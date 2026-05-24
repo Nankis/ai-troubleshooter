@@ -24,7 +24,7 @@ LLM_MODEL=replace-with-model
 VISION_PROVIDER=qwen_openai_compatible
 VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 VISION_API_KEY=xxx
-VISION_MODEL=qwen3-vl-plus
+VISION_MODEL=qwen-vl-plus
 VISION_MAX_IMAGES_PER_MESSAGE=3
 VISION_MAX_IMAGE_BYTES=10485760
 
@@ -63,7 +63,7 @@ MAX_INVESTIGATION_SECONDS=120
 - Lark/飞书事件订阅启用 Encrypt Key 时，必须同步配置 `LARK_ENCRYPT_KEY`；系统会先解密 `encrypt` 回调体，再校验 `LARK_VERIFICATION_TOKEN`。
 - 配置 `LARK_ENCRYPT_KEY` 后，Lark/飞书入口只接受密文回调，明文 payload 会返回 `400`，避免加密降级。
 - 如果需要识别截图，Lark/飞书应用必须具备读取消息资源/图片资源的权限，并配置 `LARK_APP_ID`、`LARK_APP_SECRET` 供系统下载图片。
-- 视觉识别默认 `VISION_PROVIDER=same_as_llm`，复用主 LLM；只有主模型不支持图片或需要更强 OCR 时，才单独配置 `VISION_PROVIDER=qwen_openai_compatible` 等视觉 agent。
+- 视觉识别归 Python Agent Platform：`AI_MODEL_PROFILE=qwen` 默认使用 Qwen-VL，`AI_MODEL_PROFILE=gpt` 默认复用 OpenAI vision-capable 模型；只有主模型不支持图片或需要更强 OCR 时，才单独配置 `VISION_PROVIDER=qwen_openai_compatible` 等视觉 agent。
 - 原图默认只在内存中短暂处理，不写入 MySQL；如需留存原图，必须接公司对象存储、保留周期和数据分级审批。
 - 只读 adapter 已按 `docs/ai-connector-integration.md` 暴露 10 个接口。
 - adapter 对所有底层查询设置 timeout、limit 和审计。

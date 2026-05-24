@@ -6,6 +6,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
@@ -15,7 +16,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from agent_platform.config import ChatPlatformConfig, Config, LLMConfig
+from agent_platform.config import ChatPlatformConfig, Config, LLMConfig, VisionConfig, load_config
 from agent_platform.gateway import GatewayHTTPClient
 from agent_platform.llm import LLMResult
 from agent_platform.repository import _json_or_none
@@ -256,6 +257,7 @@ class AgentPlatformFastAPITest(unittest.TestCase):
             max_investigation_seconds=120,
             web_asset_path=web_file,
             llm=LLMConfig("local_rules", "", "", "rules-v1", 30, False),
+            vision=VisionConfig("local_rules", "", "", "local-vision-placeholder", 30, 3, 10 * 1024 * 1024),
             chat_platform=ChatPlatformConfig("lark", "https://open.larksuite.com", "", "", "", "", (), 3, 10 * 1024 * 1024),
         )
         self.repo = MemoryRepository()
@@ -321,6 +323,96 @@ class AgentPlatformFastAPITest(unittest.TestCase):
 
         self.assertIn('"0.8000"', encoded or "")
         self.assertIn('"2026-05-24 10:00:00"', encoded or "")
+
+    def test_qwen_profile_reads_spring_ai_config_and_defaults_qwen_vision(self) -> None:
+        model_file = Path(tempfile.gettempdir()) / "agent-platform-qwen-model.yml"
+        model_file.write_text(
+            """
+spring:
+  ai:
+    qwen:
+      api-key: unit-test-dashscope-key
+      base-url-http: https://dashscope.example/compatible-mode/v1
+      chat:
+        options:
+          model: qwen3.6-flash
+""",
+            encoding="utf-8",
+        )
+
+        with mock.patch.dict(
+            "os.environ",
+            {"AI_MODEL_PROFILE": "qwen", "AI_MODEL_CONFIG_FILE": str(model_file), "DB_DRIVER": "memory"},
+            clear=True,
+        ):
+            cfg = load_config()
+
+        self.assertEqual(cfg.llm.provider, "openai_compatible")
+        self.assertEqual(cfg.llm.base_url, "https://dashscope.example/compatible-mode/v1")
+        self.assertEqual(cfg.llm.api_key, "unit-test-dashscope-key")
+        self.assertEqual(cfg.llm.model, "qwen3.6-flash")
+        self.assertEqual(cfg.vision.provider, "qwen_openai_compatible")
+        self.assertEqual(cfg.vision.base_url, "https://dashscope.example/compatible-mode/v1")
+        self.assertEqual(cfg.vision.api_key, "unit-test-dashscope-key")
+        self.assertEqual(cfg.vision.model, "qwen-vl-plus")
+
+    def test_gpt_profile_uses_openai_key_and_gpt_vision_model(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "AI_MODEL_PROFILE": "gpt",
+                "OPENAI_API_KEY": "unit-test-openai-key",
+                "OPENAI_MODEL": "gpt-4.1-mini",
+                "DB_DRIVER": "memory",
+            },
+            clear=True,
+        ):
+            cfg = load_config()
+
+        self.assertEqual(cfg.llm.provider, "openai")
+        self.assertEqual(cfg.llm.base_url, "https://api.openai.com/v1")
+        self.assertEqual(cfg.llm.api_key, "unit-test-openai-key")
+        self.assertEqual(cfg.llm.model, "gpt-4.1-mini")
+        self.assertEqual(cfg.vision.provider, "openai")
+        self.assertEqual(cfg.vision.base_url, "https://api.openai.com/v1")
+        self.assertEqual(cfg.vision.api_key, "unit-test-openai-key")
+        self.assertEqual(cfg.vision.model, "gpt-4.1-mini")
+
+    def test_explicit_qwen_vision_provider_reuses_dashscope_env(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "AI_MODEL_PROFILE": "local_rules",
+                "VISION_PROVIDER": "qwen_openai_compatible",
+                "DASHSCOPE_API_KEY": "unit-test-dashscope-key",
+                "DB_DRIVER": "memory",
+            },
+            clear=True,
+        ):
+            cfg = load_config()
+
+        self.assertEqual(cfg.vision.provider, "qwen_openai_compatible")
+        self.assertEqual(cfg.vision.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.assertEqual(cfg.vision.api_key, "unit-test-dashscope-key")
+        self.assertEqual(cfg.vision.model, "qwen-vl-plus")
+
+    def test_explicit_openai_vision_provider_reuses_openai_env(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "AI_MODEL_PROFILE": "local_rules",
+                "VISION_PROVIDER": "openai",
+                "OPENAI_API_KEY": "unit-test-openai-key",
+                "DB_DRIVER": "memory",
+            },
+            clear=True,
+        ):
+            cfg = load_config()
+
+        self.assertEqual(cfg.vision.provider, "openai")
+        self.assertEqual(cfg.vision.base_url, "https://api.openai.com/v1")
+        self.assertEqual(cfg.vision.api_key, "unit-test-openai-key")
+        self.assertEqual(cfg.vision.model, "gpt-4.1-mini")
 
     def test_missing_health_food_uid_asks_user_without_gateway_call(self) -> None:
         response = self.client.post("/web/api/chat", data={"message": "health-food 今日没有每日推荐", "async": "0"})

@@ -131,6 +131,8 @@ export VISION_PROVIDER=local_rules
 # 方式 1：profile + 环境变量
 export AI_MODEL_PROFILE=qwen
 export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"
+export QWEN_MODEL=qwen-plus
+export QWEN_VISION_MODEL=qwen-vl-plus
 
 # 方式 2：profile + 本机已有配置文件，例如 health-food 的 application-local.yml
 export AI_MODEL_PROFILE=qwen
@@ -140,14 +142,15 @@ export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
 export LLM_ALLOW_RULE_FALLBACK=false
 ```
 
-当前内置 profile：`qwen`/`dashscope`、`deepseek`、`moonshot`、`openai`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
+当前内置 profile：`qwen`/`dashscope`、`gpt`/`openai`、`claude`/`anthropic`、`claude_code`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
 
 GPT/OpenAI：
 
 ```bash
 export AI_MODEL_PROFILE=gpt
 export OPENAI_API_KEY="$LOCAL_OPENAI_API_KEY"
-export OPENAI_MODEL="replace-with-approved-model"
+export OPENAI_MODEL=gpt-4.1-mini
+export OPENAI_VISION_MODEL=gpt-4.1-mini
 ```
 
 Claude/Anthropic：
@@ -176,7 +179,7 @@ export LLM_API_KEY="$LOCAL_LLM_API_KEY"
 export LLM_MODEL=replace-with-model
 ```
 
-图片入口归 Python Agent Platform。当前未配置真实 Vision provider 时只保留附件证据说明；如果需要图片识别，按平台统一模型封装接入 Vision provider，推荐公司模型网关或 Qwen-VL：
+图片入口归 Python Agent Platform。`AI_MODEL_PROFILE=qwen` 会默认使用 Qwen-VL；`AI_MODEL_PROFILE=gpt` 会默认复用 OpenAI vision-capable 模型。也可以显式单独配置 Vision provider，推荐公司模型网关或 Qwen-VL：
 
 ```bash
 export VISION_PROVIDER=qwen_openai_compatible
@@ -186,6 +189,8 @@ export VISION_MODEL=qwen-vl-plus
 export VISION_MAX_IMAGES_PER_MESSAGE=3
 export VISION_MAX_IMAGE_BYTES=10485760
 ```
+
+如果 `VISION_PROVIDER=local_rules`，平台只会保存“收到图片”的占位说明，不会做真实 OCR/图片理解。
 
 ## Python Decision Engine
 

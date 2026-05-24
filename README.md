@@ -44,7 +44,7 @@ flowchart LR
 
 | 模块 | 状态 |
 | --- | --- |
-| Agent Platform | Python FastAPI 主服务，提供 Web Chat、Case API、平台 MySQL、图片入口、LLM/Vision 配置、异步排查、进度 API、知识和能力管理。 |
+| Agent Platform | Python FastAPI 主服务，提供 Web Chat、Case API、平台 MySQL、图片入口、Qwen/GPT LLM + Vision 配置、异步排查、进度 API、知识和能力管理。 |
 | Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。历史 Go lark-bot 不再是主路径。 |
 | Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。新增 Context Ledger 只保存压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
@@ -78,6 +78,7 @@ export CONNECTOR_MODE=mock
 export AI_MODEL_PROFILE=qwen
 export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG" # 可选：读取本机已有模型配置
 export DASHSCOPE_API_KEY="$LOCAL_DASHSCOPE_API_KEY"    # 或直接通过环境变量给 key
+export QWEN_VISION_MODEL=qwen-vl-plus
 export AGENT_PLATFORM_PORT=19091
 export HTTP_PORT=18080
 

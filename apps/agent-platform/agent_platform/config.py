@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 
 @dataclass(frozen=True, slots=True)
 class MySQLConfig:
@@ -24,6 +26,17 @@ class LLMConfig:
     model: str
     timeout_seconds: int
     allow_rule_fallback: bool
+
+
+@dataclass(frozen=True, slots=True)
+class VisionConfig:
+    provider: str
+    base_url: str
+    api_key: str
+    model: str
+    timeout_seconds: int
+    max_images_per_message: int
+    max_image_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,13 +67,16 @@ class Config:
     max_investigation_seconds: int
     web_asset_path: Path
     llm: LLMConfig
+    vision: VisionConfig
     chat_platform: ChatPlatformConfig
 
 
 def load_config() -> Config:
     repo_root = Path(__file__).resolve().parents[3]
     profile = _env("AI_MODEL_PROFILE", _env("MODEL_PROFILE", "local_rules")).lower()
-    llm = _load_llm_config(profile)
+    model_file = _load_model_config_file(_first_env("AI_MODEL_CONFIG_FILE", "MODEL_CONFIG_FILE"))
+    llm = _load_llm_config(profile, model_file)
+    vision = _load_vision_config(profile, llm, model_file)
     db_driver = _env("DB_DRIVER", "mysql").lower()
     mysql = _load_mysql_config() if db_driver == "mysql" else None
     return Config(
@@ -77,6 +93,7 @@ def load_config() -> Config:
         max_investigation_seconds=_env_int("MAX_INVESTIGATION_SECONDS", 120),
         web_asset_path=Path(_env("WEB_ASSET_PATH", str(repo_root / "web" / "static" / "index.html"))),
         llm=llm,
+        vision=vision,
         chat_platform=_load_chat_platform_config(),
     )
 
@@ -107,7 +124,8 @@ def _parse_go_mysql_dsn(dsn: str) -> MySQLConfig | None:
     return MySQLConfig(host=host, port=int(port or "3306"), user=user, password=password, database=database)
 
 
-def _load_llm_config(profile: str) -> LLMConfig:
+def _load_llm_config(profile: str, model_file: dict[str, object] | None = None) -> LLMConfig:
+    model_file = model_file or {}
     provider = profile
     base_url = ""
     api_key = ""
@@ -116,14 +134,20 @@ def _load_llm_config(profile: str) -> LLMConfig:
         provider = "local_rules"
     elif profile in {"qwen", "dashscope"}:
         provider = "openai_compatible"
-        base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        api_key = _first_env("DASHSCOPE_API_KEY", "QWEN_API_KEY")
-        model = _env("QWEN_MODEL", "qwen-plus")
+        qwen = _spring_ai_provider(model_file, "qwen")
+        base_url = _first_non_empty(_env("QWEN_BASE_URL", ""), qwen.get("base_url", ""), "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        api_key = _first_non_empty(_first_env("DASHSCOPE_API_KEY", "QWEN_API_KEY"), qwen.get("api_key", ""))
+        model = _first_non_empty(_env("QWEN_MODEL", ""), qwen.get("model", ""), "qwen-plus")
     elif profile in {"gpt", "openai"}:
         provider = "openai"
-        base_url = "https://api.openai.com/v1"
-        api_key = _env("OPENAI_API_KEY", "")
-        model = _env("OPENAI_MODEL", "gpt-4.1-mini")
+        openai = _spring_ai_provider(model_file, "openai")
+        configured_base = openai.get("base_url", "")
+        if configured_base and "openai.com" not in configured_base:
+            configured_base = ""
+            openai = {}
+        base_url = _first_non_empty(_env("OPENAI_BASE_URL", ""), configured_base, "https://api.openai.com/v1")
+        api_key = _first_non_empty(_env("OPENAI_API_KEY", ""), openai.get("api_key", ""))
+        model = _first_non_empty(_env("OPENAI_MODEL", ""), openai.get("model", ""), "gpt-4.1-mini")
     elif profile in {"claude", "anthropic"}:
         provider = "anthropic"
         base_url = _env("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
@@ -151,6 +175,59 @@ def _load_llm_config(profile: str) -> LLMConfig:
     )
 
 
+def _load_vision_config(profile: str, llm: LLMConfig, model_file: dict[str, object] | None = None) -> VisionConfig:
+    model_file = model_file or {}
+    explicit_provider = _env("VISION_PROVIDER", "")
+    provider = explicit_provider
+    base_url = _env("VISION_BASE_URL", "")
+    api_key = _env("VISION_API_KEY", "")
+    model = _env("VISION_MODEL", "")
+    if not provider:
+        if profile in {"qwen", "dashscope"}:
+            qwen = _spring_ai_provider(model_file, "qwen")
+            provider = "qwen_openai_compatible"
+            base_url = _first_non_empty(base_url, _env("QWEN_BASE_URL", ""), qwen.get("base_url", ""), llm.base_url)
+            api_key = _first_non_empty(api_key, _first_env("DASHSCOPE_API_KEY", "QWEN_API_KEY"), qwen.get("api_key", ""), llm.api_key)
+            model = _first_non_empty(_env("QWEN_VISION_MODEL", ""), model, "qwen-vl-plus")
+        elif profile in {"gpt", "openai"}:
+            provider = "openai"
+            base_url = _first_non_empty(base_url, _env("OPENAI_BASE_URL", ""), llm.base_url)
+            api_key = _first_non_empty(api_key, _env("OPENAI_API_KEY", ""), llm.api_key)
+            model = _first_non_empty(_env("OPENAI_VISION_MODEL", ""), model, llm.model, "gpt-4.1-mini")
+        elif llm.provider in {"", "local", "local_rules", "rules"}:
+            provider = "local_rules"
+        else:
+            provider = "same_as_llm"
+
+    if provider in {"same_as_llm", "llm", "main_llm"}:
+        base_url = _first_non_empty(base_url, llm.base_url)
+        api_key = _first_non_empty(api_key, llm.api_key)
+        model = _first_non_empty(model, llm.model)
+    elif provider in {"qwen", "dashscope", "qwen_vl", "qwen-vl", "qwen_openai_compatible", "qwen-openai-compatible"}:
+        qwen = _spring_ai_provider(model_file, "qwen")
+        base_url = _first_non_empty(base_url, _env("QWEN_BASE_URL", ""), qwen.get("base_url", ""), "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        api_key = _first_non_empty(api_key, _first_env("DASHSCOPE_API_KEY", "QWEN_API_KEY"), qwen.get("api_key", ""))
+        model = _first_non_empty(model, _env("QWEN_VISION_MODEL", ""), "qwen-vl-plus")
+    elif provider in {"openai", "gpt"}:
+        base_url = _first_non_empty(base_url, _env("OPENAI_BASE_URL", ""), "https://api.openai.com/v1")
+        api_key = _first_non_empty(api_key, _env("OPENAI_API_KEY", ""))
+        model = _first_non_empty(model, _env("OPENAI_VISION_MODEL", ""), "gpt-4.1-mini")
+
+    provider = _env("VISION_PROVIDER", provider)
+    base_url = _env("VISION_BASE_URL", base_url)
+    api_key = _env("VISION_API_KEY", api_key)
+    model = _env("VISION_MODEL", model)
+    return VisionConfig(
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        timeout_seconds=_env_int("VISION_TIMEOUT_SECONDS", llm.timeout_seconds),
+        max_images_per_message=_env_int("VISION_MAX_IMAGES_PER_MESSAGE", 3),
+        max_image_bytes=_env_int("VISION_MAX_IMAGE_BYTES", 10 * 1024 * 1024),
+    )
+
+
 def _load_chat_platform_config() -> ChatPlatformConfig:
     platform = _normalize_chat_platform(_env("LARK_PLATFORM", "lark"))
     explicit_base = _env("LARK_API_BASE_URL", "")
@@ -165,6 +242,56 @@ def _load_chat_platform_config() -> ChatPlatformConfig:
         max_images_per_message=_env_int("VISION_MAX_IMAGES_PER_MESSAGE", 3),
         max_image_bytes=_env_int("VISION_MAX_IMAGE_BYTES", 10 * 1024 * 1024),
     )
+
+
+def _load_model_config_file(path: str) -> dict[str, object]:
+    if not path:
+        return {}
+    config_path = Path(path).expanduser()
+    if not config_path.exists():
+        raise RuntimeError(f"AI_MODEL_CONFIG_FILE not found: {config_path}")
+    with config_path.open("r", encoding="utf-8") as handle:
+        value = yaml.safe_load(handle) or {}
+    if not isinstance(value, dict):
+        raise RuntimeError("AI_MODEL_CONFIG_FILE must be a YAML object")
+    return value
+
+
+def _spring_ai_provider(value: dict[str, object], name: str) -> dict[str, str]:
+    provider = _get_path(value, "spring", "ai", name)
+    if not isinstance(provider, dict):
+        return {}
+    api_key = str(provider.get("api-key") or provider.get("api_key") or "")
+    env_key = str(provider.get("env-api-key") or provider.get("env_api_key") or "")
+    if env_key:
+        api_key = _first_non_empty(os.environ.get(env_key, ""), api_key)
+    chat_options = provider.get("chat", {})
+    if isinstance(chat_options, dict):
+        chat_options = chat_options.get("options", {})
+    if not isinstance(chat_options, dict):
+        chat_options = {}
+    return {
+        "api_key": api_key,
+        "base_url": str(provider.get("base-url-http") or provider.get("base-url") or provider.get("base_url") or ""),
+        "model": str(chat_options.get("model") or ""),
+    }
+
+
+def _get_path(value: dict[str, object], *keys: str) -> object:
+    current: object = value
+    for key in keys:
+        if not isinstance(current, dict):
+            return {}
+        current = current.get(key, {})
+    return current
+
+
+def _first_non_empty(*values: str) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _normalize_chat_platform(value: str) -> str:
