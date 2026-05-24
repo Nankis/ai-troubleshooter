@@ -3,7 +3,7 @@
 本系统支持通过 MCP 接入外部只读能力，但不允许决策层直接连接 MCP server。推荐链路：
 
 ```text
-Decision Engine / Worker
+Python Decision Engine
   -> Investigation Gateway
   -> MCP readonly adapter
   -> allowlisted MCP server tools
@@ -40,7 +40,9 @@ MARKET_READONLY_BASE_URL=http://127.0.0.1:19085 \
 ASSET_READONLY_BASE_URL=http://127.0.0.1:19085 \
 OPS_READONLY_BASE_URL=http://127.0.0.1:19085 \
 HEALTH_FOOD_READONLY_BASE_URL=http://127.0.0.1:19085 \
-go run ./cmd/dev-server
+DB_DRIVER=memory \
+HTTP_PORT=18080 \
+make gateway
 ```
 
 ## 自定义 MCP server
@@ -127,6 +129,6 @@ MCP 接入不能只算“脚本能启动”。验收必须同时满足：
 
 - MCP server 进程已启动并成功响应 `initialize`、`tools/list`。
 - MCP readonly adapter `/healthz` 能返回 allowlisted route 和 MCP tools。
-- `cmd/dev-server` 或 `cmd/investigation-gateway` 已启动。
+- `cmd/investigation-gateway` 已启动；如从 Web Chat 发起，还需要启动 Python Agent Platform。
 - 通过 Gateway `POST /tools/{tool}/invoke` 成功调用 MCP tool。
 - 返回结果包含业务预期字段，并且 Gateway summary 与 data 符合预期。

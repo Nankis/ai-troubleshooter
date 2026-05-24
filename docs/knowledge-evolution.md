@@ -142,7 +142,7 @@ LIMIT 20;
 
 ## API
 
-以下接口在 `cmd/dev-server` 的一体化服务中已实现。生产拆分时建议放到 Agent 平台的 case API 服务，由 Python decision-engine 读取并写回决策结果。
+经验沉淀归属 Python Agent Platform。当前已实现 Web 工作台和 `/api/v1/knowledge` 的知识 CRUD；root cause、feedback、evolution-runs 等接口是目标契约，落地时也应放在 Python Agent Platform，而不是放回 Go Gateway。决策层通过平台 repository 读取经验，不通过 Gateway 查询平台数据。
 
 ### 查询 case
 
@@ -284,7 +284,7 @@ GET /knowledge?issue_domain=kline&issue_type=价格不一致&root_cause_category
 
 ## 知识条目演进规则
 
-当前代码规则在 `internal/evolution`：
+当前代码规则在 Python Agent Platform 的 repository/service 层：
 
 1. 以 `issue_domain + issue_type + root_cause_category` 作为知识条目聚合 key。
 2. 如果不存在知识条目，则创建新条目。

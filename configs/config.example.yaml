@@ -2,58 +2,14 @@ server:
   env: dev
   http_port: 8080
 
-lark:
-  # lark: global Lark, default OpenAPI base URL https://open.larksuite.com
-  # feishu: Feishu China, default OpenAPI base URL https://open.feishu.cn
-  platform: lark
-  app_id: ""
-  app_secret: ""
-  # Optional. Leave empty to use the platform default.
-  api_base_url: ""
-  verification_token: ""
-  encrypt_key: ""
-  allowed_chat_ids:
-    - oc_dev
-
-llm:
-  # Runtime env is preferred for secrets and model switching:
-  # AI_MODEL_PROFILE=qwen
-  # AI_MODEL_CONFIG_FILE=/path/to/application-local.yml
-  # DASHSCOPE_API_KEY=replace-with-local-env-only-secret
-  # LLM_ALLOW_RULE_FALLBACK=false
-  provider: qwen
-  base_url: ""
-  api_key: ""
-  model: qwen-plus
-  timeout_seconds: 30
-  max_concurrency: 10
-  allow_rule_fallback: false
-
-vision:
-  # same_as_llm: reuse the main LLM config for image analysis if the model supports vision.
-  # local_mock: local deterministic image text mock for smoke tests.
-  # qwen_openai_compatible: explicitly use DashScope/Qwen-VL through OpenAI-compatible chat completions.
-  provider: same_as_llm
-  base_url: ""
-  api_key: ""
-  model: ""
-  timeout_seconds: 30
-  max_images_per_message: 3
-  max_image_bytes: 10485760
-
 database:
   driver: mysql
   # Example: ai_user:replace-with-db-password@tcp(mysql.example.internal:3306)/ai_troubleshooter?parseTime=true&loc=Local
-  # Empty dsn falls back to in-memory store for local smoke tests.
+  # Keep secrets in runtime env. Use DB_DRIVER=memory only for explicit local smoke tests.
   dsn: ""
 
-queue:
-  type: memory
-  redis_addr: ""
-  stream_name: case_events
-
 connectors:
-  # mock: use built-in mock connector for local demo
+  # mock: built-in local demo connector
   # http: call company-provided readonly APIs defined in docs/ai-connector-integration.md
   mode: mock
   api_key: ""
@@ -84,15 +40,5 @@ control_api:
   # CONTROL_API_BEARER_TOKENS=replace-with-internal-control-token
   bearer_tokens: []
 
-tool_gateway:
-  endpoint: http://localhost:8080
-  client_id: dev-client
-  client_secret: ""
-
 limits:
-  max_tool_calls_per_case: 10
-  max_llm_calls_per_case: 8
-  max_tool_failures_per_case: 3
-  max_investigation_seconds: 120
-  default_log_time_range_minutes: 30
   default_tool_timeout_seconds: 5

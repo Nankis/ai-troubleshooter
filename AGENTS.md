@@ -58,7 +58,7 @@
 - Python `apps/decision-engine` 是 Agent Orchestrator：Supervisor、specialist agents、Knowledge Agent、Verifier、本地代码辅助排查都在这里。
 - Go 正式职责只保留 `cmd/investigation-gateway`：业务 readonly tools、安全鉴权、scope、限流、脱敏、审计和超时。
 - Investigation Gateway 只管业务生产证据查询边界，不查平台经验库，也不连接 LLM。
-- Go `cmd/dev-server`、`cmd/worker`、`internal/decisionbaseline`、`internal/llm` 是历史 legacy，不得作为新功能主路径；新增 LLM/决策能力必须写到 Python。
+- Go 侧不保留 LLM、Vision、Web Chat、Lark bot、worker 或决策编排实现；新增入口、模型和决策能力必须写到 Python。
 
 ## 开发规范
 

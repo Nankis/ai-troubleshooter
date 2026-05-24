@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/Nankis/ai-troubleshooter/internal/capability"
-	"github.com/Nankis/ai-troubleshooter/internal/caseflow"
 )
 
 func TestMigrationsFollowDatabaseTemplate(t *testing.T) {
@@ -65,29 +64,14 @@ func TestCaseUIDIsStringCompatible(t *testing.T) {
 	}
 }
 
-func TestDynamicMySQLQueriesKeepUserInputInArgs(t *testing.T) {
-	injection := "health_food' OR 1=1 --"
-	query, args := buildKnowledgeListQuery(caseflow.KnowledgeFilter{
-		IssueDomain:       injection,
-		IssueType:         "每日推荐缺失",
-		RootCauseCategory: "recommendation_job",
-		Status:            "active",
-		Limit:             25,
-	})
-	if strings.Contains(query, injection) {
-		t.Fatalf("knowledge query contains user input: %s", query)
-	}
-	if len(args) != 5 || args[0] != injection {
-		t.Fatalf("knowledge query should keep filters in args, got args=%+v query=%s", args, query)
-	}
-
+func TestDynamicToolCapabilityQueryKeepsUserInputInArgs(t *testing.T) {
 	toolQuery, toolArgs := buildToolCapabilityListQuery(capability.ToolFilter{
 		Status:     "enabled' OR 1=1 --",
 		SourceType: "readonly_http",
 		Limit:      50,
 	})
 	if strings.Contains(toolQuery, "enabled' OR 1=1 --") {
-		t.Fatalf("tool capability query contains user input: %s", toolQuery)
+		t.Fatalf("tool query contains user input: %s", toolQuery)
 	}
 	if len(toolArgs) != 3 || toolArgs[0] != "enabled' OR 1=1 --" {
 		t.Fatalf("tool query should keep filters in args, got args=%+v query=%s", toolArgs, toolQuery)

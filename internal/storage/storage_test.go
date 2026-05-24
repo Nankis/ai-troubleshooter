@@ -20,8 +20,8 @@ func TestOpenRequiresExplicitMemoryDriver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open memory store: %v", err)
 	}
-	if opened.Store == nil || opened.AuditSink == nil || opened.CapabilityStore == nil || opened.Close == nil {
-		t.Fatalf("expected memory store, audit sink, capability store, and close function")
+	if opened.AuditSink == nil || opened.CapabilityStore == nil || opened.Close == nil {
+		t.Fatalf("expected memory audit sink, capability store, and close function")
 	}
 }
 

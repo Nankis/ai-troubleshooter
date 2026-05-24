@@ -2,7 +2,7 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-037-real-qwen-gpt-vision-validation/HANDOFF.md`
+- `programs/P-2026-038-go-legacy-llm-cleanup/HANDOFF.md`
 
 接手规则：
 

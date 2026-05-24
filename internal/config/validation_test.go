@@ -1,47 +1,9 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestLoadFromEnvDefaultsToLarkPlatform(t *testing.T) {
-	t.Setenv("LARK_PLATFORM", "")
-	t.Setenv("LARK_API_BASE_URL", "")
-
-	cfg := LoadFromEnv()
-	if cfg.Lark.Platform != "lark" {
-		t.Fatalf("expected lark platform by default, got %q", cfg.Lark.Platform)
-	}
-	if cfg.Lark.APIBaseURL != "https://open.larksuite.com" {
-		t.Fatalf("expected lark OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
-	}
-}
-
-func TestLoadFromEnvSupportsFeishuPlatform(t *testing.T) {
-	t.Setenv("LARK_PLATFORM", "feishu")
-	t.Setenv("LARK_API_BASE_URL", "")
-
-	cfg := LoadFromEnv()
-	if cfg.Lark.Platform != "feishu" {
-		t.Fatalf("expected feishu platform, got %q", cfg.Lark.Platform)
-	}
-	if cfg.Lark.APIBaseURL != "https://open.feishu.cn" {
-		t.Fatalf("expected feishu OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
-	}
-}
-
-func TestLoadFromEnvAllowsExplicitLarkAPIBaseURL(t *testing.T) {
-	t.Setenv("LARK_PLATFORM", "lark")
-	t.Setenv("LARK_API_BASE_URL", "https://proxy.example.internal/lark")
-
-	cfg := LoadFromEnv()
-	if cfg.Lark.APIBaseURL != "https://proxy.example.internal/lark" {
-		t.Fatalf("expected explicit OpenAPI base URL, got %q", cfg.Lark.APIBaseURL)
-	}
-}
 
 func TestValidateForGatewayFailsClosedInProd(t *testing.T) {
 	cfg := Config{Server: ServerConfig{Env: "prod"}}
@@ -121,84 +83,14 @@ func TestValidateForControlAPIRequiresTokenWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestValidateForLarkBotFailsClosedInProd(t *testing.T) {
-	cfg := Config{Server: ServerConfig{Env: "prod"}}
-	err := cfg.ValidateForLarkBot()
-	if err == nil || !strings.Contains(err.Error(), "LARK_VERIFICATION_TOKEN") || !strings.Contains(err.Error(), "LARK_ALLOWED_CHAT_IDS") {
-		t.Fatalf("expected lark prod errors, got %v", err)
-	}
-}
-
-func TestValidateForLarkBotRejectsUnknownPlatform(t *testing.T) {
-	cfg := Config{Lark: LarkConfig{Platform: "unknown"}}
-	err := cfg.ValidateForLarkBot()
-	if err == nil || !strings.Contains(err.Error(), "LARK_PLATFORM") {
-		t.Fatalf("expected platform validation error, got %v", err)
-	}
-}
-
-func TestLoadFromEnvLoadsQwenModelProfileFile(t *testing.T) {
-	modelConfig := `
-spring:
-  ai:
-    qwen:
-      env-api-key: ${TEST_QWEN_KEY}
-      base-url-http: https://dashscope.example/compatible-mode/v1
-      model: qwen-plus
-`
-	path := filepath.Join(t.TempDir(), "application-local.yml")
-	if err := os.WriteFile(path, []byte(modelConfig), 0o600); err != nil {
-		t.Fatal(err)
-	}
+func TestLoadFromEnvIgnoresModelSpecificEnvironment(t *testing.T) {
 	t.Setenv("AI_MODEL_PROFILE", "qwen")
-	t.Setenv("AI_MODEL_CONFIG_FILE", path)
-	t.Setenv("TEST_QWEN_KEY", "test-qwen-key")
-	t.Setenv("LLM_PROVIDER", "")
-	t.Setenv("LLM_BASE_URL", "")
-	t.Setenv("LLM_API_KEY", "")
-	t.Setenv("LLM_MODEL", "")
-
-	cfg := LoadFromEnv()
-	if cfg.LLM.Profile != "qwen" || cfg.LLM.Provider != "qwen" {
-		t.Fatalf("expected qwen profile/provider, got %+v", cfg.LLM)
-	}
-	if cfg.LLM.BaseURL != "https://dashscope.example/compatible-mode/v1" || cfg.LLM.APIKey != "test-qwen-key" || cfg.LLM.Model != "qwen-plus" {
-		t.Fatalf("unexpected qwen model config: %+v", cfg.LLM)
-	}
-	if err := cfg.ValidateForLLM(); err != nil {
-		t.Fatalf("expected qwen model config to validate, got %v", err)
-	}
-}
-
-func TestLoadFromEnvAllowsExplicitLLMOverridesAfterProfile(t *testing.T) {
-	modelConfig := `
-qwen:
-  env-api-key: ${TEST_QWEN_KEY}
-  base-url-http: https://dashscope.example/compatible-mode/v1
-  model: qwen-plus
-`
-	path := filepath.Join(t.TempDir(), "application-local.yml")
-	if err := os.WriteFile(path, []byte(modelConfig), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AI_MODEL_PROFILE", "qwen")
-	t.Setenv("AI_MODEL_CONFIG_FILE", path)
-	t.Setenv("TEST_QWEN_KEY", "profile-key")
 	t.Setenv("LLM_PROVIDER", "openai_compatible")
-	t.Setenv("LLM_BASE_URL", "https://override.example/v1")
-	t.Setenv("LLM_API_KEY", "override-key")
-	t.Setenv("LLM_MODEL", "override-model")
+	t.Setenv("VISION_PROVIDER", "qwen_openai_compatible")
+	t.Setenv("LARK_PLATFORM", "feishu")
 
 	cfg := LoadFromEnv()
-	if cfg.LLM.Provider != "openai_compatible" || cfg.LLM.BaseURL != "https://override.example/v1" || cfg.LLM.APIKey != "override-key" || cfg.LLM.Model != "override-model" {
-		t.Fatalf("explicit LLM env should override profile values: %+v", cfg.LLM)
-	}
-}
-
-func TestValidateForLLMRejectsRealProviderWithoutCredentials(t *testing.T) {
-	cfg := Config{LLM: LLMConfig{Provider: "qwen", BaseURL: "https://dashscope.example/compatible-mode/v1", Model: "qwen-plus"}}
-	err := cfg.ValidateForLLM()
-	if err == nil || !strings.Contains(err.Error(), "LLM_API_KEY") {
-		t.Fatalf("expected missing api key error, got %v", err)
+	if cfg.Server.HTTPPort == 0 || cfg.Connectors.TimeoutSeconds == 0 {
+		t.Fatalf("expected gateway config to load normally, got %+v", cfg)
 	}
 }

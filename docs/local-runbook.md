@@ -49,9 +49,7 @@ unset DB_DSN
 生产化主路径由两个服务组成：
 
 - `apps/agent-platform`：Python FastAPI Agent Platform，负责 Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator、经验沉淀。
-- `cmd/investigation-gateway`：Go Investigation Gateway，负责业务 readonly tools、鉴权、scope、限流、超时、审计和脱敏。
-
-Go `cmd/dev-server`、`cmd/worker`、`cmd/baseline-orchestrator` 是历史 legacy，不作为新功能主路径。
+- `cmd/investigation-gateway`：Go Investigation Gateway，负责业务 readonly tools、鉴权、scope、限流、超时、审计和脱敏。Go 侧不承接 LLM、Vision、Web Chat、Lark bot、worker 或决策编排。
 
 ## Web Chat / Agent Platform
 
@@ -208,7 +206,7 @@ PYTHONPATH=apps/agent-platform:apps/decision-engine .venv/bin/python -m unittest
 PYTHONPATH=apps/agent-platform:apps/decision-engine .venv/bin/python -m unittest discover -s apps/agent-platform/tests -p 'test_*.py'
 ```
 
-Go worker / Go fallback 不再作为主路径。
+Go 侧不再提供 worker 或决策 fallback；调试入口统一走 Python Agent Platform。
 
 ## Lark / 飞书本地 payload
 
@@ -301,7 +299,7 @@ curl -s localhost:18080/tools/get_asset_snapshot/invoke \
 发布规则：
 
 - 只有 `readonly_candidate` 能点“发布”。
-- 发布后会写入 MySQL `tb_troubleshoot_tool_registry`，并在当前 dev-server 进程热加载到 Gateway tools。
+- 发布后会写入 MySQL `tb_troubleshoot_tool_registry`，并在当前 Gateway 进程热加载到 Gateway tools。
 - 如果生产使用显式 `GATEWAY_AGENT_CONFIG_FILE`，新 tool 对应的 `scope` 和 `tool_name` 仍需要加入 agent allowlist；本地默认 agent 允许已发布且 scope 允许的动态工具。
 - `secret_ref` 只能填环境变量或密钥引用名，例如 `CONNECTOR_API_KEY`，不要填真实 token。
 
@@ -353,14 +351,22 @@ HEALTH_FOOD_BASE_URL=http://127.0.0.1:18080 \
 REAL_HEALTH_FOOD_ADAPTER_PORT=19084 \
 python3.13 scripts/real-health-food-readonly-adapter.py
 
-# 3. 让排障平台通过 HTTP connector 接入该 adapter。
+# 3. 终端 1：让 Gateway 通过 HTTP connector 接入该 adapter。
 CONNECTOR_MODE=http \
 CONNECTOR_API_KEY="$LOCAL_CONNECTOR_API_KEY" \
 MARKET_READONLY_BASE_URL=http://127.0.0.1:19084 \
 ASSET_READONLY_BASE_URL=http://127.0.0.1:19084 \
 OPS_READONLY_BASE_URL=http://127.0.0.1:19084 \
 HEALTH_FOOD_READONLY_BASE_URL=http://127.0.0.1:19084 \
-go run ./cmd/dev-server
+HTTP_PORT=18080 \
+make gateway
+
+# 4. 终端 2：启动 Python Agent Platform。
+DB_DRIVER=mysql \
+DB_DSN="$LOCAL_DB_DSN" \
+GATEWAY_ENDPOINT=http://127.0.0.1:18080 \
+AGENT_PLATFORM_PORT=19091 \
+make dev
 ```
 
 验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库。必要时再启用 debug-only Local Code Agent，根据 `service_name` 定位本地代码路径和调用关系。
@@ -381,49 +387,40 @@ python3.13 scripts/real-health-food-readonly-adapter.py
 
 ## 经验沉淀
 
-回填根因：
+经验沉淀由 Python Agent Platform 提供，Web 工作台和 `/api/v1/knowledge` 写入平台 MySQL：
 
 ```bash
-curl -s localhost:8080/cases/case_20260521_000001/root-cause \
+curl -s localhost:19091/api/v1/knowledge \
   -H 'Content-Type: application/json' \
   -d '{
-    "human_confirmed_reason":"行情源短时延迟，补偿任务完成前用户看到旧 high",
-    "root_cause_category":"external_source_delay",
-    "owner_service":"market-service",
-    "is_external_source_issue":true,
-    "prevention_action":"增加行情源延迟监控和补偿任务告警",
-    "confirmed_by":"owner_1"
+    "title":"health-food / 每日推荐缺失 / recommendation_job",
+    "issue_domain":"health_food",
+    "issue_type":"每日推荐缺失",
+    "typical_description":"用户今日没有每日推荐",
+    "recommended_steps":["先查用户资料","再查推荐任务状态","最后查错误日志"],
+    "common_causes":["推荐任务失败","健康目标配置不完整"],
+    "useful_tools":["get_health_food_user_profile","get_health_food_recommendation_status"]
   }'
 ```
 
 查询知识库：
 
 ```bash
-curl -s 'localhost:8080/knowledge?issue_domain=kline&issue_type=价格不一致'
-```
-
-查询 AI 决策轨迹：
-
-```bash
-curl -s 'localhost:8080/cases/case_20260521_000001/ai-decisions?limit=100'
+curl -s 'localhost:19091/api/v1/knowledge'
 ```
 
 如果开启控制面鉴权，需要带 `Authorization: Bearer $CONTROL_API_BEARER_TOKEN`。
 
 ## 容器部署
 
-构建本地一体化服务：
-
-```bash
-docker build --build-arg SERVICE=dev-server -t ai-troubleshooter:dev .
-docker run --rm -p 8080:8080 --env CONNECTOR_MODE=mock ai-troubleshooter:dev
-```
-
 构建独立 Gateway：
 
 ```bash
 docker build --build-arg SERVICE=investigation-gateway -t ai-troubleshooter-gateway:dev .
+docker run --rm -p 8080:8080 --env CONNECTOR_MODE=mock --env DB_DRIVER=memory ai-troubleshooter-gateway:dev
 ```
+
+Python Agent Platform 仍按本地 Python 环境或后续独立镜像部署。
 
 Compose 示例见 [../deploy/docker-compose.example.yml](../deploy/docker-compose.example.yml)。
 

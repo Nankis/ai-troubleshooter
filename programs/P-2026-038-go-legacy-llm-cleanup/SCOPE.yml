@@ -1,0 +1,11 @@
+include:
+  - cmd
+  - internal
+  - README.md
+  - AGENTS.md
+  - docs
+  - programs/P-2026-038-go-legacy-llm-cleanup
+exclude:
+  - apps/agent-platform LLM/Vision provider implementation
+  - apps/decision-engine agent implementation
+  - migrations

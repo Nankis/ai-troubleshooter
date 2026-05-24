@@ -8,7 +8,7 @@
 
 ### 背景
 
-Agent 编排本质上属于决策层：分类、追问、工具预算、工具计划、证据总结、停止条件和本地代码辅助排查都应由同一个决策层负责。仓库里曾经用 Go baseline runner 把一期闭环快速跑通，这块现在降级为 legacy，不作为目标主路径。目标平台入口和决策层统一放到 Python，因为后续如果要让智能体更聪明，会越来越依赖 Python 生态：
+Agent 编排本质上属于决策层：分类、追问、工具预算、工具计划、证据总结、停止条件和本地代码辅助排查都应由同一个决策层负责。仓库里曾经用 Go baseline runner 把一期闭环快速跑通，这块已经删除，不再作为运行路径。目标平台入口和决策层统一放到 Python，因为后续如果要让智能体更聪明，会越来越依赖 Python 生态：
 
 - 多模型编排，例如 Qwen-VL 识图，GPT/Claude 做文本推理。
 - RAG、embedding、rerank、prompt template、eval dataset。
@@ -125,7 +125,7 @@ flowchart LR
 1. Python Agent Platform 服务 `/web`、`/web/api/*`、`/lark/events`、`/feishu/events`。
 2. Python Decision Engine 内嵌在 Agent Platform 中执行 Supervisor、specialist agent 和 Verifier。
 3. Go `cmd/investigation-gateway` 只服务 `/tools`、`/tools/{name}/invoke` 和受控 reload，不接 LLM。
-4. Go `cmd/dev-server`、`cmd/worker`、`cmd/baseline-orchestrator`、`internal/llm`、`internal/decisionbaseline` 是历史 legacy，后续单独清理。
+4. Go 不再保留 LLM、Vision、Web Chat、Lark bot、worker 或 baseline decision 代码。
 5. Python 决策层读取 Gateway `/tools` 或 tool catalog，不读取 Gateway 源码作为运行时依据。
 
 ## ADR-002：首发不强依赖向量数据库，先预留 RAG 接口

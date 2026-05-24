@@ -6,10 +6,8 @@
 
 - Python 3.13：`apps/agent-platform` 是平台入口，承接 Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator 和经验沉淀。
 - Python 3.13：`apps/decision-engine` 是决策层，承接 Supervisor、多 specialist agent、工具计划、Verifier、后续 RAG 和本地代码辅助排查。
-- Go 1.24+：正式职责只保留 `cmd/investigation-gateway`，负责业务 readonly tools、安全鉴权、scope、限流、timeout、审计和脱敏。
+- Go 1.24+：只保留 `cmd/investigation-gateway`，负责业务 readonly tools、安全鉴权、scope、限流、timeout、审计和脱敏。
 - MySQL：平台 case、消息、AI 决策日志、context ledger、tool audit、root cause、knowledge item 和自进化记录。
-
-Go 里的 `cmd/dev-server`、`cmd/worker`、`internal/decisionbaseline`、`internal/llm` 是历史 legacy，不是目标主路径。新增 LLM/决策/入口能力必须写在 Python。
 
 ## 核心边界
 
@@ -46,9 +44,9 @@ flowchart LR
 | --- | --- |
 | Agent Platform | Python FastAPI 主服务，提供 Web Chat、Case API、平台 MySQL、图片入口、Qwen/GPT LLM + Vision 配置、异步排查、进度 API、知识和能力管理。 |
 | Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
-| Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。历史 Go lark-bot 不再是主路径。 |
+| Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。 |
 | Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。新增 Context Ledger 只保存压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
-| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Supervisor 只读取 case snapshot、Context Ledger 摘要和 specialist 报告，Go fallback 已降级为 legacy。 |
+| Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Supervisor 只读取 case snapshot、Context Ledger 摘要和 specialist 报告。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，不返回源码片段。 |
@@ -116,11 +114,11 @@ make secret-scan
 api/openapi/               Case、Decision Engine、Gateway OpenAPI 草案
 apps/agent-platform/       Python FastAPI Agent 平台入口
 apps/decision-engine/      Python 3.13 决策层
-cmd/                       investigation-gateway；其他 Go dev/worker/baseline 为 legacy
+cmd/                       investigation-gateway
 configs/                   配置样例、Gateway agent、业务能力和 MCP route 示例
 deploy/                    Docker Compose 示例
 docs/                      架构、安全、接入、运行、验证和经验沉淀文档
-internal/                  Go Gateway、connector、policy、storage；legacy Go baseline 仍待后续清理
+internal/                  Go Gateway、connector、policy、storage
 migrations/                MySQL 表结构
 programs/                  Program 记录、验收证据、复盘和交付结果
 scripts/                   migration、secret scan、adapter、MCP、hook 脚本

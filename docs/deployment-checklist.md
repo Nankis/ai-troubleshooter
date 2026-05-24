@@ -70,7 +70,7 @@ MAX_INVESTIGATION_SECONDS=120
 - adapter 不提供写操作，不透传 SQL。
 - Gateway HTTP 鉴权已开启：`GATEWAY_AUTH_ENABLED=true`。
 - Gateway Bearer token 通过密钥系统注入，不写入 Git 或镜像。
-- 调用 Gateway 的 decision-engine/worker 已使用与 `agent_id` 绑定的 token。
+- 调用 Gateway 的 Python Agent Platform / Decision Engine 已使用与 `agent_id` 绑定的 token。
 - Gateway 上游入口已做内网 ACL、Ingress allowlist 或 service mesh 策略。
 - 控制面 API 已开启内部 Bearer 鉴权：`CONTROL_API_AUTH_ENABLED=true`。
 - root cause、feedback、knowledge、case/process API 仅允许内部系统或已授权 owner 调用。
@@ -168,7 +168,7 @@ curl -s localhost:19091/lark/events \
 - 完整 K线 case 进入 `NEED_HUMAN_CONFIRMATION`。
 - 信息不足 case 进入 `WAITING_USER_REPLY`。
 - 工具调用审计日志包含 tool name、case id、policy decision、query id。
-- 重复投递响应包含 `duplicate=true`，worker 不会产生第二轮工具调用。
+- 重复投递响应包含 `duplicate=true`，不会产生第二轮工具调用。
 - 有图片时，`tb_troubleshoot_case.ocr_text` 或 `/cases/{case_no}` 响应中的 `ocr_text` 包含视觉识别结果；下游工具选择会使用这些字段。
 
 根因回填与知识自进化：

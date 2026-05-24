@@ -5,7 +5,7 @@ COPY go.mod ./
 RUN go mod download
 COPY . .
 
-ARG SERVICE=dev-server
+ARG SERVICE=investigation-gateway
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/server ./cmd/${SERVICE}
 
 FROM alpine:3.21
