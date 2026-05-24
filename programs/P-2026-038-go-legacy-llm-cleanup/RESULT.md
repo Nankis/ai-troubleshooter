@@ -46,6 +46,11 @@
 ## Commit
 
 - `8f66fc2 P-2026-038 remove legacy go llm paths`
+- `672233e P-2026-038 record go cleanup handoff`
+
+Push status:
+
+- `8f66fc2` and `672233e` pushed to `origin/main`.
 
 ## 残留风险
 
