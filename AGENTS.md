@@ -32,6 +32,7 @@
 
 - 使用 `mock`、`fake`、`memory`、`local_rules` 时，结论必须明说证据等级，不能写成真实业务验收。
 - 平台持久化验收必须用 `DB_DRIVER=mysql`、执行 migration、通过 UI/API 写入、查询 MySQL 表、重启后再次读取。只有显式 `DB_DRIVER=memory` 才能做一次性 smoke。
+- 本地平台 MySQL 只允许使用 canonical schema：`ai_troubleshooter`。禁止为每个 Program 新建 `ai_troubleshooter_*` 临时库；确需隔离实验时必须显式设置 `ALLOW_NON_CANONICAL_LOCAL_DB=true`，并在当前 Program 写清清理计划。
 - UI 验收必须实际打开页面并操作；如果只用 curl/API，只能称为 API 验证。
 - 业务接入验收必须写清证据来源：mock 只能证明契约和链路；真实验收必须调用真实服务/DB/日志/生产只读接口。
 - Lark/飞书、LLM/Vision、DMS、MCP 等外部系统没有真实凭据或真实端点时，必须标为未验证，不能用本地替代物冒充。

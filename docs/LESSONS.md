@@ -16,6 +16,7 @@
 | `model-output-overtrust` | 1 | 让模型输出单点决定分类、字段或排障路径 | 模型只作候选信号；关键字段必须有规则/校验 fallback |
 | `adapter-contract-mismatch` | 3 | adapter 字段名、nullable 时间、历史 DDL 不符合契约 | 接入前做 schema/envelope/nullable/字段归一化测试 |
 | `low-signal-code-evidence` | 1 | 本地代码辅助只返回路径/命中词/行号，开发者无法继续排查 | 代码排查结果必须包含文件、符号/方法、行范围、疑点、下一步核对建议和必要的有界脱敏摘录 |
+| `local-schema-sprawl` | 1 | 本地 MySQL 为每个 Program 或 adapter 创建新的排障 schema | 统一使用 `ai_troubleshooter`；非 canonical schema 必须显式开关和清理计划 |
 
 ## 2026-05-23：不要为了新架构回写旧 Program
 
@@ -45,3 +46,10 @@
 - 根因：分析层已有符号和调用边，但平台回复丢掉了这些结构化信息；证据结构缺少面向开发者的疑点和核对建议。
 - 修复：P-2026-043 将本地代码 evidence 升级为 actionable finding，包含文件、方法/符号、行范围、可疑原因、下一步核对建议和有界脱敏代码摘录。
 - 规则：以后凡是“代码辅助排查”类输出，不能只给搜索结果；必须给开发者可直接打开文件验证的定位卡片。
+
+## 2026-05-25：本地 MySQL 不要为每个验证创建新 schema
+
+- 现象：本地 MySQL 出现多个排障相关 schema，包括 `ai_troubleshooter_hf_codex`、`ai_troubleshooter_hf_real`、`ai_troubleshooter_itest`、`ai_troubleshooter_p2026008` 和 `hf_troubleshoot_codex`。
+- 根因：早期 Program 为了隔离验证直接改 `MYSQL_DATABASE`；迁移脚本会对任意库名执行 `CREATE DATABASE IF NOT EXISTS`；health-food readonly adapter 文档和默认值也鼓励了临时库名。
+- 修复：P-2026-045 将本地平台库固定为 `ai_troubleshooter`，在 migration、Agent Platform 和 Go Gateway 增加本地非 canonical schema fail-fast；health-food adapter 不再默认临时业务库；新增只审计、不默认删除的 schema audit 脚本。
+- 规则：本地验证用 case/test data 区分，不用新 schema 区分。确需隔离实验时必须设置 `ALLOW_NON_CANONICAL_LOCAL_DB=true`，并在当前 Program 写明为什么隔离、什么时候清理、用什么脚本清理。

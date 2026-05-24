@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-044-decision-engine-runtime-clarity/HANDOFF.md`
+- `programs/P-2026-045-local-mysql-schema-discipline/HANDOFF.md`
 
 当前状态：
 
-- P-2026-044 已完成：Web Chat 不需要单独启动外部 Decision Engine 服务，但排查主路径必须在 Agent Platform 进程内调用 `DecisionEngine.plan()`；已加回归测试防止绕过。
+- P-2026-045 进行中：排查并收敛本地 MySQL 重复 schema 问题，目标是本地平台库固定为 `ai_troubleshooter`，非 canonical schema fail-fast，已有 schema 只审计不自动删除。
 
 接手规则：
 

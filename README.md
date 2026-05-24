@@ -88,6 +88,8 @@ make gateway
 make dev
 ```
 
+本地平台库固定为 `ai_troubleshooter`，不要为每个验证新建 `ai_troubleshooter_*`。重复 schema 盘点和显式清理见 [docs/local-runbook.md](docs/local-runbook.md)。
+
 打开 `http://localhost:19091/web`。本地开发如果端口冲突，可以改 `AGENT_PLATFORM_PORT`。
 
 平台 API 同时提供 `/web/api/*` 给工作台使用，以及 `/api/v1/*` 给自动化或业务接入测试使用，例如：

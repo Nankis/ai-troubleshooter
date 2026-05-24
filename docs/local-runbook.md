@@ -28,6 +28,14 @@ MYSQL_DATABASE=ai_troubleshooter \
 make migrate-mysql
 ```
 
+本地平台库固定使用 `ai_troubleshooter`。不要为了每个 Program 或每次验证新建 `ai_troubleshooter_*` schema；用 case、会话、测试数据和 Evidence 区分验证即可。迁移脚本、Python Agent Platform 和 Go Gateway 会拒绝本地非 canonical 平台库。确需隔离实验时，必须显式设置：
+
+```bash
+export ALLOW_NON_CANONICAL_LOCAL_DB=true
+```
+
+并在当前 Program 写清清理计划。
+
 服务运行时使用标准 DSN：
 
 ```bash
@@ -43,6 +51,25 @@ unset DB_DSN
 ```
 
 任何要验证 case、消息、AI 决策日志、工具审计或经验沉淀的场景，都必须使用 MySQL 并查询表确认。
+
+盘点本地历史临时 schema：
+
+```bash
+MYSQL_HOST=127.0.0.1 \
+MYSQL_PORT=3306 \
+MYSQL_USER=root \
+MYSQL_PASSWORD="$LOCAL_MYSQL_PASSWORD" \
+scripts/mysql-local-schema-audit.sh
+```
+
+脚本默认只打印疑似重复 schema 和建议清理 SQL，不会删除库。删除需要额外显式确认，执行前先确认这些库没有要保留的证据：
+
+```bash
+DROP_LOCAL_SCHEMA_SPRAWL=true \
+CONFIRM_DROP_LOCAL_SCHEMA_SPRAWL=yes \
+MYSQL_PASSWORD="$LOCAL_MYSQL_PASSWORD" \
+scripts/mysql-local-schema-audit.sh
+```
 
 ## 主路径服务
 
@@ -346,7 +373,7 @@ HEALTH_FOOD_MYSQL_HOST=127.0.0.1 \
 HEALTH_FOOD_MYSQL_PORT=3306 \
 HEALTH_FOOD_MYSQL_USER=root \
 HEALTH_FOOD_MYSQL_PASSWORD="$LOCAL_MYSQL_PASSWORD" \
-HEALTH_FOOD_MYSQL_DATABASE=hf_troubleshoot_codex \
+HEALTH_FOOD_MYSQL_DATABASE="$HEALTH_FOOD_READONLY_DATABASE" \
 HEALTH_FOOD_BASE_URL=http://127.0.0.1:18080 \
 REAL_HEALTH_FOOD_ADAPTER_PORT=19084 \
 python3.13 scripts/real-health-food-readonly-adapter.py
@@ -368,6 +395,8 @@ GATEWAY_ENDPOINT=http://127.0.0.1:18080 \
 AGENT_PLATFORM_PORT=19091 \
 make dev
 ```
+
+`HEALTH_FOOD_MYSQL_DATABASE` 必须指向已经存在的 health-food 只读业务库或本地真实业务测试库。adapter 不再默认创建 `hf_troubleshoot_*` 临时库，避免把平台验证环境越滚越乱。
 
 验收标准不是“流程能返回”，而是 Web Chat 或 case API 能查到可靠证据：真实用户存在、真实餐食记录存在、真实推荐记录缺失或任务状态明确、工具审计和 AI 决策日志落库。必要时再启用 debug-only Local Code Agent，根据 `service_name` 定位本地代码路径和调用关系。
 

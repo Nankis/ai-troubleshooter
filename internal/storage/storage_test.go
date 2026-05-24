@@ -35,6 +35,46 @@ func TestOpenRejectsMemoryDriverWithDSN(t *testing.T) {
 	}
 }
 
+func TestValidateLocalMySQLDSNRejectsNonCanonicalSchema(t *testing.T) {
+	t.Setenv("ALLOW_NON_CANONICAL_LOCAL_DB", "")
+	err := validateLocalMySQLDSN("root:secret@tcp(127.0.0.1:3306)/ai_troubleshooter_itest")
+	if err == nil || !strings.Contains(err.Error(), "local MySQL platform database") {
+		t.Fatalf("expected local schema guard error, got %v", err)
+	}
+}
+
+func TestValidateLocalMySQLDSNRejectsNonCanonicalLocalhostSchema(t *testing.T) {
+	t.Setenv("ALLOW_NON_CANONICAL_LOCAL_DB", "")
+	err := validateLocalMySQLDSN("root:secret@tcp(localhost:3306)/ai_troubleshooter_itest")
+	if err == nil || !strings.Contains(err.Error(), "local MySQL platform database") {
+		t.Fatalf("expected localhost schema guard error, got %v", err)
+	}
+}
+
+func TestValidateLocalMySQLDSNRejectsNonCanonicalIPv6Schema(t *testing.T) {
+	t.Setenv("ALLOW_NON_CANONICAL_LOCAL_DB", "")
+	err := validateLocalMySQLDSN("root:secret@tcp([::1]:3306)/ai_troubleshooter_itest")
+	if err == nil || !strings.Contains(err.Error(), "local MySQL platform database") {
+		t.Fatalf("expected ipv6 local schema guard error, got %v", err)
+	}
+}
+
+func TestValidateLocalMySQLDSNAllowsCanonicalSchema(t *testing.T) {
+	t.Setenv("ALLOW_NON_CANONICAL_LOCAL_DB", "")
+	err := validateLocalMySQLDSN("root:secret@tcp(127.0.0.1:3306)/ai_troubleshooter")
+	if err != nil {
+		t.Fatalf("canonical local schema should be allowed: %v", err)
+	}
+}
+
+func TestValidateLocalMySQLDSNAllowsExplicitNonCanonicalSchema(t *testing.T) {
+	t.Setenv("ALLOW_NON_CANONICAL_LOCAL_DB", "true")
+	err := validateLocalMySQLDSN("root:secret@tcp(127.0.0.1:3306)/ai_troubleshooter_itest")
+	if err != nil {
+		t.Fatalf("explicit non-canonical local schema should be allowed: %v", err)
+	}
+}
+
 func TestOpenRejectsUnsupportedDriver(t *testing.T) {
 	_, err := Open(context.Background(), config.DatabaseConfig{Driver: "sqlite"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported database driver") {

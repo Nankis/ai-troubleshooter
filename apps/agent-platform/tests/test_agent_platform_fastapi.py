@@ -406,6 +406,57 @@ spring:
         self.assertEqual(cfg.vision.api_key, "unit-test-openai-key")
         self.assertEqual(cfg.vision.model, "gpt-4.1-mini")
 
+    def test_local_mysql_rejects_noncanonical_schema_from_dsn(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DB_DRIVER": "mysql",
+                "DB_DSN": "root:unit-test@tcp(127.0.0.1:3306)/ai_troubleshooter_itest?parseTime=true",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "local MySQL platform database"):
+                load_config()
+
+    def test_local_mysql_rejects_noncanonical_localhost_schema_from_dsn(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DB_DRIVER": "mysql",
+                "DB_DSN": "root:unit-test@tcp(localhost:3306)/ai_troubleshooter_itest?parseTime=true",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "local MySQL platform database"):
+                load_config()
+
+    def test_local_mysql_rejects_noncanonical_ipv6_schema_from_dsn(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DB_DRIVER": "mysql",
+                "DB_DSN": "root:unit-test@tcp([::1]:3306)/ai_troubleshooter_itest?parseTime=true",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "local MySQL platform database"):
+                load_config()
+
+    def test_local_mysql_allows_explicit_noncanonical_schema(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "DB_DRIVER": "mysql",
+                "DB_DSN": "root:unit-test@tcp(127.0.0.1:3306)/ai_troubleshooter_itest?parseTime=true",
+                "ALLOW_NON_CANONICAL_LOCAL_DB": "true",
+            },
+            clear=True,
+        ):
+            cfg = load_config()
+
+        self.assertIsNotNone(cfg.mysql)
+        self.assertEqual(cfg.mysql.database if cfg.mysql else "", "ai_troubleshooter_itest")
+
     def test_explicit_qwen_vision_provider_reuses_dashscope_env(self) -> None:
         with mock.patch.dict(
             "os.environ",

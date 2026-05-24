@@ -100,12 +100,14 @@ def load_config() -> Config:
 
 def _load_mysql_config() -> MySQLConfig:
     if _env("MYSQL_HOST", ""):
-        return MySQLConfig(
-            host=_env("MYSQL_HOST", "127.0.0.1"),
-            port=_env_int("MYSQL_PORT", 3306),
-            user=_env("MYSQL_USER", "root"),
-            password=_env("MYSQL_PASSWORD", ""),
-            database=_env("MYSQL_DATABASE", "ai_troubleshooter"),
+        return _validate_local_mysql_schema(
+            MySQLConfig(
+                host=_env("MYSQL_HOST", "127.0.0.1"),
+                port=_env_int("MYSQL_PORT", 3306),
+                user=_env("MYSQL_USER", "root"),
+                password=_env("MYSQL_PASSWORD", ""),
+                database=_env("MYSQL_DATABASE", "ai_troubleshooter"),
+            )
         )
     dsn = _env("DB_DSN", "")
     if not dsn:
@@ -113,15 +115,50 @@ def _load_mysql_config() -> MySQLConfig:
     parsed = _parse_go_mysql_dsn(dsn)
     if parsed is None:
         raise RuntimeError("Python Agent Platform supports MYSQL_* env or Go-style DB_DSN user:pass@tcp(host:port)/database")
-    return parsed
+    return _validate_local_mysql_schema(parsed)
 
 
 def _parse_go_mysql_dsn(dsn: str) -> MySQLConfig | None:
-    match = re.match(r"([^:]+):([^@]*)@tcp\(([^:)]+)(?::(\d+))?\)/([^?]+)", dsn)
+    match = re.match(r"([^:]+):([^@]*)@tcp\(([^)]*)\)/([^?]+)", dsn)
     if not match:
         return None
-    user, password, host, port, database = match.groups()
-    return MySQLConfig(host=host, port=int(port or "3306"), user=user, password=password, database=database)
+    user, password, host_port, database = match.groups()
+    host, port = _parse_mysql_host_port(host_port)
+    return MySQLConfig(host=host, port=port, user=user, password=password, database=database)
+
+
+def _parse_mysql_host_port(host_port: str) -> tuple[str, int]:
+    value = host_port.strip()
+    if value.startswith("["):
+        end = value.find("]")
+        if end > 0:
+            host = value[1:end]
+            port_part = value[end + 1 :]
+            if port_part.startswith(":") and port_part[1:].isdigit():
+                return host, int(port_part[1:])
+            return host, 3306
+    if value.count(":") <= 1 and ":" in value:
+        host, port_text = value.rsplit(":", 1)
+        if port_text.isdigit():
+            return host, int(port_text)
+    return value, 3306
+
+
+def _validate_local_mysql_schema(mysql: MySQLConfig) -> MySQLConfig:
+    if _is_local_mysql_host(mysql.host) and not _env_bool("ALLOW_NON_CANONICAL_LOCAL_DB", False):
+        canonical = _env("MYSQL_CANONICAL_LOCAL_DATABASE", "ai_troubleshooter")
+        if mysql.database != canonical:
+            raise RuntimeError(
+                "local MySQL platform database must be "
+                f"{canonical!r}; got {mysql.database!r}. "
+                "Set ALLOW_NON_CANONICAL_LOCAL_DB=true only for intentional isolated experiments "
+                "with a recorded cleanup plan."
+            )
+    return mysql
+
+
+def _is_local_mysql_host(host: str) -> bool:
+    return host.strip().lower() in {"127.0.0.1", "localhost", "::1"}
 
 
 def _load_llm_config(profile: str, model_file: dict[str, object] | None = None) -> LLMConfig:

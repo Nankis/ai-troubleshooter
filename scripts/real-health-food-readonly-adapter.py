@@ -31,7 +31,7 @@ MYSQL_HOST = os.getenv("HEALTH_FOOD_MYSQL_HOST", "127.0.0.1")
 MYSQL_PORT = os.getenv("HEALTH_FOOD_MYSQL_PORT", "3306")
 MYSQL_USER = os.getenv("HEALTH_FOOD_MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("HEALTH_FOOD_MYSQL_PASSWORD", "")
-MYSQL_DATABASE = os.getenv("HEALTH_FOOD_MYSQL_DATABASE", "hf_troubleshoot_codex")
+MYSQL_DATABASE = os.getenv("HEALTH_FOOD_MYSQL_DATABASE", "").strip()
 HEALTH_FOOD_LOG_PATH = os.getenv("HEALTH_FOOD_LOG_PATH", "")
 HEALTH_FOOD_ADMIN_BASE_URL = os.getenv("HEALTH_FOOD_ADMIN_BASE_URL", "").rstrip("/")
 HEALTH_FOOD_ADMIN_SECRET = os.getenv("HEALTH_FOOD_ADMIN_SECRET", "")
@@ -148,6 +148,11 @@ def validate_uid(params: dict) -> str:
 
 
 def mysql_query(sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> list[dict[str, str | None]]:
+    if not MYSQL_DATABASE:
+        raise RuntimeError(
+            "HEALTH_FOOD_MYSQL_DATABASE is required and must point to an existing readonly health-food schema; "
+            "do not create ad-hoc troubleshooting schemas by default."
+        )
     try:
         import pymysql
         import pymysql.cursors

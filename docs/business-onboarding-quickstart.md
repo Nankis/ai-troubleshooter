@@ -83,6 +83,8 @@ MYSQL_DATABASE=ai_troubleshooter \
 make migrate-mysql
 ```
 
+本地开发和验收也固定使用 `ai_troubleshooter`。不要为每次接入、每个 Program 或每个业务 adapter 创建新的 `ai_troubleshooter_*` 平台库；如果确实需要隔离实验，必须显式设置 `ALLOW_NON_CANONICAL_LOCAL_DB=true`，并在当前 Program 记录清理计划。生产/预发可以按公司规范使用独立环境库名。
+
 运行时可以使用 `MYSQL_*`：
 
 ```bash
