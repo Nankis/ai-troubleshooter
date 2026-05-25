@@ -18,6 +18,7 @@
 | `low-signal-code-evidence` | 1 | 本地代码辅助只返回路径/命中词/行号，开发者无法继续排查 | 代码排查结果必须包含文件、符号/方法、行范围、疑点、下一步核对建议和必要的有界脱敏摘录 |
 | `local-schema-sprawl` | 1 | 本地 MySQL 为每个 Program 或 adapter 创建新的排障 schema | 统一使用 `ai_troubleshooter`；非 canonical schema 必须显式开关和清理计划 |
 | `stale-case-context-routing` | 1 | 同一 case 里最新消息是模型/Agent/平台咨询，却继承旧业务上下文继续查 Gateway | 路由先看最新用户消息；非排障咨询只允许 direct answer 或阻断 |
+| `wrong-repo-apply-patch` | 1 | `apply_patch` 或生成文件落到桌面线程默认 cwd/相邻项目，而不是目标仓库 | 写入前确认 `pwd` 和 `git rev-parse --show-toplevel`；`apply_patch` 使用目标仓库绝对路径 |
 
 ## 2026-05-23：不要为了新架构回写旧 Program
 
@@ -68,3 +69,10 @@
 - 根因：早期 Program 为了隔离验证直接改 `MYSQL_DATABASE`；迁移脚本会对任意库名执行 `CREATE DATABASE IF NOT EXISTS`；health-food readonly adapter 文档和默认值也鼓励了临时库名。
 - 修复：P-2026-045 将本地平台库固定为 `ai_troubleshooter`，在 migration、Agent Platform 和 Go Gateway 增加本地非 canonical schema fail-fast；health-food adapter 不再默认临时业务库；新增只审计、不默认删除的 schema audit 脚本。
 - 规则：本地验证用 case/test data 区分，不用新 schema 区分。确需隔离实验时必须设置 `ALLOW_NON_CANONICAL_LOCAL_DB=true`，并在当前 Program 写明为什么隔离、什么时候清理、用什么脚本清理。
+
+## 2026-05-25：`apply_patch` 必须绑定目标仓库根目录
+
+- 现象：桌面线程默认 cwd 指向 `/Users/ginseng/Documents/AI工作区/AI超级个体`，但目标仓库是 `/Users/ginseng/Documents/AI工作区/ai-troubleshooter`；`apply_patch` 初次把新文件落到了错误项目。
+- 根因：把“工具当前 cwd”误认为“用户当前任务仓库”，没有在写入前确认 `git rev-parse --show-toplevel`，也没有强制 `apply_patch` 使用目标仓库绝对路径。
+- 修复：已迁回本次新建文件，清理错误位置中本次创建的文件，并在 P-2026-057、`AGENTS.md` 和本复盘中新增编辑路径铁律。
+- 规则：任何写文件、`apply_patch`、生成 artifact、格式化、`git add` 前，必须确认目标仓库根目录；`apply_patch` 优先使用目标仓库绝对路径。发现误写后只能清理自己本次创建的污染文件，不碰用户或其它项目已有改动。

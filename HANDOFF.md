@@ -2,7 +2,7 @@
 
 当前活跃 Program：
 
-- 无。P-2026-052 到 P-2026-056 已完成，等待统一提交和推送 main。
+- 无。P-2026-057 已完成，等待统一提交和推送 main。
 
 当前状态：
 
@@ -15,6 +15,7 @@
 - 真实 case 证据：`case_20260525_000068` 查到 health-food 用户/推荐数据，5 个 Gateway readonly tools 全成功；`case_20260525_000069` 查不到用户/推荐数据，5 个 Gateway readonly tools 全成功并返回缺失证据。
 - Web 截图证据：`programs/P-2026-056-case-scheduler-state-machine/artifacts/web-case-000068-brief.png`。
 - 最终验证已通过：`make test`、`make secret-scan`、`git diff --check`、`python3.13 scripts/validate_program.py programs/P-2026-052... programs/P-2026-056...`。
+- P-2026-057：记录 `apply_patch` 落到错误 cwd/相邻项目的重复操作问题；`AGENTS.md` 新增“编辑路径铁律”，`docs/LESSONS.md` 新增 `wrong-repo-apply-patch` 计数和复盘。
 
 接手规则：
 

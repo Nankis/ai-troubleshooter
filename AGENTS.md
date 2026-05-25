@@ -44,6 +44,13 @@
 - 再次踩同类坑，先给计数器 `count +1`，再写当前 Program 的 `ERRORS.md`。
 - 不为新命名、新架构或新理解回写旧 Program；独立变更新增 Program。确需修正旧事实，必须在当前 Program 写明例外。
 
+## 编辑路径铁律
+
+- 本仓库目标路径是 `/Users/ginseng/Documents/AI工作区/ai-troubleshooter`。开始任何文件写入、`apply_patch`、格式化、生成 artifact、`git add` 前，必须确认 `pwd` 和 `git rev-parse --show-toplevel` 指向本仓库。
+- `apply_patch` 默认目录可能不是目标仓库；跨线程、压缩恢复、桌面 cwd 指向其它项目时，必须使用目标仓库内的绝对路径，例如 `*** Update File: /Users/ginseng/Documents/AI工作区/ai-troubleshooter/...`。
+- 如果误写到相邻仓库或其它目录，立即停止继续开发，只迁回自己本次创建的文件，删除错误位置中自己本次创建的污染文件，并在当前 Program/HANDOFF 记录根因和修复；禁止清理不属于本次操作的用户改动。
+- `git status` 必须在目标仓库执行；只以目标仓库的状态作为提交依据，不能用桌面线程默认 cwd 的状态替代。
+
 ## 上下文交接铁律
 
 - 聊天线程不是持久记忆；Program 文件才是接手入口。
