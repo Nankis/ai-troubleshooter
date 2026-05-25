@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import socket
 import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
+from decision_engine.agent_team import SupervisorAgentTeam
 from decision_engine.models import KnowledgeCandidate, ToolPlan, ToolSpec
 
 from .capabilities import import_capabilities
@@ -23,8 +27,10 @@ from .context_ledger import (
     evidence_refs_from_observations,
     final_answer_verification,
 )
+from .decision_advisor import LLMDecisionAdvisor
 from .gateway import GatewayHTTPClient
 from .llm import LLMClient
+from .local_agents import discover_local_agents, probe_local_agent, runtime_id, runtime_name
 from .repository import Repository
 from .vision import ImageInput, LocalVisionClient, build_vision_client
 
@@ -46,8 +52,8 @@ class AgentPlatform:
         self.config = config
         self.repository = repository
         self.gateway = gateway or GatewayHTTPClient(config.gateway_endpoint, config.gateway_bearer_token)
-        self.decision_engine = decision_engine or DecisionEngine()
         self.llm = llm_client or LLMClient(config.llm)
+        self.decision_engine = decision_engine or self._build_decision_engine()
         self.vision = vision_client or build_vision_client(config.vision, config.llm)
 
     def close(self) -> None:
@@ -337,6 +343,68 @@ class AgentPlatform:
     def list_agent_runtimes(self) -> dict[str, Any]:
         return {"items": self.repository.list_agent_runtimes(50)}
 
+    def discover_local_agent_runtime(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = payload or {}
+        workspace_root = self._local_agent_workspace_root(payload)
+        providers = self._discovered_local_agent_providers(workspace_root)
+        runtime = self.repository.register_agent_runtime(
+            {
+                "runtime_id": runtime_id(),
+                "runtime_name": runtime_name(),
+                "runtime_type": "local",
+                "host_name": socket.gethostname(),
+                "provider_list": providers,
+                "workspace_root": workspace_root,
+                "runtime_status": "online",
+            }
+        )
+        return {"runtime": runtime, "providers": providers}
+
+    def enable_local_agent_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
+        provider_id = _normalize_provider_id(payload.get("provider_id") or payload.get("provider") or "")
+        if not provider_id:
+            raise ValueError("provider_id is required")
+        workspace_root = self._local_agent_workspace_root(payload)
+        providers = self._discovered_local_agent_providers(workspace_root)
+        target = next((item for item in providers if _normalize_provider_id(item.get("provider_id")) == provider_id), None)
+        if target is None:
+            raise KeyError("local agent provider not found")
+        enabled = _truthy(payload.get("enabled", True))
+        allow_non_llm = _truthy(payload.get("allow_non_llm", False))
+        if enabled and not target.get("installed"):
+            raise ValueError(f"local agent provider {provider_id} is not installed")
+        if enabled and not target.get("llm_capable") and not allow_non_llm:
+            raise ValueError(f"local agent provider {provider_id} is not non-interactive LLM capable")
+        for provider in providers:
+            if _normalize_provider_id(provider.get("provider_id")) == provider_id:
+                provider["enabled"] = enabled
+        runtime = self.repository.register_agent_runtime(
+            {
+                "runtime_id": runtime_id(),
+                "runtime_name": runtime_name(),
+                "runtime_type": "local",
+                "host_name": socket.gethostname(),
+                "provider_list": providers,
+                "workspace_root": workspace_root,
+                "runtime_status": "online",
+            }
+        )
+        target = next(item for item in providers if _normalize_provider_id(item.get("provider_id")) == provider_id)
+        return {"runtime": runtime, "provider": target}
+
+    def probe_local_agent_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
+        provider_id = str(payload.get("provider_id") or payload.get("provider") or "").strip()
+        if not provider_id:
+            raise ValueError("provider_id is required")
+        result = probe_local_agent(
+            provider_id,
+            execute=_truthy(payload.get("execute", False)),
+            workspace_root=self._local_agent_workspace_root(payload),
+            timeout_seconds=_bounded_int(payload.get("timeout_seconds"), 1, 120, 15),
+        )
+        result["enabled"] = _normalize_provider_id(result.get("provider_id")) in self._enabled_local_agent_provider_ids()
+        return result
+
     def case_payload(self, case: dict[str, Any], result: dict[str, Any] | None = None, processing: bool = False) -> dict[str, Any]:
         result = result or {"case_id": case["id"], "case_no": case["case_no"], "status": case["status"], "reply": ""}
         logs = self.repository.list_decision_logs(int(case["id"]), 100)
@@ -423,6 +491,36 @@ class AgentPlatform:
         )
         self.repository.add_message(int(case["id"]), "user", _message_content(user_text, ocr_text))
         return case
+
+    def _build_decision_engine(self) -> DecisionEngine:
+        advisor = LLMDecisionAdvisor(self.llm) if _decision_llm_enabled(self.config) else None
+        return DecisionEngine(SupervisorAgentTeam(decision_advisor=advisor))
+
+    def _local_agent_workspace_root(self, payload: dict[str, Any]) -> str:
+        configured = str(payload.get("workspace_root") or os.getenv("LOCAL_AGENT_WORKSPACE_ROOT") or "").strip()
+        if configured:
+            return configured
+        return str(Path(__file__).resolve().parents[3])
+
+    def _discovered_local_agent_providers(self, workspace_root: str) -> list[dict[str, Any]]:
+        enabled = self._enabled_local_agent_provider_ids()
+        providers = discover_local_agents(workspace_root)
+        for provider in providers:
+            provider_id = _normalize_provider_id(provider.get("provider_id"))
+            provider["enabled"] = provider_id in enabled
+        return providers
+
+    def _enabled_local_agent_provider_ids(self) -> set[str]:
+        enabled: set[str] = set()
+        for runtime in self.repository.list_agent_runtimes(50):
+            if str(runtime.get("runtime_id") or "") != runtime_id():
+                continue
+            for provider in runtime.get("provider_list") or []:
+                if isinstance(provider, dict) and provider.get("enabled"):
+                    provider_id = _normalize_provider_id(provider.get("provider_id"))
+                    if provider_id:
+                        enabled.add(provider_id)
+        return enabled
 
     def _classify_and_extract(self, case: dict[str, Any]) -> dict[str, object]:
         text = f"{case.get('original_text') or ''}\n{case.get('ocr_text') or ''}"
@@ -1022,11 +1120,44 @@ def _agent_role(agent_name: str) -> str:
         return "knowledge"
     if agent_name == "local_code_agent":
         return "local_code"
+    if agent_name == "llm_decision_agent":
+        return "decision_advisor"
     if agent_name == "verifier":
         return "verifier"
     if agent_name.endswith("_agent"):
         return "specialist"
     return "agent"
+
+
+def _decision_llm_enabled(config: Config) -> bool:
+    configured = os.getenv("DECISION_LLM_ENABLED", "").strip().lower()
+    if configured in {"1", "true", "yes", "y", "on", "enabled"}:
+        return _real_llm_provider(config.llm.provider)
+    if configured in {"0", "false", "no", "n", "off", "disabled"}:
+        return False
+    return config.llm.provider.lower().strip() in {"local_agent", "local_cli", "local-agent", "local-cli"}
+
+
+def _real_llm_provider(provider: str) -> bool:
+    return provider.lower().strip() not in {"", "local", "local_rules", "rules"}
+
+
+def _normalize_provider_id(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+
+
+def _bounded_int(value: Any, minimum: int, maximum: int, default: int) -> int:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        numeric = default
+    return max(minimum, min(maximum, numeric))
 
 
 def _compact_decision_evidence(agent_name: str, evidence: Any) -> list[dict[str, Any]]:

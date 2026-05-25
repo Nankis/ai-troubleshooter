@@ -195,6 +195,9 @@ def _load_llm_config(profile: str, model_file: dict[str, object] | None = None) 
         base_url = _first_env("CLAUDE_CODE_BASE_URL", "ANTHROPIC_BASE_URL")
         api_key = _first_env("CLAUDE_CODE_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
         model = _env("CLAUDE_CODE_MODEL", _env("ANTHROPIC_MODEL", "claude-sonnet-4-5"))
+    elif profile in {"local_agent", "local-agent", "local_cli", "local-cli"}:
+        provider = "local_agent"
+        model = _env("LOCAL_AGENT_PROVIDER", "auto")
     else:
         provider = "openai_compatible"
 

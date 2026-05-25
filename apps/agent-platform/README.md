@@ -8,6 +8,7 @@ Python FastAPI 主服务，承接 Agent 平台入口和排障主路径：
 - Case API：`GET/PATCH/DELETE /web/api/cases/{case_no}`。
 - 平台经验：`/web/api/knowledge`。
 - 能力接入：`/web/api/capabilities/*`。
+- Local Agent Runtime：`/web/api/local-agents/discover`、`/web/api/local-agents/enable`、`/web/api/local-agents/probe`。
 - 决策主路径：内嵌 `apps/decision-engine`，通过 Go Investigation Gateway 调用只读 tools。
 
 ## Run
@@ -59,6 +60,11 @@ export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
 export AI_MODEL_PROFILE=claude_code
 export CLAUDE_CODE_BASE_URL=http://127.0.0.1:19093
 export CLAUDE_CODE_API_KEY="$LOCAL_PROXY_TOKEN"
+
+export AI_MODEL_PROFILE=local_agent
+export LOCAL_AGENT_PROVIDER=codex
+export LOCAL_AGENT_WORKSPACE_ROOT="$PWD"
+export DECISION_LLM_ENABLED=true
 ```
 
 也可以只读本机已有 Spring AI YAML，例如 health-food 的 `application-local.yml`：

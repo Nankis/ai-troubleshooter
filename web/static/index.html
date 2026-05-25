@@ -1175,6 +1175,18 @@
       padding-top: 16px;
     }
 
+    .side-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .side-head .card-title {
+      margin-bottom: 0;
+    }
+
     .kv {
       display: grid;
       gap: 10px;
@@ -1195,6 +1207,34 @@
       display: grid;
       gap: 8px;
       color: #d6d6d6;
+    }
+
+    .local-agent-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .local-agent-row {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, .12);
+    }
+
+    .local-agent-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .local-agent-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
     }
 
     .toast {
@@ -1377,6 +1417,14 @@
         </div>
 
         <div class="side-block">
+          <div class="side-head">
+            <div class="card-title">本地 Agent</div>
+            <button class="secondary-small" type="button" id="discoverLocalAgents">发现</button>
+          </div>
+          <div class="local-agent-list" id="localAgentList"></div>
+        </div>
+
+        <div class="side-block">
           <div class="card-title">来源</div>
           <div class="source-list">
             <div>Gateway tools</div>
@@ -1461,6 +1509,9 @@
       activeKnowledgeId: 0,
       editingKnowledgeId: 0,
       caseModal: { mode: "", targetType: "", targetID: "" },
+      localAgents: [],
+      localAgentRuntime: null,
+      localAgentDiscovering: false,
     };
 
     const el = {
@@ -1494,6 +1545,8 @@
       envTools: document.getElementById("envTools"),
       envKnowledge: document.getElementById("envKnowledge"),
       caseSource: document.getElementById("caseSource"),
+      discoverLocalAgents: document.getElementById("discoverLocalAgents"),
+      localAgentList: document.getElementById("localAgentList"),
       toast: document.getElementById("toast"),
       imageLightbox: document.getElementById("imageLightbox"),
       imageLightboxImg: document.getElementById("imageLightboxImg"),
@@ -1520,6 +1573,7 @@
 
     document.getElementById("newCase").addEventListener("click", createDraftCase);
     document.getElementById("refreshOverview").addEventListener("click", () => loadOverview());
+    el.discoverLocalAgents.addEventListener("click", () => discoverLocalAgents({ showFeedback: true }));
     el.toggleToolPanel.addEventListener("click", toggleToolPanel);
     el.refreshTools.addEventListener("click", refreshTools);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
@@ -1701,6 +1755,51 @@
         state.toolRefreshing = false;
         el.refreshTools.disabled = false;
         el.refreshTools.classList.remove("spinning");
+      }
+    }
+
+    async function discoverLocalAgents(options = {}) {
+      if (state.localAgentDiscovering) return;
+      state.localAgentDiscovering = true;
+      el.discoverLocalAgents.disabled = true;
+      el.discoverLocalAgents.textContent = "发现中";
+      renderLocalAgents();
+      try {
+        const response = await fetch("/web/api/local-agents/discover");
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "discover failed");
+        state.localAgents = payload.providers || [];
+        state.localAgentRuntime = payload.runtime || null;
+        renderLocalAgents();
+        if (options.showFeedback) showToast("已发现 " + String(state.localAgents.length) + " 个本地 Agent/编辑器");
+      } catch (error) {
+        showToast("本地 Agent 发现失败：" + error.message);
+      } finally {
+        state.localAgentDiscovering = false;
+        el.discoverLocalAgents.disabled = false;
+        el.discoverLocalAgents.textContent = "发现";
+        renderLocalAgents();
+      }
+    }
+
+    async function enableLocalAgent(providerID, enabled) {
+      try {
+        const response = await fetch("/web/api/local-agents/enable", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider_id: providerID, enabled }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "enable failed");
+        const provider = payload.provider || {};
+        state.localAgentRuntime = payload.runtime || state.localAgentRuntime;
+        state.localAgents = state.localAgents.map((item) => (
+          item.provider_id === provider.provider_id ? { ...item, ...provider } : item
+        ));
+        renderLocalAgents();
+        showToast(enabled ? "本地 Agent 已启用" : "本地 Agent 已停用");
+      } catch (error) {
+        showToast("启用失败：" + error.message);
       }
     }
 
@@ -2573,6 +2672,52 @@
       }).join("");
     }
 
+    function renderLocalAgents() {
+      if (state.localAgentDiscovering && !state.localAgents.length) {
+        el.localAgentList.innerHTML = `<div class="row-meta">正在发现本地 Claude Code、Codex、Cursor...</div>`;
+        return;
+      }
+      if (!state.localAgents.length) {
+        el.localAgentList.innerHTML = `<div class="row-meta">尚未发现，点击“发现”扫描 PATH 和本地配置引用。</div>`;
+        return;
+      }
+      el.localAgentList.innerHTML = state.localAgents.map((agent) => {
+        const installed = Boolean(agent.installed);
+        const llmCapable = Boolean(agent.llm_capable);
+        const enabled = Boolean(agent.enabled);
+        const canEnable = installed && llmCapable;
+        return `
+          <div class="local-agent-row">
+            <div class="local-agent-top">
+              <span class="truncate">
+                <span class="row-title truncate">${escapeHTML(agent.display_name || agent.provider_id || "-")}</span>
+                <span class="row-meta truncate">${escapeHTML(agent.version || agent.executable || agent.app_path || agent.status || "")}</span>
+              </span>
+              <button class="secondary-small" type="button"
+                data-local-agent-toggle="${escapeAttr(agent.provider_id || "")}"
+                data-local-agent-enabled="${enabled ? "1" : "0"}"
+                ${canEnable ? "" : "disabled"}>
+                ${enabled ? "停用" : "启用"}
+              </button>
+            </div>
+            <div class="local-agent-tags">
+              <span class="tag ${installed ? "green" : "red"}">${installed ? "已安装" : "未安装"}</span>
+              <span class="tag ${llmCapable ? "green" : "yellow"}">${llmCapable ? "可做决策 LLM" : "仅发现"}</span>
+              ${enabled ? `<span class="tag green">已启用</span>` : ""}
+            </div>
+            <div class="row-meta">${escapeHTML((agent.warnings || []).join("；") || agent.invocation || "")}</div>
+          </div>
+        `;
+      }).join("");
+      el.localAgentList.querySelectorAll("[data-local-agent-toggle]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const providerID = button.dataset.localAgentToggle || "";
+          const enabled = button.dataset.localAgentEnabled !== "1";
+          enableLocalAgent(providerID, enabled);
+        });
+      });
+    }
+
     function setBusy(value) {
       state.processing = value;
       el.send.disabled = value;
@@ -2853,7 +2998,9 @@
     loadDrafts();
     renderCases();
     renderProgress([]);
+    renderLocalAgents();
     loadOverview().catch((error) => showToast("工作台加载失败：" + error.message));
+    discoverLocalAgents().catch(() => {});
     window.setInterval(() => {
       if (document.hidden || state.toolRefreshing) return;
       loadOverview().catch(() => {});

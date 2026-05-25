@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import re
+from typing import Protocol
 
 from .models import (
     AgentReport,
@@ -12,6 +13,17 @@ from .models import (
     VerificationReport,
 )
 from .local_code import LocalCodeInspector
+
+
+class DecisionAdvisor(Protocol):
+    name: str
+
+    def evaluate(
+        self,
+        request: DecisionRequest,
+        agent_reports: Sequence[AgentReport],
+        default_proposal: DecisionResponse,
+    ) -> AgentReport | None: ...
 
 
 REQUIRED_FIELDS_BY_DOMAIN: dict[str, tuple[str, ...]] = {
@@ -387,13 +399,14 @@ class Verifier:
 
 
 class SupervisorAgentTeam:
-    def __init__(self, local_code_agent: LocalCodeAgent | None = None) -> None:
+    def __init__(self, local_code_agent: LocalCodeAgent | None = None, decision_advisor: DecisionAdvisor | None = None) -> None:
         self.knowledge_agent = KnowledgeAgent()
         self.kline_agent = DomainAgent("kline", "kline_agent")
         self.asset_agent = DomainAgent("asset", "asset_agent")
         self.health_food_agent = DomainAgent("health_food", "health_food_agent")
         self.fallback_agent = FallbackAgent()
         self.local_code_agent = local_code_agent or LocalCodeAgent()
+        self.decision_advisor = decision_advisor
         self.verifier = Verifier()
 
     def plan(self, request: DecisionRequest) -> DecisionResponse:
@@ -430,6 +443,11 @@ class SupervisorAgentTeam:
         specialist_report = specialist.evaluate(request, self)
         reports.append(specialist_report)
         proposal = self._response_from_report(specialist_report)
+        advisor_report = self._advisor_report(request, reports, proposal)
+        if advisor_report is not None:
+            reports.append(advisor_report)
+            if advisor_report.action != "skip":
+                proposal = self._response_from_report(advisor_report)
         return self.verifier.verify(request, proposal, reports)
 
     def missing_fields(self, request: DecisionRequest, domain: str | None = None) -> list[str]:
@@ -479,6 +497,25 @@ class SupervisorAgentTeam:
             knowledge_source=report.knowledge_source,
             confidence=report.confidence,
         )
+
+    def _advisor_report(
+        self,
+        request: DecisionRequest,
+        reports: Sequence[AgentReport],
+        proposal: DecisionResponse,
+    ) -> AgentReport | None:
+        if self.decision_advisor is None:
+            return None
+        try:
+            return self.decision_advisor.evaluate(request, reports, proposal)
+        except Exception as exc:
+            return AgentReport(
+                agent_name=getattr(self.decision_advisor, "name", "llm_decision_agent"),
+                action="skip",
+                reason=f"LLM decision advisor failed, deterministic proposal kept: {exc}",
+                confidence=0.0,
+                risks=["llm_decision_advisor_failed"],
+            )
 
 
 def _request_requires_realtime(request: DecisionRequest) -> bool:

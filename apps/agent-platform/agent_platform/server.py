@@ -131,6 +131,26 @@ def create_app(config: Config | None = None, repository: Repository | None = Non
     async def heartbeat_agent_runtime(request: Request, runtime_id: str) -> JSONResponse:
         return _json(_platform(request).heartbeat_agent_runtime(runtime_id, await request.json()))
 
+    @app.get("/api/v1/local-agents/discover")
+    @app.get("/web/api/local-agents/discover")
+    def discover_local_agents(request: Request) -> JSONResponse:
+        return _json(_platform(request).discover_local_agent_runtime())
+
+    @app.post("/api/v1/local-agents/discover")
+    @app.post("/web/api/local-agents/discover")
+    async def discover_local_agents_with_options(request: Request) -> JSONResponse:
+        return _json(_platform(request).discover_local_agent_runtime(await request.json()))
+
+    @app.post("/api/v1/local-agents/enable")
+    @app.post("/web/api/local-agents/enable")
+    async def enable_local_agent(request: Request) -> JSONResponse:
+        return _json(_platform(request).enable_local_agent_provider(await request.json()))
+
+    @app.post("/api/v1/local-agents/probe")
+    @app.post("/web/api/local-agents/probe")
+    async def probe_local_agent(request: Request) -> JSONResponse:
+        return _json(_platform(request).probe_local_agent_provider(await request.json()))
+
     @app.patch("/api/v1/cases/{case_ref:path}")
     @app.put("/api/v1/cases/{case_ref:path}")
     @app.patch("/web/api/cases/{case_ref:path}")

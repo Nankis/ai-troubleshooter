@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 import urllib.request
@@ -8,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import LLMConfig
+from .local_agents import complete_json_with_local_agent
 
 
 @dataclass(slots=True)
@@ -44,12 +46,25 @@ class LLMClient:
         )
         return self._complete_json(prompt, {"case": case, "observations": observations})
 
+    def advise_decision(self, request: dict[str, Any], default_proposal: dict[str, Any]) -> LLMResult:
+        if not self.is_real:
+            return LLMResult({}, "local_rules", "rules-v1")
+        prompt = (
+            "你是排障平台的 llm_decision_agent。基于 case、entities、available_tools、knowledge、context_ledger "
+            "和 default_proposal，给出 JSON：action, reason, confidence, selected_tools, missing_fields。"
+            "action 只能是 ask_user、answer_from_knowledge、invoke_tools、need_human、local_code_inspection。"
+            "selected_tools 只能从 available_tools.name 中选择；不确定时沿用 default_proposal。只输出 JSON。"
+        )
+        return self._complete_json(prompt, {"request": request, "default_proposal": default_proposal})
+
     def _complete_json(self, prompt: str, payload: dict[str, Any]) -> LLMResult:
         provider = self.config.provider.lower().strip()
         if provider in {"openai", "openai_compatible", "gpt", "qwen", "dashscope", "deepseek", "moonshot", "llm_gateway"}:
             return self._openai_compatible(prompt, payload)
         if provider in {"anthropic", "claude", "claude_code"}:
             return self._anthropic(prompt, payload)
+        if provider in {"local_agent", "local_cli", "local-agent", "local-cli"}:
+            return self._local_agent(prompt, payload)
         raise RuntimeError(f"unsupported LLM provider {self.config.provider!r}")
 
     def _openai_compatible(self, prompt: str, payload: dict[str, Any]) -> LLMResult:
@@ -83,6 +98,17 @@ class LLMClient:
         data = self._post_json(url, body, headers)
         text = "\n".join(part.get("text", "") for part in data.get("content", []) if isinstance(part, dict))
         return LLMResult(_loads_json_object(text), self.config.provider, self.config.model)
+
+    def _local_agent(self, prompt: str, payload: dict[str, Any]) -> LLMResult:
+        data, provider, model = complete_json_with_local_agent(
+            prompt=prompt,
+            payload=payload,
+            provider_id=self.config.model or "auto",
+            model=self.config.model,
+            timeout_seconds=self.config.timeout_seconds,
+            workspace_root=os.getenv("LOCAL_AGENT_WORKSPACE_ROOT", ""),
+        )
+        return LLMResult(data, provider, model)
 
     def _post_json(self, url: str, body: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         request = urllib.request.Request(

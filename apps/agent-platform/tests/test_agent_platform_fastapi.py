@@ -4,6 +4,7 @@ import itertools
 import base64
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from unittest import mock
@@ -20,7 +21,7 @@ from decision_engine import DecisionRequest, DecisionResponse, VerificationRepor
 
 from agent_platform.config import ChatPlatformConfig, Config, LLMConfig, VisionConfig, load_config
 from agent_platform.gateway import GatewayHTTPClient
-from agent_platform.llm import LLMResult
+from agent_platform.llm import LLMClient, LLMResult
 from agent_platform.repository import _json_or_none
 from agent_platform.server import create_app
 from agent_platform.service import AgentPlatform
@@ -442,6 +443,87 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         listed = self.client.get("/web/api/agent-runtimes")
         self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(listed.json()["items"][0]["runtime_id"], "local-mac-codex")
+
+    def test_local_agent_discovery_registers_runtime(self) -> None:
+        discovered = [
+            {
+                "provider_id": "claude_code",
+                "display_name": "Claude Code",
+                "kind": "coding_agent",
+                "installed": True,
+                "llm_capable": True,
+                "version": "1.0.0",
+                "enabled": False,
+            },
+            {
+                "provider_id": "cursor",
+                "display_name": "Cursor",
+                "kind": "editor",
+                "installed": True,
+                "llm_capable": False,
+                "enabled": False,
+            },
+        ]
+
+        with mock.patch("agent_platform.service.discover_local_agents", return_value=discovered):
+            response = self.client.get("/web/api/local-agents/discover")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual([item["provider_id"] for item in body["providers"]], ["claude_code", "cursor"])
+        self.assertEqual(body["runtime"]["runtime_type"], "local")
+        runtime = next(iter(self.repo.runtimes.values()))
+        self.assertEqual(runtime["provider_list"][0]["provider_id"], "claude_code")
+        self.assertFalse(runtime["provider_list"][0]["enabled"])
+
+    def test_local_agent_enable_requires_non_interactive_llm_provider(self) -> None:
+        discovered = [
+            {
+                "provider_id": "claude_code",
+                "display_name": "Claude Code",
+                "kind": "coding_agent",
+                "installed": True,
+                "llm_capable": True,
+                "enabled": False,
+            },
+            {
+                "provider_id": "cursor",
+                "display_name": "Cursor",
+                "kind": "editor",
+                "installed": True,
+                "llm_capable": False,
+                "enabled": False,
+            },
+        ]
+
+        with mock.patch("agent_platform.service.discover_local_agents", return_value=discovered):
+            enabled = self.client.post("/web/api/local-agents/enable", json={"provider_id": "claude_code"})
+            rejected = self.client.post("/web/api/local-agents/enable", json={"provider_id": "cursor"})
+
+        self.assertEqual(enabled.status_code, 200, enabled.text)
+        self.assertTrue(enabled.json()["provider"]["enabled"])
+        self.assertEqual(rejected.status_code, 400, rejected.text)
+        self.assertIn("not non-interactive LLM capable", rejected.json()["error"])
+
+    def test_local_agent_llm_provider_uses_noninteractive_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "fake-local-agent"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "cat >/dev/null\n"
+                "printf '%s' '{\"issue_domain\":\"health_food\",\"entities\":{\"uid\":\"hf-local\"}}'\n",
+                encoding="utf-8",
+            )
+            script.chmod(0o700)
+            config = LLMConfig("local_agent", "", "", "custom", 5, False)
+
+            with mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False):
+                result = LLMClient(config).classify_and_extract("health-food uid hf-local 今日推荐缺失")
+
+        self.assertEqual(result.provider, "local_agent")
+        self.assertEqual(result.model, "custom")
+        self.assertEqual(result.payload["issue_domain"], "health_food")
+        self.assertEqual(result.payload["entities"]["uid"], "hf-local")
 
     def test_web_chat_must_call_decision_engine_plan(self) -> None:
         decision_engine = RecordingDecisionEngine()

@@ -163,7 +163,57 @@ Web 工作台支持：
 - 左侧按服务分组查看 Gateway tools，并可折叠。
 - 在“能力接入”粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON，审核后发布只读工具。
 - 平台经验预览、编辑、录入和软删除。
-- 右侧查看当前排查状态、Agent Run 轨迹、AI 决策步骤、工具调用进度和运行环境。
+- 右侧查看当前排查状态、Agent Run 轨迹、AI 决策步骤、工具调用进度、运行环境和本地 Agent runtime。
+
+## Local Agent Runtime Discovery
+
+平台参考 Multica 的 runtime/provider 模型，但不引入 Multica 服务依赖。Agent Platform 会发现本机可用的 coding agent CLI，并把结果注册到平台 MySQL 的 `tb_troubleshoot_agent_runtime`：
+
+```bash
+curl -s http://localhost:19091/api/v1/local-agents/discover
+```
+
+Web 工作台右侧“本地 Agent”也会触发同一接口。当前发现项：
+
+| Provider | 发现方式 | 是否可做决策 LLM |
+| --- | --- | --- |
+| `claude_code` | `claude --version` / `claude --help` | 需要支持 `--print` 和 `--output-format` |
+| `codex` | `codex --version` / `codex exec --help` | 需要支持非交互 `codex exec` |
+| `cursor` | `cursor` 或 `/Applications/Cursor.app` | 仅标记 editor/MCP 配置，不直接当 LLM |
+| `cursor_agent` | `cursor-agent --version` / `--help` | 只有发现非交互 prompt 能力才作为候选 |
+
+显式启用某个 provider：
+
+```bash
+curl -s -X POST http://localhost:19091/api/v1/local-agents/enable \
+  -H 'Content-Type: application/json' \
+  -d '{"provider_id":"codex","enabled":true}'
+```
+
+启用只代表平台允许该本地 agent 作为候选；真正让它参与决策还要配置模型入口：
+
+```bash
+export AI_MODEL_PROFILE=local_agent
+export LOCAL_AGENT_PROVIDER=codex        # auto / codex / claude_code
+export LOCAL_AGENT_WORKSPACE_ROOT="$PWD" # 只读工作目录
+export DECISION_LLM_ENABLED=true
+```
+
+运行时约束：
+
+- 只调用非交互 CLI，输出必须是 JSON object。
+- 调用有 `LLM_TIMEOUT_SECONDS` 超时。
+- `llm_decision_agent` 只做 advisor；Verifier 仍会拦截超预算、不可用工具和非 Gateway 工具。
+- 不读取或保存 Claude/Codex/Cursor 配置里的 token/key，只记录配置文件是否存在。
+- 本地 agent 不能绕过 Gateway 查询生产证据，也不能自动修改业务代码。
+
+探测执行能力：
+
+```bash
+curl -s -X POST http://localhost:19091/api/v1/local-agents/probe \
+  -H 'Content-Type: application/json' \
+  -d '{"provider_id":"codex","execute":false}'
+```
 
 ## 模型配置
 
@@ -191,7 +241,7 @@ export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
 export LLM_ALLOW_RULE_FALLBACK=false
 ```
 
-当前内置 profile：`qwen`/`dashscope`、`gpt`/`openai`、`claude`/`anthropic`、`claude_code`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
+当前内置 profile：`qwen`/`dashscope`、`gpt`/`openai`、`claude`/`anthropic`、`claude_code`、`local_agent`、`local_rules`。显式 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 会覆盖 profile，方便临时切换公司模型网关。
 
 GPT/OpenAI：
 

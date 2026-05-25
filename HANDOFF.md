@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-046-multica-inspired-agent-runtime-integration/HANDOFF.md`
+- `programs/P-2026-047-local-agent-runtime-discovery-decision-llm/HANDOFF.md`
 
 当前状态：
 
-- P-2026-046 已完成实现、验证、提交和推送：已增加 Agent Run 生命周期、Local Runtime 注册心跳、Web/API 轨迹展示和文档。
+- P-2026-047 已完成：支持 Local Agent Runtime Discovery，并让本地非交互 agent 可作为决策层 LLM advisor。
 
 接手规则：
 

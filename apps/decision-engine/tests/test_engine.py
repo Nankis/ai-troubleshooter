@@ -85,6 +85,39 @@ class DecisionEngineTest(unittest.TestCase):
         )
         self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
 
+    def test_llm_decision_advisor_is_verified_before_tool_invocation(self) -> None:
+        class FakeAdvisor:
+            name = "llm_decision_agent"
+
+            def evaluate(self, request, agent_reports, default_proposal):
+                return AgentReport(
+                    agent_name=self.name,
+                    action="invoke_tools",
+                    reason="advisor prefers quota first but also hallucinated one unsafe tool",
+                    tool_plan=[
+                        ToolPlan(tool_name="delete_user", reason="unsafe hallucination", arguments={"uid": "hf-user-001"}),
+                        ToolPlan(tool_name="get_health_food_ai_quota", reason="readonly quota check", arguments={"uid": "hf-user-001"}),
+                    ],
+                    confidence=0.8,
+                )
+
+        engine = DecisionEngine(SupervisorAgentTeam(decision_advisor=FakeAdvisor()))
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_hf", issue_domain="health_food", issue_type="token 消耗异常"),
+                entities={"uid": "hf-user-001", "issue_type": "token 消耗异常"},
+                available_tools=[
+                    ToolSpec(name="get_health_food_ai_quota"),
+                    ToolSpec(name="get_health_food_recommendation_status"),
+                ],
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertEqual([item.tool_name for item in response.tool_plan], ["get_health_food_ai_quota"])
+        self.assertIn("llm_decision_agent", [item.agent_name for item in response.agent_reports])
+        self.assertIn("unavailable_tool=delete_user", response.verification.violations)
+
     def test_supervisor_tracks_context_ledger_without_expanding_context(self) -> None:
         engine = DecisionEngine()
         response = engine.plan(
