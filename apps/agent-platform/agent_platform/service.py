@@ -901,6 +901,10 @@ class AgentPlatform:
                     "main_llm_provider": self.config.llm.provider,
                     "main_llm_model": self.config.llm.model,
                     "decision_agent": decision_agent,
+                    "current_answer_agent": {
+                        "provider": str(decision_agent.get("provider") or decision_agent.get("model") or ""),
+                        "source": str(decision_agent.get("source") or ""),
+                    },
                     "gateway_is_not_allowed": True,
                 },
                 "rules": [

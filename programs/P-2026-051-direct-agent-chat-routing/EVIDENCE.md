@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | E1 | Unit / integration tests | PASS | `make test` |
 | E2 | Web + MySQL | PASS | case `case_20260525_000063` |
-| E3 | Screenshot | PASS | `artifacts/web-direct-agent-followup-case-63.png`, `artifacts/web-runtime-status-direct-agent-case-64.png` |
+| E3 | Screenshot | PASS | `artifacts/web-direct-agent-followup-case-63.png`, `artifacts/web-runtime-status-direct-agent-case-64.png`, `artifacts/web-runtime-status-direct-agent-case-65.png` |
 | E4 | Secret / whitespace checks | PASS | `make secret-scan`, `git diff --check` |
 
 ## Test Commands
@@ -92,6 +92,23 @@ agent_runs:
 Web screenshot:
 
 - `programs/P-2026-051-direct-agent-chat-routing/artifacts/web-runtime-status-direct-agent-case-64.png`
+
+Final wording validation after prompt tightening:
+
+```text
+case_no=case_20260525_000065 status=WAITING_USER_REPLY
+decision_agent_direct_answer=1
+tool_invocation=0
+agent_runs:
+  supervisor / case_process / completed / local_rules / rules-v1
+  llm_decision_agent / direct_chat / completed / local_agent / codex
+reply explicitly says provider=codex/model=codex is the real decision Agent for this answer,
+and local_rules/rules-v1 is only the platform main LLM profile.
+```
+
+Web screenshot:
+
+- `programs/P-2026-051-direct-agent-chat-routing/artifacts/web-runtime-status-direct-agent-case-65.png`
 
 ## Known Noise
 

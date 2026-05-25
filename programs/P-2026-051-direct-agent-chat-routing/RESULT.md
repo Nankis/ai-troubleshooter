@@ -37,6 +37,9 @@
   - message: `现在是用什么模型`.
   - answer came from `llm_decision_agent / direct_chat / local_agent / codex`.
   - decision logs show `decision_agent_direct_answer=1`, `tool_invocation=0`.
+- Web + MySQL: `case_20260525_000065` 通过最终话术验收。
+  - answer explicitly separates real decision Agent `codex/codex` from platform main LLM profile `local_rules/rules-v1`.
+  - decision logs show `decision_agent_direct_answer=1`, `tool_invocation=0`.
 
 ## Residual Risk
 

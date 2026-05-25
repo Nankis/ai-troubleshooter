@@ -65,6 +65,9 @@ class LLMClient:
             "请直接回答用户问题，字段只输出 JSON：reply, confidence。"
             "禁止编造 Gateway、平台经验、下游服务、生产 DB 或日志证据；"
             "如果用户问模型/Agent 状态，只能基于输入 JSON 中的 runtime_status 回答。"
+            "必须区分 runtime_status.decision_agent 是本次真实决策 Agent，"
+            "main_llm_provider/main_llm_model 只是平台主 LLM profile；"
+            "不要把 local_rules 称为当前主决策模型。"
         )
         return self._complete_json(prompt, payload)
 
