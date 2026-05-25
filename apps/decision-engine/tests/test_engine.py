@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
 from decision_engine.agent_team import LocalCodeAgent, SupervisorAgentTeam, Verifier
 from decision_engine.local_code import LocalCodeInspector, LocalRepoConfig
-from decision_engine.models import AgentReport, ContextLedgerItem, DecisionResponse, KnowledgeCandidate, ToolPlan, ToolSpec
+from decision_engine.models import AgentReport, ContextLedgerItem, DecisionResponse, InvestigationBrief, KnowledgeCandidate, ToolPlan, ToolSpec
 
 
 class DecisionEngineTest(unittest.TestCase):
@@ -81,7 +81,7 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual(response.action, "invoke_tools")
         self.assertEqual(
             [item.tool_name for item in response.tool_plan],
-            ["get_health_food_user_profile", "get_health_food_recommendation_status", "search_logs_by_service"],
+            ["get_health_food_recommendation_status", "get_health_food_user_profile", "search_logs_by_service"],
         )
         self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
 
@@ -96,7 +96,13 @@ class DecisionEngineTest(unittest.TestCase):
                     reason="advisor prefers quota first but also hallucinated one unsafe tool",
                     tool_plan=[
                         ToolPlan(tool_name="delete_user", reason="unsafe hallucination", arguments={"uid": "hf-user-001"}),
-                        ToolPlan(tool_name="get_health_food_ai_quota", reason="readonly quota check", arguments={"uid": "hf-user-001"}),
+                        ToolPlan(
+                            tool_name="get_health_food_ai_quota",
+                            reason="readonly quota check",
+                            arguments={"uid": "hf-user-001"},
+                            hypothesis_id="quota_or_entitlement",
+                            expected_evidence="quota/account/membership readonly rows",
+                        ),
                     ],
                     confidence=0.8,
                 )
@@ -154,6 +160,46 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual(response.action, "ask_user")
         self.assertEqual(response.missing_fields[0], "user_id_or_uid")
         self.assertEqual(response.agent_reports[-1].agent_name, "health_food_agent")
+
+    def test_brief_guides_tool_order_and_binds_plan(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_hf", issue_domain="health_food", issue_type="每日推荐缺失"),
+                entities={"uid": "20546", "issue_type": "每日推荐缺失"},
+                available_tools=[
+                    ToolSpec(name="get_health_food_user_profile"),
+                    ToolSpec(name="get_health_food_meal_records"),
+                    ToolSpec(name="get_health_food_recommendation_status"),
+                ],
+                investigation_brief=InvestigationBrief(
+                    goal="定位推荐缺失",
+                    hypotheses=[
+                        {
+                            "id": "recommendation_generation",
+                            "question": "推荐是否生成",
+                            "expected_evidence": "recommendation status",
+                            "candidate_tools": ["get_health_food_recommendation_status"],
+                        },
+                        {
+                            "id": "input_data_completeness",
+                            "question": "餐食输入是否完整",
+                            "expected_evidence": "meal records",
+                            "candidate_tools": ["get_health_food_meal_records"],
+                        },
+                    ],
+                ),
+            )
+        )
+
+        self.assertEqual(response.action, "invoke_tools")
+        self.assertEqual(
+            [item.tool_name for item in response.tool_plan],
+            ["get_health_food_recommendation_status", "get_health_food_meal_records", "get_health_food_user_profile"],
+        )
+        self.assertEqual(response.tool_plan[0].hypothesis_id, "recommendation_generation")
+        self.assertEqual(response.tool_plan[1].hypothesis_id, "input_data_completeness")
+        self.assertIn("brief_goal=定位推荐缺失", response.agent_reports[0].observations)
 
     def test_asset_requires_user_or_account(self) -> None:
         engine = DecisionEngine()
@@ -302,8 +348,18 @@ class DecisionEngineTest(unittest.TestCase):
             reason="specialist proposal",
             tool_plan=[
                 ToolPlan(tool_name="get_asset_snapshot", reason="unavailable"),
-                ToolPlan(tool_name="get_asset_events", reason="allowed"),
-                ToolPlan(tool_name="get_similar_cases", reason="over budget"),
+                ToolPlan(
+                    tool_name="get_asset_events",
+                    reason="allowed",
+                    hypothesis_id="asset_event_stream",
+                    expected_evidence="asset event readonly rows",
+                ),
+                ToolPlan(
+                    tool_name="get_similar_cases",
+                    reason="over budget",
+                    hypothesis_id="similar_case",
+                    expected_evidence="similar case ids and summaries",
+                ),
             ],
         )
 
@@ -317,6 +373,27 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertEqual([item.tool_name for item in response.tool_plan], ["get_asset_events"])
         self.assertIn("unavailable_tool=get_asset_snapshot", response.verification.violations)
         self.assertIn("tool_plan_truncated_by_budget", response.verification.violations)
+
+    def test_verifier_rejects_tool_without_brief_binding(self) -> None:
+        verifier = Verifier()
+        request = DecisionRequest(
+            case=CaseSnapshot(case_no="case_1", issue_domain="asset"),
+            available_tools=[ToolSpec(name="get_asset_events")],
+        )
+        proposal = DecisionResponse(
+            action="invoke_tools",
+            reason="specialist proposal",
+            tool_plan=[ToolPlan(tool_name="get_asset_events", reason="allowed")],
+        )
+
+        response = verifier.verify(
+            request,
+            proposal,
+            [AgentReport(agent_name="asset_agent", action="invoke_tools", reason="test")],
+        )
+
+        self.assertEqual(response.action, "need_human")
+        self.assertIn("missing_tool_hypothesis=get_asset_events", response.verification.violations)
 
     def test_local_code_debug_inspects_allowlisted_repo(self) -> None:
         with TemporaryDirectory() as tmpdir:

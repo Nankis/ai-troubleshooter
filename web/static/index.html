@@ -1210,6 +1210,51 @@
       color: #d6d6d6;
     }
 
+    .brief-panel {
+      display: grid;
+      gap: 10px;
+      color: #d8d8d8;
+    }
+
+    .brief-empty {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .brief-block {
+      display: grid;
+      gap: 4px;
+    }
+
+    .brief-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .brief-text {
+      color: #eeeeee;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .brief-list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .brief-list li {
+      padding: 8px;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: var(--radius);
+      background: rgba(0, 0, 0, .12);
+      font-size: 12px;
+      color: #d6d6d6;
+    }
+
     .local-agent-list {
       display: grid;
       gap: 8px;
@@ -1411,6 +1456,11 @@
         <div class="progress-list" id="progressList"></div>
 
         <div class="side-block">
+          <div class="card-title">Brief</div>
+          <div class="brief-panel" id="briefPanel"></div>
+        </div>
+
+        <div class="side-block">
           <div class="card-title">Agent Runs</div>
           <div class="progress-list" id="agentRunList"></div>
         </div>
@@ -1554,6 +1604,7 @@
       knowledgeSubmit: document.getElementById("knowledgeSubmit"),
       cancelKnowledgeEdit: document.getElementById("cancelKnowledgeEdit"),
       progressList: document.getElementById("progressList"),
+      briefPanel: document.getElementById("briefPanel"),
       agentRunList: document.getElementById("agentRunList"),
       caseStatus: document.getElementById("caseStatus"),
       envTools: document.getElementById("envTools"),
@@ -1947,6 +1998,7 @@
       clearImages();
       renderEmpty();
       renderProgress([]);
+      renderBrief({});
       el.caseStatus.textContent = "ready";
       el.caseSource.textContent = "web";
       highlightCurrentCase();
@@ -2066,6 +2118,7 @@
           clearImages();
           renderEmpty();
           renderProgress([]);
+          renderBrief({});
           setBusy(false);
         }
         renderCases();
@@ -2082,6 +2135,7 @@
           state.currentCaseNo = "";
           renderEmpty();
           renderProgress([]);
+          renderBrief({});
           setBusy(false);
           el.caseStatus.textContent = "ready";
         }
@@ -2302,6 +2356,7 @@
       markCaseViewed(c);
       renderMessages(payload.messages || []);
       renderProgress(payload.progress || []);
+      renderBrief(payload.investigation_brief || {});
       renderAgentRuns(payload.agent_runs || []);
       renderDecisionStrip(payload.ai_decision_logs || []);
       setBusy(Boolean(payload.processing));
@@ -2681,6 +2736,55 @@
       `).join("");
     }
 
+    function renderBrief(brief) {
+      const hypotheses = Array.isArray(brief.hypotheses) ? brief.hypotheses : [];
+      const evidence = Array.isArray(brief.available_evidence) ? brief.available_evidence : [];
+      if (!brief || (!brief.goal && !hypotheses.length && !evidence.length)) {
+        el.briefPanel.innerHTML = `<div class="brief-empty">等待 Brief 生成</div>`;
+        return;
+      }
+      el.briefPanel.innerHTML = `
+        ${briefBlock("目标", brief.goal || "未生成")}
+        ${briefBlock("问题", brief.problem || "未生成")}
+        <div class="brief-block">
+          <div class="brief-label">候选假设</div>
+          <ul class="brief-list">
+            ${hypotheses.slice(0, 4).map((item) => `<li>${escapeHTML(briefHypothesisText(item))}</li>`).join("") || "<li>暂无</li>"}
+          </ul>
+        </div>
+        <div class="brief-block">
+          <div class="brief-label">可用证据</div>
+          <ul class="brief-list">
+            ${evidence.slice(0, 4).map((item) => `<li>${escapeHTML(briefEvidenceText(item))}</li>`).join("") || "<li>暂无</li>"}
+          </ul>
+        </div>
+      `;
+    }
+
+    function briefBlock(label, text) {
+      return `
+        <div class="brief-block">
+          <div class="brief-label">${escapeHTML(label)}</div>
+          <div class="brief-text">${escapeHTML(text)}</div>
+        </div>
+      `;
+    }
+
+    function briefHypothesisText(item) {
+      const id = item.id || "hypothesis";
+      const question = item.question || "";
+      const expected = item.expected_evidence || "";
+      return [id, question, expected].filter(Boolean).join(" · ");
+    }
+
+    function briefEvidenceText(item) {
+      const source = item.source || "";
+      const kind = item.kind || "";
+      const count = item.count === undefined ? "" : "count=" + String(item.count);
+      const summary = item.summary || "";
+      return [source, kind, count, summary].filter(Boolean).join(" · ");
+    }
+
     function renderAgentRuns(runs) {
       if (!runs.length) {
         el.agentRunList.innerHTML = `
@@ -3042,6 +3146,7 @@
     loadDrafts();
     renderCases();
     renderProgress([]);
+    renderBrief({});
     renderLocalAgents();
     loadOverview().catch((error) => showToast("工作台加载失败：" + error.message));
     discoverLocalAgents().catch(() => {});

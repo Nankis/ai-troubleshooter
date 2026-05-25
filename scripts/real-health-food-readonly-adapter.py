@@ -371,7 +371,7 @@ def query_meals(uid: str, params: dict) -> tuple[list[dict], str, str]:
     start_ms, end_ms, date_text = day_bounds(params)
     rows = mysql_query(
         "SELECT meal_id, meal_name, meal_time_ts, mood, status, "
-        "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
+        "DATE_FORMAT(update_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS updated_at "
         "FROM tb_meal_record "
         "WHERE uid=%s AND status=1 AND meal_time_ts BETWEEN %s AND %s "
         "ORDER BY meal_time_ts ASC",
@@ -401,7 +401,7 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
     if path == "/v1/readonly/health-food/user/profile":
         users = mysql_query(
             "SELECT uid, nick_name, email, phone, status, "
-            "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
+            "DATE_FORMAT(update_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS updated_at "
             "FROM tb_user_info WHERE uid=%s LIMIT 1",
             (uid,),
         )
@@ -409,7 +409,7 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
         goals = mysql_query("SELECT goal, dietary_preferences, remark FROM tb_health_goal WHERE uid=%s LIMIT 1", (uid,))
         devices = mysql_query(
             "SELECT device_id, device_name, os_type, os_version, area, "
-            "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
+            "DATE_FORMAT(update_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS updated_at "
             "FROM tb_user_device_info WHERE uid=%s ORDER BY update_time DESC LIMIT 1",
             (uid,),
         )
@@ -430,8 +430,8 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
     if path == "/v1/readonly/health-food/ai/quota":
         accounts = mysql_query(
             "SELECT available_balance, daily_chat_count, "
-            "DATE_FORMAT(last_reset_date, '%Y-%m-%dT%H:%i:%s+08:00') AS last_reset_date, "
-            "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
+            "DATE_FORMAT(last_reset_date, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS last_reset_date, "
+            "DATE_FORMAT(update_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS updated_at "
             "FROM tb_user_asset_account WHERE uid=%s AND (account_type IN (2, 200) OR LOWER(asset_name)='token') "
             "ORDER BY update_time DESC LIMIT 1",
             (uid,),
@@ -480,8 +480,8 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
         meals, current_fingerprint, date_text = query_meals(uid, params)
         rows = mysql_query(
             "SELECT food_json, source_meal_ids, meal_data_fingerprint, meal_count, "
-            "DATE_FORMAT(create_time, '%Y-%m-%dT%H:%i:%s+08:00') AS generated_at, "
-            "DATE_FORMAT(update_time, '%Y-%m-%dT%H:%i:%s+08:00') AS updated_at "
+            "DATE_FORMAT(create_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS generated_at, "
+            "DATE_FORMAT(update_time, '%%Y-%%m-%%dT%%H:%%i:%%s+08:00') AS updated_at "
             "FROM tb_daily_food_recommend WHERE uid=%s AND recommend_date=%s LIMIT 1",
             (uid, date_text),
         )
@@ -493,6 +493,7 @@ def handle_health_food(path: str, payload: dict) -> tuple[int, dict]:
                 source_meal_ids = json.loads(str(row["source_meal_ids"]))
             except json.JSONDecodeError:
                 source_meal_ids = [str(row["source_meal_ids"])]
+        source_meal_ids = [str(item) for item in source_meal_ids]
         if not source_meal_ids:
             source_meal_ids = [str(item["meal_id"]) for item in meals if item.get("meal_id")]
         stored_fingerprint = row.get("meal_data_fingerprint") or ""

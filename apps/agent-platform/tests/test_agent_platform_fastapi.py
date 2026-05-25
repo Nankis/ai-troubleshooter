@@ -832,6 +832,11 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         request = decision_engine.requests[0]
         self.assertEqual(request.case.issue_domain, "health_food")
         self.assertEqual([tool.name for tool in request.available_tools], [item["name"] for item in FakeGateway().list_tools()])
+        self.assertIsNotNone(request.investigation_brief)
+        self.assertIn("health_food", request.investigation_brief.goal)
+        brief_rows = repo.list_context_ledger(int(result["case"]["id"]), 10, "investigation_brief")
+        self.assertEqual(len(brief_rows), 1)
+        self.assertEqual(result["investigation_brief"]["goal"], request.investigation_brief.goal)
         self.assertIn("业务 uid", result["reply"])
 
     def test_context_ledger_records_agent_reports_tool_evidence_and_summary(self) -> None:
@@ -856,6 +861,7 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         body = response.json()
         ledger_types = [item["ledger_type"] for item in body["context_ledger"]]
         self.assertIn("case_state", ledger_types)
+        self.assertIn("investigation_brief", ledger_types)
         self.assertIn("gateway_tools", ledger_types)
         self.assertIn("knowledge_retrieval", ledger_types)
         self.assertIn("agent_report", ledger_types)
@@ -866,6 +872,15 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertIn("gateway_tool_call", {ref["ref_type"] for item in tool_evidence for ref in item["evidence_refs"]})
         self.assertNotIn("private_raw_row", json.dumps(tool_evidence, ensure_ascii=False))
         self.assertNotIn('"data"', json.dumps(tool_evidence, ensure_ascii=False))
+        self.assertIn("recommendation_generation", json.dumps(body["investigation_brief"], ensure_ascii=False))
+        tool_logs = [item for item in body["ai_decision_logs"] if item["decision_type"] == "tool_invocation"]
+        self.assertTrue(tool_logs)
+        self.assertEqual(tool_logs[0]["input"]["hypothesis_id"], "recommendation_generation")
+        self.assertIn("recommendation status", tool_logs[0]["input"]["expected_evidence"])
+        supervisor_run = next(item for item in body["agent_runs"] if item["agent_name"] == "supervisor")
+        event_types = [item["event_type"] for item in supervisor_run["events"]]
+        self.assertIn("scheduler_claimed", event_types)
+        self.assertIn("scheduler_finished", event_types)
 
     def test_llm_summary_receives_compact_evidence_not_raw_tool_data(self) -> None:
         llm = CapturingLLM()

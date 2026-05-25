@@ -129,7 +129,36 @@ def _tool_plan(tool_name: str, request: DecisionRequest, reason: str) -> ToolPla
     args = dict(request.entities)
     if request.case.case_no:
         args.setdefault("case_no", request.case.case_no)
-    return ToolPlan(tool_name=tool_name, reason=reason or f"LLM advisor selected {tool_name}", arguments=args)
+    hypothesis_id, expected_evidence = _tool_brief_binding(tool_name, request)
+    return ToolPlan(
+        tool_name=tool_name,
+        reason=reason or f"LLM advisor selected {tool_name} for {hypothesis_id}",
+        arguments=args,
+        hypothesis_id=hypothesis_id,
+        expected_evidence=expected_evidence,
+    )
+
+
+def _tool_brief_binding(tool_name: str, request: DecisionRequest) -> tuple[str, str]:
+    brief = request.investigation_brief
+    if brief is not None:
+        for hypothesis in brief.hypotheses:
+            candidate_tools = {str(item) for item in hypothesis.get("candidate_tools") or []}
+            if tool_name in candidate_tools:
+                return (
+                    str(hypothesis.get("id") or "brief_hypothesis"),
+                    str(hypothesis.get("expected_evidence") or f"{tool_name} readonly evidence"),
+                )
+    mapping = {
+        "get_health_food_ai_quota": ("quota_or_entitlement", "quota/account/membership readonly rows"),
+        "get_health_food_user_profile": ("user_eligibility", "user profile and membership readonly rows"),
+        "get_health_food_meal_records": ("input_data_completeness", "meal record range and fingerprint"),
+        "get_health_food_recommendation_status": ("recommendation_generation", "recommendation status and meal fingerprint"),
+        "search_logs_by_service": ("service_error", "bounded log samples from readonly log adapter"),
+        "get_recent_deployments": ("recent_change", "recent readonly deployment records"),
+        "get_similar_cases": ("similar_case", "similar case ids and summaries"),
+    }
+    return mapping.get(tool_name, ("readonly_evidence", f"{tool_name} readonly evidence"))
 
 
 def _confidence(value: Any, default: float) -> float:

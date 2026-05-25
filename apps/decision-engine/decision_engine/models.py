@@ -90,12 +90,38 @@ class ContextLedgerItem:
 
 
 @dataclass(slots=True)
+class InvestigationBrief:
+    problem: str = ""
+    goal: str = ""
+    success_criteria: list[str] = field(default_factory=list)
+    constraints: dict[str, Any] = field(default_factory=dict)
+    hypotheses: list[dict[str, Any]] = field(default_factory=list)
+    available_evidence: list[dict[str, Any]] = field(default_factory=list)
+    stop_conditions: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any] | None) -> "InvestigationBrief | None":
+        if not isinstance(value, dict) or not value:
+            return None
+        return cls(
+            problem=str(value.get("problem", "")),
+            goal=str(value.get("goal", "")),
+            success_criteria=[str(item) for item in value.get("success_criteria") or [] if str(item).strip()],
+            constraints=dict(value.get("constraints") or {}),
+            hypotheses=[dict(item) for item in value.get("hypotheses") or [] if isinstance(item, dict)],
+            available_evidence=[dict(item) for item in value.get("available_evidence") or [] if isinstance(item, dict)],
+            stop_conditions=[str(item) for item in value.get("stop_conditions") or [] if str(item).strip()],
+        )
+
+
+@dataclass(slots=True)
 class DecisionRequest:
     case: CaseSnapshot
     entities: dict[str, str] = field(default_factory=dict)
     available_tools: list[ToolSpec] = field(default_factory=list)
     knowledge_candidates: list[KnowledgeCandidate] = field(default_factory=list)
     context_ledger: list[ContextLedgerItem] = field(default_factory=list)
+    investigation_brief: InvestigationBrief | None = None
     max_tool_calls: int = 10
 
     @classmethod
@@ -109,6 +135,7 @@ class DecisionRequest:
             available_tools=[ToolSpec.from_dict(v) for v in raw_tools if isinstance(v, dict)],
             knowledge_candidates=[KnowledgeCandidate.from_dict(v) for v in raw_knowledge if isinstance(v, dict)],
             context_ledger=[ContextLedgerItem.from_dict(v) for v in raw_context_ledger if isinstance(v, dict)],
+            investigation_brief=InvestigationBrief.from_dict(value.get("investigation_brief")),
             max_tool_calls=int(value.get("max_tool_calls") or 10),
         )
 
@@ -118,6 +145,8 @@ class ToolPlan:
     tool_name: str
     reason: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    hypothesis_id: str = ""
+    expected_evidence: str = ""
 
 
 @dataclass(slots=True)

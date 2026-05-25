@@ -13,9 +13,10 @@ from typing import Any
 
 from decision_engine import CaseSnapshot, DecisionEngine, DecisionRequest
 from decision_engine.agent_team import SupervisorAgentTeam
-from decision_engine.models import KnowledgeCandidate, ToolPlan, ToolSpec
+from decision_engine.models import InvestigationBrief, KnowledgeCandidate, ToolPlan, ToolSpec
 
 from .capabilities import import_capabilities
+from .case_scheduler import CaseScheduler
 from .classifier import classify_and_extract_rules, merge_llm_result
 from .config import Config, LLMConfig
 from .context_ledger import (
@@ -55,6 +56,7 @@ class AgentPlatform:
         self.llm = llm_client or LLMClient(config.llm)
         self.decision_engine = decision_engine or self._build_decision_engine()
         self.vision = vision_client or build_vision_client(config.vision, config.llm)
+        self.scheduler = CaseScheduler()
 
     def close(self) -> None:
         self.repository.close()
@@ -151,7 +153,8 @@ class AgentPlatform:
 
     def process_case(self, case_id: int) -> dict[str, Any]:
         case = self._require_case_by_id(case_id)
-        if case["status"] not in ENTRY_STATUSES:
+        claim = self.scheduler.claim(str(case.get("status") or ""))
+        if not claim.accepted:
             self._record_decision(case, None, "process_skipped", "case is already being processed or in terminal status", {"status": case["status"]}, {}, "skipped")
             return {"case_id": case["id"], "case_no": case["case_no"], "status": case["status"], "reply": f"[{case['case_no']}] 当前状态为 {case['status']}，跳过重复排障。"}
 
@@ -168,7 +171,8 @@ class AgentPlatform:
                 payload={"case": _safe_case(case)},
             )
             self._record_agent_run_event(process_run, "case_received", "running", "Supervisor 接收排障 case", f"case_status={case['status']}")
-            self._transition(case, "READY_TO_INVESTIGATE")
+            self._record_agent_run_event(process_run, claim.event_type, "success", "Scheduler claim case", claim.reason, asdict(claim))
+            self._transition(case, claim.next_status)
             case = self._require_case_by_id(case_id)
             latest_user_text = self._latest_user_text(case)
             if _should_direct_answer_latest_message(latest_user_text, case):
@@ -255,7 +259,16 @@ class AgentPlatform:
             self._record_agent_run_event(process_run, "gateway_tools_loaded", "success", "完成 Gateway readonly tools 发现", f"tool_count={len(tools)}")
             knowledge = self._knowledge_candidates(case)
             self._record_agent_run_event(process_run, "knowledge_loaded", "success", "完成平台经验候选检索", f"knowledge_count={len(knowledge)}")
-            request = self._decision_request(case, entities, tools, knowledge)
+            brief = self._build_investigation_brief(case, entities, tools, knowledge)
+            self._record_agent_run_event(
+                process_run,
+                "investigation_brief_built",
+                "success",
+                "生成 Brief 驱动排障目标",
+                brief.goal,
+                asdict(brief),
+            )
+            request = self._decision_request(case, entities, tools, knowledge, brief)
             step_start = time.monotonic()
             decision = self.decision_engine.plan(request)
             self._record_decision(
@@ -467,6 +480,7 @@ class AgentPlatform:
             "agent_runs": self._case_agent_runs(int(case["id"])),
             "ai_decision_logs": logs,
             "context_ledger": self.repository.list_context_ledger(int(case["id"]), 100),
+            "investigation_brief": self._latest_investigation_brief(int(case["id"])),
             "evolution_runs": [],
             "progress": build_progress(status, logs),
             "processing": processing or status in ACTIVE_STATUSES,
@@ -658,7 +672,81 @@ class AgentPlatform:
         )
         return merged
 
-    def _decision_request(self, case: dict[str, Any], entities: dict[str, str], tools: list[dict[str, Any]], knowledge: list[KnowledgeCandidate]) -> DecisionRequest:
+    def _build_investigation_brief(
+        self,
+        case: dict[str, Any],
+        entities: dict[str, str],
+        tools: list[dict[str, Any]],
+        knowledge: list[KnowledgeCandidate],
+    ) -> InvestigationBrief:
+        brief = InvestigationBrief(
+            problem=_brief_problem(case),
+            goal=_brief_goal(case, entities),
+            success_criteria=[
+                "结论必须引用平台经验、Gateway 只读工具、真实日志/DB 或 debug-only 本地代码线索之一",
+                "证据不足时必须追问或转人工确认，不能编造下游状态",
+                "每个工具调用必须说明对应假设和预期证据",
+            ],
+            constraints={
+                "gateway_only": True,
+                "readonly_only": True,
+                "max_tool_calls": self.config.max_tool_calls_per_case,
+                "max_tool_failures": self.config.max_tool_failures_per_case,
+                "timeout_seconds": self.config.max_investigation_seconds,
+                "local_code_debug_only": True,
+            },
+            hypotheses=_brief_hypotheses(case, entities, tools, knowledge),
+            available_evidence=_brief_available_evidence(case, entities, tools, knowledge),
+            stop_conditions=[
+                "missing_required_user_identifier",
+                "no_verified_tool_plan",
+                "tool_budget_exhausted",
+                "tool_failure_budget_exhausted",
+                "gateway_timeout_or_unavailable",
+                "evidence_inconclusive_requires_human",
+            ],
+        )
+        payload = asdict(brief)
+        self._record_context_ledger(
+            case,
+            "investigation_brief",
+            "current",
+            brief.goal,
+            [],
+            payload,
+            "supervisor",
+        )
+        self._record_decision(
+            case,
+            None,
+            "investigation_brief",
+            "build high-level troubleshooting brief before tool planning",
+            {
+                "case": _safe_case(case),
+                "entity_keys": sorted(entities.keys()),
+                "available_tool_count": len(tools),
+                "knowledge_count": len(knowledge),
+            },
+            payload,
+            "success",
+        )
+        return brief
+
+    def _latest_investigation_brief(self, case_id: int) -> dict[str, Any]:
+        rows = self.repository.list_context_ledger(case_id, 5, "investigation_brief")
+        if not rows:
+            return {}
+        payload = rows[-1].get("payload")
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def _decision_request(
+        self,
+        case: dict[str, Any],
+        entities: dict[str, str],
+        tools: list[dict[str, Any]],
+        knowledge: list[KnowledgeCandidate],
+        brief: InvestigationBrief | None = None,
+    ) -> DecisionRequest:
         return DecisionRequest(
             case=CaseSnapshot(
                 case_no=case["case_no"],
@@ -683,6 +771,7 @@ class AgentPlatform:
             ],
             knowledge_candidates=knowledge,
             context_ledger=self.repository.list_context_ledger(int(case["id"]), 50),
+            investigation_brief=brief,
             max_tool_calls=self.config.max_tool_calls_per_case,
         )
 
@@ -759,6 +848,7 @@ class AgentPlatform:
                 self._record_decision(case, investigation, "tool_query_stopped", "stopped tool queries after failure budget was exhausted", {"max_tool_failures": self.config.max_tool_failures_per_case}, {"tool_failures": failures}, "stopped")
                 break
             step_start = time.monotonic()
+            plan_snapshot = _tool_plan_snapshot(plan)
             try:
                 response = self.gateway.invoke_tool(
                     plan.tool_name,
@@ -783,7 +873,7 @@ class AgentPlatform:
                     observation,
                     f"tool:{plan.tool_name}",
                 )
-                self._record_decision(case, investigation, "tool_invocation", plan.reason, {"tool_name": plan.tool_name, "arguments": plan.arguments}, response, status, latency_ms=_elapsed_ms(step_start), selected_tools=[plan.tool_name])
+                self._record_decision(case, investigation, "tool_invocation", plan.reason, plan_snapshot, response, status, latency_ms=_elapsed_ms(step_start), selected_tools=[plan.tool_name])
             except Exception as exc:
                 failures += 1
                 observation = compact_failed_observation(plan.tool_name, str(exc))
@@ -797,7 +887,7 @@ class AgentPlatform:
                     observation,
                     f"tool:{plan.tool_name}",
                 )
-                self._record_decision(case, investigation, "tool_invocation", plan.reason, {"tool_name": plan.tool_name, "arguments": plan.arguments}, {"error": str(exc)}, "failed", latency_ms=_elapsed_ms(step_start), error_message=str(exc), selected_tools=[plan.tool_name])
+                self._record_decision(case, investigation, "tool_invocation", plan.reason, plan_snapshot, {"error": str(exc)}, "failed", latency_ms=_elapsed_ms(step_start), error_message=str(exc), selected_tools=[plan.tool_name])
         return tool_call_ids, observations
 
     def _summarize(self, case: dict[str, Any], observations: list[dict[str, Any]]) -> tuple[str, float]:
@@ -1168,6 +1258,9 @@ class AgentPlatform:
     ) -> None:
         if run is None:
             return
+        if str(run.get("agent_role") or "") == "orchestrator" and str(run.get("trigger_type") or "") == "case_process":
+            scheduler_result = self.scheduler.finish(status, failed=status == "failed")
+            self._record_agent_run_event(run, scheduler_result.event_type, "failed" if status == "failed" else "success", "Scheduler finish case", scheduler_result.reason, asdict(scheduler_result))
         started_at = run.get("started_at")
         latency_ms = 0
         if isinstance(started_at, datetime):
@@ -1297,6 +1390,7 @@ def build_progress(status: str, logs: list[dict[str, Any]]) -> list[dict[str, An
         {"key": "decision_agent_ready", "title": "确认真实决策 Agent 可用"},
         {"key": "gateway_tool_discovery", "title": "拉取 Gateway 只读工具"},
         {"key": "knowledge_retrieval", "title": "查询平台沉淀经验"},
+        {"key": "investigation_brief", "title": "生成 Brief 排障目标"},
         {"key": "orchestrator_plan", "title": "Python Supervisor 制定排查计划"},
         {"key": "tool_invocation", "title": "调用只读工具收集证据"},
         {"key": "summarize_findings", "title": "总结证据并输出结论"},
@@ -1326,6 +1420,101 @@ def build_progress(status: str, logs: list[dict[str, Any]]) -> list[dict[str, An
             if step["status"] == "pending":
                 step["status"] = "skipped"
     return steps
+
+
+def _brief_problem(case: dict[str, Any]) -> str:
+    text = _join_non_empty(str(case.get("original_text") or ""), str(case.get("ocr_text") or ""))
+    return " ".join(text.split())[:500] or f"case={case.get('case_no') or ''}"
+
+
+def _brief_goal(case: dict[str, Any], entities: dict[str, str]) -> str:
+    domain = str(case.get("issue_domain") or "unknown")
+    issue_type = str(case.get("issue_type") or entities.get("issue_type") or "unknown")
+    uid = entities.get("uid") or entities.get("user_id") or str(case.get("uid") or "")
+    if uid:
+        return f"定位 {domain} 用户 {uid} 的 {issue_type} 是否由真实业务数据、日志或已沉淀经验支持"
+    return f"定位 {domain} 的 {issue_type}，先确认必要实体再查询只读证据"
+
+
+def _brief_hypotheses(
+    case: dict[str, Any],
+    entities: dict[str, str],
+    tools: list[dict[str, Any]],
+    knowledge: list[KnowledgeCandidate],
+) -> list[dict[str, Any]]:
+    text = " ".join(
+        [
+            str(case.get("issue_domain") or ""),
+            str(case.get("issue_type") or ""),
+            str(case.get("original_text") or ""),
+            str(case.get("ocr_text") or ""),
+            " ".join(entities.values()),
+        ]
+    ).lower()
+    tool_names = {str(item.get("name") or item.get("tool_name") or "") for item in tools}
+    out: list[dict[str, Any]] = []
+
+    def add(item_id: str, question: str, evidence: str, tools_needed: list[str]) -> None:
+        available = [name for name in tools_needed if name in tool_names]
+        if tools_needed and not available:
+            return
+        if any(item.get("id") == item_id for item in out):
+            return
+        out.append(
+            {
+                "id": item_id,
+                "question": question,
+                "expected_evidence": evidence,
+                "candidate_tools": available,
+            }
+        )
+
+    if "health_food" in text or "health-food" in text or "推荐" in text or "餐" in text or "token" in text:
+        if "token" in text or "quota" in text or "配额" in text or "消耗" in text:
+            add("quota_or_entitlement", "用户 AI token/会员配额是否异常", "quota/account/membership readonly rows", ["get_health_food_ai_quota", "get_health_food_user_profile"])
+        if "推荐" in text:
+            add("recommendation_generation", "每日推荐是否生成、失败或与餐食指纹不一致", "recommendation status and meal fingerprint", ["get_health_food_recommendation_status"])
+            add("input_data_completeness", "推荐输入餐食记录是否缺失或发生变化", "meal record range and fingerprint", ["get_health_food_meal_records"])
+        add("user_eligibility", "用户资料、会员等级或设备状态是否影响结果", "user profile and membership readonly rows", ["get_health_food_user_profile"])
+
+    add("service_error", "下游服务是否有相关错误日志", "bounded log samples from readonly log adapter", ["search_logs_by_service"])
+    if knowledge:
+        add("historical_pattern", "平台历史经验是否能提供优先排查路径", "knowledge candidate id and confidence", [])
+    add("similar_case", "是否存在相似历史 case 可辅助定位", "similar case ids and summaries", ["get_similar_cases"])
+    return out[:6]
+
+
+def _brief_available_evidence(
+    case: dict[str, Any],
+    entities: dict[str, str],
+    tools: list[dict[str, Any]],
+    knowledge: list[KnowledgeCandidate],
+) -> list[dict[str, Any]]:
+    tool_names = [str(item.get("name") or item.get("tool_name") or "") for item in tools if item.get("name") or item.get("tool_name")]
+    return [
+        {
+            "source": "case",
+            "kind": "case_snapshot",
+            "summary": f"case_no={case.get('case_no')} domain={case.get('issue_domain') or 'unknown'} issue_type={case.get('issue_type') or 'unknown'}",
+        },
+        {
+            "source": "platform_mysql",
+            "kind": "entities",
+            "summary": "entity_keys=" + ",".join(sorted(entities.keys())),
+        },
+        {
+            "source": "gateway",
+            "kind": "readonly_tools",
+            "count": len(tool_names),
+            "names": tool_names[:12],
+        },
+        {
+            "source": "platform_mysql",
+            "kind": "knowledge_candidates",
+            "count": len(knowledge),
+            "sources": [item.source for item in knowledge[:5]],
+        },
+    ]
 
 
 def _entities_to_rows(entities: dict[str, str]) -> list[dict[str, Any]]:
@@ -1542,6 +1731,15 @@ def _decision_log_snapshot(decision: DecisionResponse) -> dict[str, Any]:
         compact_reports.append(item)
     payload["agent_reports"] = compact_reports
     return payload
+
+
+def _tool_plan_snapshot(plan: ToolPlan) -> dict[str, Any]:
+    return {
+        "tool_name": plan.tool_name,
+        "arguments": plan.arguments,
+        "hypothesis_id": plan.hypothesis_id,
+        "expected_evidence": plan.expected_evidence,
+    }
 
 
 def _agent_report_payload(report: Any) -> dict[str, Any]:

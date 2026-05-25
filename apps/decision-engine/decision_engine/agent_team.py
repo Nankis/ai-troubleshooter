@@ -265,7 +265,7 @@ class Verifier:
         agent_reports: Sequence[AgentReport],
     ) -> DecisionResponse:
         budget = self._tool_budget(request.max_tool_calls)
-        checks = ["tool_budget_bounded", "gateway_only_tools", "dedupe_tool_plan"]
+        checks = ["tool_budget_bounded", "gateway_only_tools", "dedupe_tool_plan", "brief_bound_tool_plan"]
         if request.context_ledger:
             checks.append("context_ledger_snapshot_loaded")
         violations: list[str] = []
@@ -363,6 +363,15 @@ class Verifier:
             if available and item.tool_name not in available:
                 violations.append(f"unavailable_tool={item.tool_name}")
                 continue
+            if not str(item.reason or "").strip():
+                violations.append(f"missing_tool_reason={item.tool_name}")
+                continue
+            if not str(item.hypothesis_id or "").strip():
+                violations.append(f"missing_tool_hypothesis={item.tool_name}")
+                continue
+            if not str(item.expected_evidence or "").strip():
+                violations.append(f"missing_expected_evidence={item.tool_name}")
+                continue
             seen.add(item.tool_name)
             normalized.append(item)
             if len(normalized) >= budget:
@@ -418,6 +427,8 @@ class SupervisorAgentTeam:
                 observations=[
                     f"issue_domain={request.case.issue_domain or 'default'}",
                     f"context_ledger_items={len(request.context_ledger)}",
+                    f"brief_goal={request.investigation_brief.goal if request.investigation_brief else ''}",
+                    f"brief_hypotheses={len(request.investigation_brief.hypotheses) if request.investigation_brief else 0}",
                 ],
             )
         ]
@@ -476,6 +487,9 @@ class SupervisorAgentTeam:
     def select_tools(self, request: DecisionRequest, domain: str | None = None) -> list[str]:
         selected_domain = domain or request.case.issue_domain or "default"
         preferred = DEFAULT_TOOLS_BY_DOMAIN.get(selected_domain, DEFAULT_TOOLS_BY_DOMAIN["default"])
+        preferred = _brief_preferred_tools(request, preferred)
+        if selected_domain == "health_food":
+            preferred = _health_food_preferred_tools(request, preferred)
         available = {tool.name for tool in request.available_tools if tool.name}
         if available:
             preferred = tuple(name for name in preferred if name in available)
@@ -486,10 +500,13 @@ class SupervisorAgentTeam:
         args = dict(request.entities)
         if request.case.case_no:
             args.setdefault("case_no", request.case.case_no)
+        hypothesis_id, expected_evidence = _tool_brief_binding(tool_name, request)
         return ToolPlan(
             tool_name=tool_name,
-            reason=f"查询 {tool_name} 获取只读证据，调用必须经过 Investigation Gateway。",
+            reason=f"查询 {tool_name} 验证假设 {hypothesis_id}，调用必须经过 Investigation Gateway。",
             arguments=args,
+            hypothesis_id=hypothesis_id,
+            expected_evidence=expected_evidence,
         )
 
     def _select_specialist(self, domain: str) -> DomainAgent | FallbackAgent:
@@ -565,6 +582,84 @@ def _request_requires_realtime(request: DecisionRequest) -> bool:
             "gateway_evidence_status",
         ]
     )
+
+
+def _brief_preferred_tools(request: DecisionRequest, fallback: Sequence[str]) -> tuple[str, ...]:
+    brief = request.investigation_brief
+    if brief is None:
+        return tuple(fallback)
+    out: list[str] = []
+    for hypothesis in brief.hypotheses:
+        for tool_name in hypothesis.get("candidate_tools") or []:
+            name = str(tool_name).strip()
+            if name and name not in out:
+                out.append(name)
+    for name in fallback:
+        if name not in out:
+            out.append(name)
+    return tuple(out)
+
+
+def _health_food_preferred_tools(request: DecisionRequest, fallback: Sequence[str]) -> tuple[str, ...]:
+    text = " ".join(
+        [
+            request.case.issue_type,
+            request.case.original_text,
+            request.case.ocr_text,
+            " ".join(request.entities.values()),
+        ]
+    ).lower()
+    if any(word in text for word in ("token", "quota", "配额", "消耗", "次数")):
+        priority = (
+            "get_health_food_ai_quota",
+            "get_health_food_user_profile",
+            "search_logs_by_service",
+            "get_similar_cases",
+        )
+    elif any(word in text for word in ("推荐", "餐食", "meal", "food")):
+        priority = (
+            "get_health_food_recommendation_status",
+            "get_health_food_meal_records",
+            "get_health_food_user_profile",
+            "search_logs_by_service",
+            "get_similar_cases",
+        )
+    else:
+        priority = ()
+    out: list[str] = []
+    for name in [*priority, *fallback]:
+        if name and name not in out:
+            out.append(name)
+    return tuple(out)
+
+
+def _tool_brief_binding(tool_name: str, request: DecisionRequest) -> tuple[str, str]:
+    brief = request.investigation_brief
+    if brief is not None:
+        for hypothesis in brief.hypotheses:
+            candidate_tools = {str(item) for item in hypothesis.get("candidate_tools") or []}
+            if tool_name in candidate_tools:
+                return (
+                    str(hypothesis.get("id") or "brief_hypothesis"),
+                    str(hypothesis.get("expected_evidence") or f"{tool_name} readonly evidence"),
+                )
+    mapping = {
+        "get_health_food_ai_quota": ("quota_or_entitlement", "quota/account/membership readonly rows"),
+        "get_health_food_user_profile": ("user_eligibility", "user profile and membership readonly rows"),
+        "get_health_food_meal_records": ("input_data_completeness", "meal record range and fingerprint"),
+        "get_health_food_recommendation_status": ("recommendation_generation", "recommendation status and meal fingerprint"),
+        "search_logs_by_service": ("service_error", "bounded log samples from readonly log adapter"),
+        "get_recent_deployments": ("recent_change", "recent readonly deployment records"),
+        "get_similar_cases": ("similar_case", "similar case ids and summaries"),
+        "get_asset_snapshot": ("asset_snapshot", "asset snapshot readonly rows"),
+        "get_asset_events": ("asset_event_stream", "asset event readonly rows"),
+        "get_user_recent_errors": ("user_error_stream", "bounded user error samples"),
+        "get_internal_kline": ("internal_market_data", "internal kline readonly data"),
+        "get_external_kline_compare": ("external_market_compare", "external kline comparison"),
+        "get_kline_cache_status": ("cache_freshness", "cache status readonly data"),
+        "get_market_source_status": ("market_source_health", "market source status"),
+    }
+    return mapping.get(tool_name, ("readonly_evidence", f"{tool_name} readonly evidence"))
 
 
 def _needs_problem_description(request: DecisionRequest) -> bool:
