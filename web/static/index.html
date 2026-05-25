@@ -231,7 +231,8 @@
       gap: 4px;
     }
 
-    .tool-list[hidden] {
+    .tool-list[hidden],
+    .section-body[hidden] {
       display: none;
     }
 
@@ -1306,21 +1307,29 @@
         </section>
 
         <section class="section">
-          <div class="section-head">
-            <span>能力接入</span>
+          <div class="section-head section-head-tools">
+            <button class="section-toggle section-toggle-main" type="button" id="toggleCapabilityPanel" aria-expanded="true">
+              <span class="section-head-main truncate">
+                <span class="section-caret" id="capabilityPanelCaret">⌄</span>
+                <span class="truncate">能力接入</span>
+              </span>
+            </button>
             <button class="ghost-btn" type="button" id="toggleCapabilityForm">录入</button>
+            <span class="tag" id="capabilityCount">0</span>
           </div>
-          <form class="capability-form" id="capabilityForm">
-            <input class="input" name="service_name" placeholder="服务名，可从配置读取">
-            <input class="input" name="base_url" placeholder="readonly adapter base URL">
-            <input class="input" name="secret_ref" placeholder="token 环境变量名，不填真实密钥">
-            <textarea class="mini-textarea" name="raw_config" placeholder="粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON"></textarea>
-            <div class="form-actions">
-              <button class="secondary-small" type="button" id="cancelCapabilityImport">取消</button>
-              <button class="primary-small" type="submit" id="capabilitySubmit">导入能力</button>
-            </div>
-          </form>
-          <div class="capability-list" id="capabilityList"></div>
+          <div class="section-body" id="capabilityPanelBody">
+            <form class="capability-form" id="capabilityForm">
+              <input class="input" name="service_name" placeholder="服务名，可从配置读取">
+              <input class="input" name="base_url" placeholder="readonly adapter base URL">
+              <input class="input" name="secret_ref" placeholder="token 环境变量名，不填真实密钥">
+              <textarea class="mini-textarea" name="raw_config" placeholder="粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON"></textarea>
+              <div class="form-actions">
+                <button class="secondary-small" type="button" id="cancelCapabilityImport">取消</button>
+                <button class="primary-small" type="submit" id="capabilitySubmit">导入能力</button>
+              </div>
+            </form>
+            <div class="capability-list" id="capabilityList"></div>
+          </div>
         </section>
 
         <section class="section">
@@ -1496,6 +1505,7 @@
       processing: false,
       collapsedToolServices: new Set(),
       toolPanelCollapsed: false,
+      capabilityPanelCollapsed: false,
       toolsLoadedOnce: false,
       newToolNames: new Set(),
       toolRefreshing: false,
@@ -1531,7 +1541,11 @@
       toolPanelCaret: document.getElementById("toolPanelCaret"),
       toggleToolPanel: document.getElementById("toggleToolPanel"),
       refreshTools: document.getElementById("refreshTools"),
+      capabilityPanelBody: document.getElementById("capabilityPanelBody"),
+      capabilityPanelCaret: document.getElementById("capabilityPanelCaret"),
+      toggleCapabilityPanel: document.getElementById("toggleCapabilityPanel"),
       capabilityList: document.getElementById("capabilityList"),
+      capabilityCount: document.getElementById("capabilityCount"),
       capabilityForm: document.getElementById("capabilityForm"),
       capabilitySubmit: document.getElementById("capabilitySubmit"),
       cancelCapabilityImport: document.getElementById("cancelCapabilityImport"),
@@ -1577,6 +1591,7 @@
     el.toggleToolPanel.addEventListener("click", toggleToolPanel);
     el.refreshTools.addEventListener("click", refreshTools);
     document.getElementById("backButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+    el.toggleCapabilityPanel.addEventListener("click", toggleCapabilityPanel);
     document.getElementById("toggleCapabilityForm").addEventListener("click", toggleCapabilityForm);
     el.cancelCapabilityImport.addEventListener("click", () => {
       el.capabilityForm.reset();
@@ -1736,6 +1751,7 @@
       syncCaseReadState(state.cases);
       renderCases();
       renderCapabilities();
+      renderCapabilityPanel();
       renderTools();
       renderToolPanel();
       renderKnowledge();
@@ -1809,6 +1825,10 @@
     }
 
     function toggleCapabilityForm() {
+      if (state.capabilityPanelCollapsed) {
+        state.capabilityPanelCollapsed = false;
+        renderCapabilityPanel();
+      }
       el.capabilityForm.classList.toggle("open");
       if (el.capabilityForm.classList.contains("open")) {
         el.capabilityForm.elements.raw_config.focus();
@@ -1824,6 +1844,7 @@
     }
 
     function renderCapabilities() {
+      el.capabilityCount.textContent = String(state.capabilities.length);
       if (!state.capabilities.length) {
         el.capabilityList.innerHTML = `<div class="row-meta" style="padding: 8px 10px;">暂无动态能力</div>`;
         return;
@@ -1859,6 +1880,17 @@
       el.capabilityList.querySelectorAll("[data-capability-disable]").forEach((button) => {
         button.addEventListener("click", () => disableCapability(button.dataset.capabilityDisable));
       });
+    }
+
+    function toggleCapabilityPanel() {
+      state.capabilityPanelCollapsed = !state.capabilityPanelCollapsed;
+      renderCapabilityPanel();
+    }
+
+    function renderCapabilityPanel() {
+      el.capabilityPanelBody.hidden = state.capabilityPanelCollapsed;
+      el.toggleCapabilityPanel.setAttribute("aria-expanded", String(!state.capabilityPanelCollapsed));
+      el.capabilityPanelCaret.textContent = state.capabilityPanelCollapsed ? "›" : "⌄";
     }
 
     async function publishCapability(id) {
