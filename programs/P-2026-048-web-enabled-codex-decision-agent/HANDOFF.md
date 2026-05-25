@@ -34,11 +34,11 @@
 
 当前工作树：
 
-- 待提交和推送本 Program 的代码、文档、证据和截图。
+- 主变更已提交为 `fc89617 P-2026-048 enable codex local decision agent`；当前只剩记录提交号和完成状态的收口提交待推送。
 
 下一步：
 
-- `git add` 本任务文件，commit + push `main`。
+- 提交收口记录并 push `main`。
 
 风险：
 

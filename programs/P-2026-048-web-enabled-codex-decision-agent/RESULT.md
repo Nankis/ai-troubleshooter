@@ -55,7 +55,7 @@
 
 ## Commit
 
-- 待提交。
+- `fc89617 P-2026-048 enable codex local decision agent`
 
 ## 残留风险
 
