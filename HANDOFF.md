@@ -6,7 +6,7 @@
 
 当前状态：
 
-- P-2026-046 已完成实现和验证，等待提交推送：已增加 Agent Run 生命周期、Local Runtime 注册心跳、Web/API 轨迹展示和文档。
+- P-2026-046 已完成实现、验证、提交和推送：已增加 Agent Run 生命周期、Local Runtime 注册心跳、Web/API 轨迹展示和文档。
 
 接手规则：
 
