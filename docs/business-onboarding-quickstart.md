@@ -10,7 +10,7 @@
 flowchart LR
   User["业务反馈人<br/>Web / Lark / 飞书"] --> Platform["Python Agent Platform<br/>聊天入口 / Case / 图片 / 平台库"]
   Platform --> Engine["Python Decision Engine<br/>Supervisor / Specialist / Verifier"]
-  Platform --> Store[("Platform MySQL<br/>case / message / decision / audit / knowledge")]
+  Platform --> Store[("Platform MySQL<br/>case / message / agent run / decision / audit / knowledge")]
   Engine --> Model["Platform LLM / Vision"]
   Engine --> Gateway["Go Investigation Gateway<br/>鉴权 / scope / 限流 / 超时 / 审计 / 脱敏"]
   Gateway --> Adapter["业务 Readonly Adapter<br/>业务方提供"]
@@ -114,6 +114,9 @@ export DB_DSN='ai_user:replace-with-password@tcp(127.0.0.1:3306)/ai_troubleshoot
 | `tb_troubleshoot_case_entity` | Agent Platform | 从自然语言提取的 uid、service、symbol、时间等实体。 |
 | `tb_troubleshoot_investigation` | Agent Platform / Decision Engine | 一次排查运行的状态、耗时、停止原因和总结。 |
 | `tb_troubleshoot_ai_decision_log` | Agent Platform / Decision Engine | AI 为什么这么判断、为什么调用工具、为什么停止。 |
+| `tb_troubleshoot_agent_runtime` | Agent Platform | 本地或云端 Agent runtime 注册、provider 列表、workspace 和心跳。 |
+| `tb_troubleshoot_agent_run` | Agent Platform / Decision Engine | Supervisor、specialist、Knowledge、Verifier、local-code 等一次子任务运行记录。 |
+| `tb_troubleshoot_agent_run_event` | Agent Platform / Decision Engine | 子任务内的分类、经验检索、工具计划、工具执行、验证和停止事件。 |
 | `tb_troubleshoot_context_ledger` | Agent Platform / Decision Engine | 上下文压缩摘要、证据引用和 specialist report，避免主 Agent 上下文膨胀。 |
 | `tb_troubleshoot_tool_call_audit` | Investigation Gateway | 工具调用审计、policy decision、耗时、错误、脱敏后的摘要。 |
 | `tb_troubleshoot_knowledge_item` | Agent Platform | 平台经验沉淀，可以人工录入、预览、编辑、删除。 |
@@ -275,6 +278,9 @@ Agent Platform 的常用 API：
 | `GET /api/v1/capabilities` | 查询已录入业务能力。 |
 | `POST /api/v1/capabilities/import` | 导入业务能力 manifest。 |
 | `POST /api/v1/capabilities/{id}/publish` | 发布某个能力并触发 Gateway reload。 |
+| `GET /api/v1/agent-runtimes` | 查看已注册本地或云端 Agent runtime。 |
+| `POST /api/v1/agent-runtimes/register` | 注册本地 runtime，例如 Codex、Claude Code 或 Cursor 只读辅助。 |
+| `POST /api/v1/agent-runtimes/{runtime_id}/heartbeat` | 更新 runtime 在线状态。 |
 | `POST /lark/events` / `POST /feishu/events` | Lark/飞书回调入口。 |
 
 ### 6.3 Decision Engine 是否单独启动
@@ -292,6 +298,8 @@ Web Chat / Lark / Feishu
 ```
 
 判断是否真的经过 Decision Engine，可以看平台 MySQL 的 `tb_troubleshoot_ai_decision_log`：正常排查会有 `decision_type=orchestrator_plan`，`reason` 通常包含 `Python Supervisor selected next action and verifier checked tool budget/safety`。
+
+同时也可以看 `GET /api/v1/cases/{case_ref}` 返回的 `agent_runs`：正常排查会包含 `supervisor`，并按实际场景包含 `knowledge_agent`、业务 specialist 和 `verifier`。这些记录来自平台 MySQL 的 `tb_troubleshoot_agent_run` 和 `tb_troubleshoot_agent_run_event`。
 
 需要调试协议时可以单独启动：
 

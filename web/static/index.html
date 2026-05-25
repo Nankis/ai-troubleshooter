@@ -1362,6 +1362,11 @@
         <div class="progress-list" id="progressList"></div>
 
         <div class="side-block">
+          <div class="card-title">Agent Runs</div>
+          <div class="progress-list" id="agentRunList"></div>
+        </div>
+
+        <div class="side-block">
           <div class="card-title">环境信息</div>
           <div class="kv">
             <div class="kv-row"><span class="kv-ico">◇</span><span>状态</span><span class="kv-value" id="caseStatus">ready</span></div>
@@ -1484,6 +1489,7 @@
       knowledgeSubmit: document.getElementById("knowledgeSubmit"),
       cancelKnowledgeEdit: document.getElementById("cancelKnowledgeEdit"),
       progressList: document.getElementById("progressList"),
+      agentRunList: document.getElementById("agentRunList"),
       caseStatus: document.getElementById("caseStatus"),
       envTools: document.getElementById("envTools"),
       envKnowledge: document.getElementById("envKnowledge"),
@@ -2160,6 +2166,7 @@
       markCaseViewed(c);
       renderMessages(payload.messages || []);
       renderProgress(payload.progress || []);
+      renderAgentRuns(payload.agent_runs || []);
       renderDecisionStrip(payload.ai_decision_logs || []);
       setBusy(Boolean(payload.processing));
       el.caseStatus.textContent = c.status || "ready";
@@ -2538,6 +2545,34 @@
       `).join("");
     }
 
+    function renderAgentRuns(runs) {
+      if (!runs.length) {
+        el.agentRunList.innerHTML = `
+          <div class="step pending">
+            <span class="step-dot"></span>
+            <span><span class="step-title">等待 Agent Run</span><span class="step-reason">排查开始后会显示 supervisor、specialist 和 verifier。</span></span>
+          </div>
+        `;
+        return;
+      }
+      el.agentRunList.innerHTML = runs.slice(-8).map((run) => {
+        const events = Array.isArray(run.events) ? run.events : [];
+        const latest = events[events.length - 1] || {};
+        const status = normalizeRunStatus(run.status || latest.status || "pending");
+        const title = [run.agent_name, run.agent_role].filter(Boolean).join(" · ");
+        const reason = latest.summary || run.output_summary || run.input_summary || statusText(status);
+        return `
+          <div class="step ${escapeAttr(status)}">
+            <span class="step-dot"></span>
+            <span>
+              <span class="step-title">${escapeHTML(title || run.run_no || "agent")}</span>
+              <span class="step-reason">${escapeHTML(reason)}</span>
+            </span>
+          </div>
+        `;
+      }).join("");
+    }
+
     function setBusy(value) {
       state.processing = value;
       el.send.disabled = value;
@@ -2767,6 +2802,15 @@
         need_more_info: "需要补充信息",
       };
       return map[status] || "";
+    }
+
+    function normalizeRunStatus(status) {
+      const value = String(status || "").toLowerCase();
+      if (["completed", "success", "done"].includes(value)) return "done";
+      if (["failed", "timeout", "cancelled"].includes(value)) return "failed";
+      if (["running", "started", "in_progress"].includes(value)) return "running";
+      if (["skipped"].includes(value)) return "skipped";
+      return "pending";
     }
 
     function roleClass(role) {

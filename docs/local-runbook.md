@@ -123,6 +123,30 @@ curl -s http://localhost:19091/api/v1/cases/case_20260524_000001
 curl -s http://localhost:19091/api/v1/overview
 ```
 
+Case payload 会返回 `agent_runs`。每个 run 内包含 `events`，用于观察 Supervisor、Knowledge Agent、specialist agent、Verifier 和后续 local runtime 的排查轨迹。这个轨迹写平台 MySQL，不走 Investigation Gateway。
+
+Local Runtime 注册和心跳 API：
+
+```bash
+curl -s -X POST http://localhost:19091/api/v1/agent-runtimes/register \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "runtime_id":"local-mac-codex",
+    "runtime_name":"Local Mac Codex",
+    "runtime_type":"local",
+    "provider_list":["codex","claude_code","cursor"],
+    "workspace_root":"/Users/example/workspace"
+  }'
+
+curl -s -X POST http://localhost:19091/api/v1/agent-runtimes/local-mac-codex/heartbeat \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"online"}'
+
+curl -s http://localhost:19091/api/v1/agent-runtimes
+```
+
+当前 runtime 契约只用于可观测和后续只读本地代码辅助接入。它不会让 Agent 直接改业务代码，也不会绕过 Gateway 查询生产证据。
+
 端口冲突时：
 
 ```bash
@@ -139,7 +163,7 @@ Web 工作台支持：
 - 左侧按服务分组查看 Gateway tools，并可折叠。
 - 在“能力接入”粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON，审核后发布只读工具。
 - 平台经验预览、编辑、录入和软删除。
-- 右侧查看当前排查状态、AI 决策步骤、工具调用进度和运行环境。
+- 右侧查看当前排查状态、Agent Run 轨迹、AI 决策步骤、工具调用进度和运行环境。
 
 ## 模型配置
 

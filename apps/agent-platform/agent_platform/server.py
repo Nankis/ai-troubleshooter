@@ -116,6 +116,21 @@ def create_app(config: Config | None = None, repository: Repository | None = Non
     def case_status(request: Request, case_ref: str) -> JSONResponse:
         return _json(_platform(request).get_case_payload(case_ref))
 
+    @app.get("/api/v1/agent-runtimes")
+    @app.get("/web/api/agent-runtimes")
+    def list_agent_runtimes(request: Request) -> JSONResponse:
+        return _json(_platform(request).list_agent_runtimes())
+
+    @app.post("/api/v1/agent-runtimes/register")
+    @app.post("/web/api/agent-runtimes/register")
+    async def register_agent_runtime(request: Request) -> JSONResponse:
+        return _json(_platform(request).register_agent_runtime(await request.json()), 201)
+
+    @app.post("/api/v1/agent-runtimes/{runtime_id}/heartbeat")
+    @app.post("/web/api/agent-runtimes/{runtime_id}/heartbeat")
+    async def heartbeat_agent_runtime(request: Request, runtime_id: str) -> JSONResponse:
+        return _json(_platform(request).heartbeat_agent_runtime(runtime_id, await request.json()))
+
     @app.patch("/api/v1/cases/{case_ref:path}")
     @app.put("/api/v1/cases/{case_ref:path}")
     @app.patch("/web/api/cases/{case_ref:path}")

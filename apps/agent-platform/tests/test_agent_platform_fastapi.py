@@ -34,6 +34,9 @@ class MemoryRepository:
         self.investigation_ids = itertools.count(1)
         self.decision_ids = itertools.count(1)
         self.ledger_ids = itertools.count(1)
+        self.runtime_ids = itertools.count(1)
+        self.agent_run_ids = itertools.count(1)
+        self.agent_run_event_ids = itertools.count(1)
         self.knowledge_ids = itertools.count(1)
         self.capability_ids = itertools.count(1)
         self.cases: dict[int, dict[str, Any]] = {}
@@ -42,6 +45,9 @@ class MemoryRepository:
         self.investigations: dict[int, dict[str, Any]] = {}
         self.decisions: dict[int, list[dict[str, Any]]] = {}
         self.context_ledger: dict[int, list[dict[str, Any]]] = {}
+        self.runtimes: dict[str, dict[str, Any]] = {}
+        self.agent_runs: dict[int, dict[str, Any]] = {}
+        self.agent_run_events: dict[int, list[dict[str, Any]]] = {}
         self.knowledge: dict[int, dict[str, Any]] = {}
         self.capabilities: dict[int, dict[str, Any]] = {}
         self.services: dict[str, dict[str, Any]] = {}
@@ -155,6 +161,99 @@ class MemoryRepository:
         if ledger_type:
             items = [item for item in items if item.get("ledger_type") == ledger_type]
         return [dict(item) for item in items[-limit:]]
+
+    def register_agent_runtime(self, item: dict[str, Any]) -> dict[str, Any]:
+        runtime_id = item["runtime_id"]
+        saved = {
+            "id": self.runtimes.get(runtime_id, {}).get("id") or next(self.runtime_ids),
+            "runtime_id": runtime_id,
+            "runtime_name": item.get("runtime_name") or runtime_id,
+            "runtime_type": item.get("runtime_type") or "local",
+            "host_name": item.get("host_name") or "",
+            "provider_list": list(item.get("provider_list") or []),
+            "workspace_root": item.get("workspace_root") or "",
+            "status": item.get("runtime_status") or "online",
+            "last_heartbeat_at": datetime.now(),
+            "registered_at": self.runtimes.get(runtime_id, {}).get("registered_at") or datetime.now(),
+            "created_at": self.runtimes.get(runtime_id, {}).get("created_at") or datetime.now(),
+            "updated_at": datetime.now(),
+        }
+        self.runtimes[runtime_id] = saved
+        return dict(saved)
+
+    def heartbeat_agent_runtime(self, runtime_id: str, status: str = "online") -> dict[str, Any]:
+        item = self.runtimes[runtime_id]
+        item["status"] = status
+        item["last_heartbeat_at"] = datetime.now()
+        item["updated_at"] = datetime.now()
+        return dict(item)
+
+    def list_agent_runtimes(self, limit: int = 50, status: str = "") -> list[dict[str, Any]]:
+        items = list(self.runtimes.values())
+        if status:
+            items = [item for item in items if item.get("status") == status]
+        return [dict(item) for item in items[:limit]]
+
+    def create_agent_run(self, item: dict[str, Any]) -> dict[str, Any]:
+        run_id = next(self.agent_run_ids)
+        saved = {
+            "id": run_id,
+            "run_no": f"run_20260524_{run_id:06d}",
+            "case_id": item["case_id"],
+            "investigation_id": item.get("investigation_id"),
+            "parent_run_id": item.get("parent_run_id"),
+            "runtime_id": item.get("runtime_id") or "",
+            "agent_name": item["agent_name"],
+            "agent_role": item.get("agent_role") or "specialist",
+            "trigger_type": item.get("trigger_type") or "case_process",
+            "status": item.get("run_status") or "queued",
+            "input_summary": item.get("input_summary") or "",
+            "output_summary": item.get("output_summary") or "",
+            "model_provider": item.get("model_provider") or "",
+            "model_name": item.get("model_name") or "",
+            "started_at": item.get("started_at"),
+            "finished_at": item.get("finished_at"),
+            "latency_ms": item.get("latency_ms") or 0,
+            "error_message": item.get("error_message") or "",
+            "payload": item.get("payload") or {},
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+        }
+        self.agent_runs[run_id] = saved
+        return dict(saved)
+
+    def update_agent_run(self, run_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+        item = self.agent_runs[run_id]
+        alias = {"run_status": "status"}
+        for key, value in fields.items():
+            item[alias.get(key, key)] = value
+        item["updated_at"] = datetime.now()
+        return dict(item)
+
+    def add_agent_run_event(self, item: dict[str, Any]) -> dict[str, Any]:
+        run_id = int(item["run_id"])
+        bucket = self.agent_run_events.setdefault(run_id, [])
+        event = {
+            "id": next(self.agent_run_event_ids),
+            "run_id": run_id,
+            "event_seq": len(bucket) + 1,
+            "event_type": item["event_type"],
+            "status": item.get("event_status") or "info",
+            "title": item["title"],
+            "summary": item.get("summary") or "",
+            "payload": item.get("payload") or {},
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+        }
+        bucket.append(event)
+        return dict(event)
+
+    def list_agent_runs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        items = [item for item in self.agent_runs.values() if item["case_id"] == case_id]
+        return [dict(item) for item in items[:limit]]
+
+    def list_agent_run_events(self, run_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        return [dict(item) for item in self.agent_run_events.get(run_id, [])[:limit]]
 
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]:
         items = list(self.knowledge.values())
@@ -299,6 +398,50 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
         self.assertIn("orchestrator_plan", decision_types)
         self.assertIn("tool_invocation", decision_types)
+
+    def test_case_payload_contains_agent_runs_and_events(self) -> None:
+        response = self.client.post(
+            "/web/api/chat",
+            data={"message": "health-food uid hf-user-runtime 今日没有每日推荐", "async": "0"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        runs = body["agent_runs"]
+        self.assertTrue(runs)
+        agent_names = [item["agent_name"] for item in runs]
+        self.assertIn("supervisor", agent_names)
+        self.assertIn("knowledge_agent", agent_names)
+        self.assertIn("health_food_agent", agent_names)
+        self.assertIn("verifier", agent_names)
+        supervisor = next(item for item in runs if item["agent_name"] == "supervisor")
+        self.assertEqual(supervisor["status"], "completed")
+        self.assertIn("orchestrator_plan", [item["event_type"] for item in supervisor["events"]])
+        self.assertNotIn("private_raw_row", json.dumps(runs, ensure_ascii=False))
+
+    def test_agent_runtime_register_and_heartbeat(self) -> None:
+        register = self.client.post(
+            "/web/api/agent-runtimes/register",
+            json={
+                "runtime_id": "local-mac-codex",
+                "runtime_name": "Local Mac Codex",
+                "runtime_type": "local",
+                "provider_list": ["codex", "claude"],
+                "workspace_root": "/tmp/ai-troubleshooter-runtime",
+            },
+        )
+
+        self.assertEqual(register.status_code, 201, register.text)
+        self.assertEqual(register.json()["runtime_id"], "local-mac-codex")
+        self.assertEqual(register.json()["provider_list"], ["codex", "claude"])
+
+        heartbeat = self.client.post("/web/api/agent-runtimes/local-mac-codex/heartbeat", json={"status": "online"})
+        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+        self.assertEqual(heartbeat.json()["status"], "online")
+
+        listed = self.client.get("/web/api/agent-runtimes")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(listed.json()["items"][0]["runtime_id"], "local-mac-codex")
 
     def test_web_chat_must_call_decision_engine_plan(self) -> None:
         decision_engine = RecordingDecisionEngine()

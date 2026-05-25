@@ -4,6 +4,7 @@ import json
 import re
 import time
 import uuid
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
@@ -150,7 +151,17 @@ class AgentPlatform:
 
         start_time = time.monotonic()
         investigation: dict[str, Any] | None = None
+        process_run: dict[str, Any] | None = None
         try:
+            process_run = self._start_agent_run(
+                case,
+                agent_name="supervisor",
+                agent_role="orchestrator",
+                trigger_type="case_process",
+                input_summary=f"case={case['case_no']} source={case.get('source') or 'unknown'}",
+                payload={"case": _safe_case(case)},
+            )
+            self._record_agent_run_event(process_run, "case_received", "running", "Supervisor 接收排障 case", f"case_status={case['status']}")
             self._transition(case, "READY_TO_INVESTIGATE")
             case = self._require_case_by_id(case_id)
             classification = self._classify_and_extract(case)
@@ -180,9 +191,19 @@ class AgentPlatform:
                 },
                 "agent-platform",
             )
+            self._record_agent_run_event(
+                process_run,
+                "case_classified",
+                "success",
+                "完成问题分类和实体抽取",
+                f"domain={issue_domain or 'unknown'} issue_type={issue_type or 'unknown'} entity_keys={','.join(sorted(entities))}",
+                {"classification": classification, "entities": entities},
+            )
 
             tools = self._list_gateway_tools(case)
+            self._record_agent_run_event(process_run, "gateway_tools_loaded", "success", "完成 Gateway readonly tools 发现", f"tool_count={len(tools)}")
             knowledge = self._knowledge_candidates(case)
+            self._record_agent_run_event(process_run, "knowledge_loaded", "success", "完成平台经验候选检索", f"knowledge_count={len(knowledge)}")
             request = self._decision_request(case, entities, tools, knowledge)
             step_start = time.monotonic()
             decision = self.decision_engine.plan(request)
@@ -197,6 +218,15 @@ class AgentPlatform:
                 latency_ms=_elapsed_ms(step_start),
                 selected_tools=[item.tool_name for item in decision.tool_plan],
             )
+            self._record_agent_run_event(
+                process_run,
+                "orchestrator_plan",
+                "success",
+                "Supervisor 产出排查计划",
+                decision.reason,
+                compact_decision_payload(decision),
+            )
+            self._record_agent_report_runs(case, process_run, decision)
             self._record_context_ledger(
                 case,
                 "agent_report",
@@ -208,13 +238,21 @@ class AgentPlatform:
             )
 
             if decision.action == "ask_user":
-                return self._ask_user(case, decision.missing_fields)
+                result = self._ask_user(case, decision.missing_fields)
+                self._finish_agent_run(process_run, "completed", result.get("reply", ""))
+                return result
             if decision.action == "answer_from_knowledge":
-                return self._answer_from_knowledge(case, decision.knowledge_source, decision.reason, decision.confidence)
+                result = self._answer_from_knowledge(case, decision.knowledge_source, decision.reason, decision.confidence)
+                self._finish_agent_run(process_run, "completed", result.get("reply", ""))
+                return result
             if decision.action == "local_code_inspection":
-                return self._answer_from_local_code(case, decision)
+                result = self._answer_from_local_code(case, decision)
+                self._finish_agent_run(process_run, "completed", result.get("reply", ""))
+                return result
             if decision.action != "invoke_tools":
-                return self._need_human(case, decision.reason, decision.confidence)
+                result = self._need_human(case, decision.reason, decision.confidence)
+                self._finish_agent_run(process_run, "completed", result.get("reply", ""))
+                return result
 
             self._transition(case, "INVESTIGATING")
             case = self._require_case_by_id(case_id)
@@ -228,16 +266,30 @@ class AgentPlatform:
                     "initial_hypothesis": f"domain={case.get('issue_domain')} issue_type={case.get('issue_type')}",
                 }
             )
+            if process_run is not None:
+                process_run = self.repository.update_agent_run(int(process_run["id"]), {"investigation_id": int(investigation["id"])})
+                self._record_agent_run_event(process_run, "investigation_started", "running", "创建 investigation 记录", str(investigation.get("investigation_no") or ""))
             tool_call_ids, observations = self._invoke_tools(case, investigation, decision.tool_plan)
+            self._record_agent_run_event(
+                process_run,
+                "tool_execution_finished",
+                "success",
+                "完成只读工具调用",
+                f"tool_calls={len(tool_call_ids)} observations={len(observations)}",
+                {"tool_call_ids": tool_call_ids, "observation_count": len(observations)},
+            )
             summary, confidence = self._summarize(case, observations)
             self.repository.finish_investigation(int(investigation["id"]), "finished", summary, confidence)
             self.repository.add_message(case_id, "agent", f"[{case['case_no']}] {summary}")
             self._transition(case, "NEED_HUMAN_CONFIRMATION")
             latest = self._require_case_by_id(case_id)
-            return {"case_id": case_id, "case_no": case["case_no"], "status": latest["status"], "reply": f"[{case['case_no']}] {summary}", "tool_call_ids": tool_call_ids}
+            result = {"case_id": case_id, "case_no": case["case_no"], "status": latest["status"], "reply": f"[{case['case_no']}] {summary}", "tool_call_ids": tool_call_ids}
+            self._finish_agent_run(process_run, "completed", result["reply"], {"confidence": confidence, "tool_call_ids": tool_call_ids})
+            return result
         except Exception as exc:
             latest = self.repository.get_case_by_id(case_id) or case
             self._record_decision(latest, investigation, "process_failure", "Python Agent Platform stopped and finalized the case", {}, {"error": str(exc)}, "failed", error_message=str(exc))
+            self._finish_agent_run(process_run, "failed", f"排查失败：{exc}", {"error": str(exc)}, error_message=str(exc))
             self.repository.add_message(case_id, "system", f"排查失败：{exc}")
             self.repository.update_case_fields(case_id, {"case_status": "FAILED"})
             raise
@@ -262,6 +314,29 @@ class AgentPlatform:
             "now": datetime.now(),
         }
 
+    def register_agent_runtime(self, payload: dict[str, Any]) -> dict[str, Any]:
+        providers = payload.get("provider_list") or payload.get("providers") or []
+        if isinstance(providers, str):
+            providers = [item.strip() for item in providers.split(",") if item.strip()]
+        item = self.repository.register_agent_runtime(
+            {
+                "runtime_id": str(payload.get("runtime_id") or "").strip(),
+                "runtime_name": str(payload.get("runtime_name") or payload.get("name") or "").strip(),
+                "runtime_type": str(payload.get("runtime_type") or "local").strip(),
+                "host_name": str(payload.get("host_name") or "").strip(),
+                "provider_list": providers,
+                "workspace_root": str(payload.get("workspace_root") or "").strip(),
+                "runtime_status": str(payload.get("runtime_status") or "online").strip(),
+            }
+        )
+        return item
+
+    def heartbeat_agent_runtime(self, runtime_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.repository.heartbeat_agent_runtime(runtime_id, str(payload.get("runtime_status") or payload.get("status") or "online"))
+
+    def list_agent_runtimes(self) -> dict[str, Any]:
+        return {"items": self.repository.list_agent_runtimes(50)}
+
     def case_payload(self, case: dict[str, Any], result: dict[str, Any] | None = None, processing: bool = False) -> dict[str, Any]:
         result = result or {"case_id": case["id"], "case_no": case["case_no"], "status": case["status"], "reply": ""}
         logs = self.repository.list_decision_logs(int(case["id"]), 100)
@@ -273,6 +348,7 @@ class AgentPlatform:
             "missing_fields": result.get("missing_fields", []),
             "entities": self.repository.list_entities(int(case["id"])),
             "messages": self.repository.list_messages(int(case["id"])),
+            "agent_runs": self._case_agent_runs(int(case["id"])),
             "ai_decision_logs": logs,
             "context_ledger": self.repository.list_context_ledger(int(case["id"]), 100),
             "evolution_runs": [],
@@ -689,6 +765,136 @@ class AgentPlatform:
             }
         )
 
+    def _start_agent_run(
+        self,
+        case: dict[str, Any],
+        *,
+        agent_name: str,
+        agent_role: str,
+        trigger_type: str,
+        input_summary: str,
+        payload: Any | None = None,
+        parent_run_id: int = 0,
+    ) -> dict[str, Any]:
+        return self.repository.create_agent_run(
+            {
+                "case_id": int(case["id"]),
+                "parent_run_id": parent_run_id or None,
+                "agent_name": agent_name,
+                "agent_role": agent_role,
+                "trigger_type": trigger_type,
+                "run_status": "running",
+                "input_summary": str(_mask(input_summary)),
+                "model_provider": self.config.llm.provider,
+                "model_name": self.config.llm.model,
+                "started_at": datetime.now(),
+                "payload": _mask(payload or {}),
+            }
+        )
+
+    def _finish_agent_run(
+        self,
+        run: dict[str, Any] | None,
+        status: str,
+        output_summary: str,
+        payload: Any | None = None,
+        *,
+        error_message: str = "",
+    ) -> None:
+        if run is None:
+            return
+        started_at = run.get("started_at")
+        latency_ms = 0
+        if isinstance(started_at, datetime):
+            latency_ms = int((datetime.now() - started_at).total_seconds() * 1000)
+        updated = self.repository.update_agent_run(
+            int(run["id"]),
+            {
+                "run_status": status,
+                "output_summary": str(_mask(output_summary))[:4000],
+                "finished_at": datetime.now(),
+                "latency_ms": latency_ms,
+                "error_message": error_message,
+                "payload": _mask(payload or run.get("payload") or {}),
+            },
+        )
+        self._record_agent_run_event(updated, "run_finished", status, "Agent run finished", output_summary, payload or {})
+
+    def _record_agent_run_event(
+        self,
+        run: dict[str, Any] | None,
+        event_type: str,
+        status: str,
+        title: str,
+        summary: str = "",
+        payload: Any | None = None,
+    ) -> None:
+        if run is None:
+            return
+        self.repository.add_agent_run_event(
+            {
+                "run_id": int(run["id"]),
+                "event_type": event_type,
+                "event_status": status,
+                "title": title,
+                "summary": str(_mask(summary))[:4000],
+                "payload": _mask(payload or {}),
+            }
+        )
+
+    def _record_agent_report_runs(self, case: dict[str, Any], parent_run: dict[str, Any] | None, decision: DecisionResponse) -> None:
+        parent_id = int(parent_run["id"]) if parent_run and parent_run.get("id") else 0
+        for report in decision.agent_reports:
+            if report.agent_name == "supervisor":
+                self._record_agent_run_event(parent_run, "agent_report", "success", "Supervisor report", report.reason, _agent_report_payload(report))
+                continue
+            run = self.repository.create_agent_run(
+                {
+                    "case_id": int(case["id"]),
+                    "parent_run_id": parent_id or None,
+                    "agent_name": report.agent_name,
+                    "agent_role": _agent_role(report.agent_name),
+                    "trigger_type": "supervisor_dispatch",
+                    "run_status": "completed",
+                    "input_summary": f"case={case['case_no']} action={report.action}",
+                    "output_summary": report.reason,
+                    "model_provider": self.config.llm.provider,
+                    "model_name": self.config.llm.model,
+                    "started_at": datetime.now(),
+                    "finished_at": datetime.now(),
+                    "latency_ms": 0,
+                    "payload": _agent_report_payload(report),
+                }
+            )
+            self._record_agent_run_event(run, "agent_report", "success", f"{report.agent_name} report", report.reason, _agent_report_payload(report))
+        if decision.verification is not None:
+            verifier_payload = asdict(decision.verification)
+            run = self.repository.create_agent_run(
+                {
+                    "case_id": int(case["id"]),
+                    "parent_run_id": parent_id or None,
+                    "agent_name": "verifier",
+                    "agent_role": "verifier",
+                    "trigger_type": "verify_plan",
+                    "run_status": "completed",
+                    "input_summary": f"action={decision.action} tool_count={len(decision.tool_plan)}",
+                    "output_summary": decision.verification.reason,
+                    "model_provider": self.config.llm.provider,
+                    "model_name": self.config.llm.model,
+                    "started_at": datetime.now(),
+                    "finished_at": datetime.now(),
+                    "latency_ms": 0,
+                    "payload": verifier_payload,
+                }
+            )
+            self._record_agent_run_event(run, "verification", "success" if decision.verification.accepted else "failed", "Verifier report", decision.verification.reason, verifier_payload)
+
+    def _case_agent_runs(self, case_id: int) -> list[dict[str, Any]]:
+        runs = self.repository.list_agent_runs(case_id, 100)
+        for run in runs:
+            run["events"] = self.repository.list_agent_run_events(int(run["id"]), 100)
+        return runs
+
     def _require_case(self, ref: str) -> dict[str, Any]:
         case = self.repository.get_case_by_no(ref)
         if case is None and ref.isdigit():
@@ -803,6 +1009,26 @@ def _decision_log_snapshot(decision: DecisionResponse) -> dict[str, Any]:
     return payload
 
 
+def _agent_report_payload(report: Any) -> dict[str, Any]:
+    payload = asdict(report)
+    payload["observations"] = [str(value)[:240] for value in (payload.get("observations") or [])[:16]]
+    payload["risks"] = list((payload.get("risks") or [])[:8])
+    payload["evidence"] = _compact_decision_evidence(str(payload.get("agent_name") or ""), payload.get("evidence") or [])
+    return _mask(payload)
+
+
+def _agent_role(agent_name: str) -> str:
+    if agent_name == "knowledge_agent":
+        return "knowledge"
+    if agent_name == "local_code_agent":
+        return "local_code"
+    if agent_name == "verifier":
+        return "verifier"
+    if agent_name.endswith("_agent"):
+        return "specialist"
+    return "agent"
+
+
 def _compact_decision_evidence(agent_name: str, evidence: Any) -> list[dict[str, Any]]:
     if not isinstance(evidence, list):
         return []
@@ -915,7 +1141,7 @@ def _friendly_field(field: str) -> str:
 
 
 def _safe_case(case: dict[str, Any]) -> dict[str, Any]:
-    return {key: case.get(key) for key in ["case_no", "title", "uid", "source", "original_text", "ocr_text", "issue_domain", "issue_type", "status"]}
+    return {key: case.get(key) for key in ["case_no", "title", "uid", "source", "issue_domain", "issue_type", "status"]}
 
 
 def _deterministic_summary(case: dict[str, Any], observations: list[dict[str, Any]]) -> str:

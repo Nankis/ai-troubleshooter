@@ -31,6 +31,14 @@ class Repository(Protocol):
     def list_decision_logs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]: ...
     def add_context_ledger(self, item: dict[str, Any]) -> dict[str, Any]: ...
     def list_context_ledger(self, case_id: int, limit: int = 100, ledger_type: str = "") -> list[dict[str, Any]]: ...
+    def register_agent_runtime(self, item: dict[str, Any]) -> dict[str, Any]: ...
+    def heartbeat_agent_runtime(self, runtime_id: str, status: str = "online") -> dict[str, Any]: ...
+    def list_agent_runtimes(self, limit: int = 50, status: str = "") -> list[dict[str, Any]]: ...
+    def create_agent_run(self, item: dict[str, Any]) -> dict[str, Any]: ...
+    def update_agent_run(self, run_id: int, fields: dict[str, Any]) -> dict[str, Any]: ...
+    def add_agent_run_event(self, item: dict[str, Any]) -> dict[str, Any]: ...
+    def list_agent_runs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]: ...
+    def list_agent_run_events(self, run_id: int, limit: int = 200) -> list[dict[str, Any]]: ...
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]: ...
     def get_knowledge(self, knowledge_id: int) -> dict[str, Any] | None: ...
     def upsert_knowledge(self, item: dict[str, Any]) -> dict[str, Any]: ...
@@ -354,6 +362,197 @@ class MySQLRepository:
         rows = self._fetch_all(query, tuple(args))
         return [_decode_context_ledger_row(row) for row in reversed(rows)]
 
+    def register_agent_runtime(self, item: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now()
+        runtime_id = str(item.get("runtime_id") or "").strip()
+        if not runtime_id:
+            raise ValueError("runtime_id is required")
+        self._execute(
+            """
+            INSERT INTO tb_troubleshoot_agent_runtime
+            (runtime_id, runtime_name, runtime_type, host_name, provider_list_json, workspace_root,
+             runtime_status, last_heartbeat_at, registered_at, create_time, update_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE runtime_name=VALUES(runtime_name), runtime_type=VALUES(runtime_type),
+            host_name=VALUES(host_name), provider_list_json=VALUES(provider_list_json), workspace_root=VALUES(workspace_root),
+            runtime_status=VALUES(runtime_status), last_heartbeat_at=VALUES(last_heartbeat_at), update_time=VALUES(update_time)
+            """,
+            (
+                runtime_id,
+                item.get("runtime_name") or runtime_id,
+                item.get("runtime_type") or "local",
+                _none_if_empty(item.get("host_name")),
+                _json_or_none(item.get("provider_list")),
+                _none_if_empty(item.get("workspace_root")),
+                item.get("runtime_status") or "registered",
+                item.get("last_heartbeat_at") or now,
+                item.get("registered_at") or now,
+                now,
+                now,
+            ),
+        )
+        found = self._fetch_one(_agent_runtime_select() + " WHERE runtime_id = %s AND status = 1", (runtime_id,))
+        if found is None:
+            raise RuntimeError("registered runtime not found")
+        return _decode_agent_runtime_row(found)
+
+    def heartbeat_agent_runtime(self, runtime_id: str, status: str = "online") -> dict[str, Any]:
+        now = datetime.now()
+        self._execute(
+            """
+            UPDATE tb_troubleshoot_agent_runtime
+            SET runtime_status = %s, last_heartbeat_at = %s, update_time = %s
+            WHERE runtime_id = %s AND status = 1
+            """,
+            (status or "online", now, now, runtime_id),
+        )
+        found = self._fetch_one(_agent_runtime_select() + " WHERE runtime_id = %s AND status = 1", (runtime_id,))
+        if found is None:
+            raise KeyError("agent runtime not found")
+        return _decode_agent_runtime_row(found)
+
+    def list_agent_runtimes(self, limit: int = 50, status: str = "") -> list[dict[str, Any]]:
+        limit = _bounded(limit, 1, 200, 50)
+        query = _agent_runtime_select() + " WHERE status = 1"
+        args: list[Any] = []
+        if status:
+            query += " AND runtime_status = %s"
+            args.append(status)
+        query += " ORDER BY update_time DESC LIMIT %s"
+        args.append(limit)
+        return [_decode_agent_runtime_row(row) for row in self._fetch_all(query, tuple(args))]
+
+    def create_agent_run(self, item: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now()
+        tmp_no = f"run_pending_{uuid.uuid4().hex}"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO tb_troubleshoot_agent_run
+                (run_no, case_id, investigation_id, parent_run_id, runtime_id, agent_name, agent_role,
+                 trigger_type, run_status, input_summary, output_summary, model_provider, model_name,
+                 started_at, finished_at, latency_ms, error_message, payload_json, create_time, update_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    tmp_no,
+                    item["case_id"],
+                    item.get("investigation_id") or None,
+                    item.get("parent_run_id") or None,
+                    _none_if_empty(item.get("runtime_id")),
+                    item["agent_name"],
+                    item.get("agent_role") or "specialist",
+                    item.get("trigger_type") or "case_process",
+                    item.get("run_status") or "queued",
+                    _none_if_empty(item.get("input_summary")),
+                    _none_if_empty(item.get("output_summary")),
+                    _none_if_empty(item.get("model_provider")),
+                    _none_if_empty(item.get("model_name")),
+                    item.get("started_at"),
+                    item.get("finished_at"),
+                    item.get("latency_ms") or None,
+                    _none_if_empty(item.get("error_message")),
+                    _json_or_none(item.get("payload")),
+                    now,
+                    now,
+                ),
+            )
+            run_id = int(cur.lastrowid)
+            run_no = f"run_{now.strftime('%Y%m%d')}_{run_id:06d}"
+            cur.execute("UPDATE tb_troubleshoot_agent_run SET run_no = %s WHERE id = %s", (run_no, run_id))
+        found = self._fetch_one(_agent_run_select() + " WHERE id = %s AND status = 1", (run_id,))
+        if found is None:
+            raise RuntimeError("created agent run not found")
+        return _decode_agent_run_row(found)
+
+    def update_agent_run(self, run_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+        allowed = {
+            "investigation_id",
+            "runtime_id",
+            "run_status",
+            "input_summary",
+            "output_summary",
+            "model_provider",
+            "model_name",
+            "started_at",
+            "finished_at",
+            "latency_ms",
+            "error_message",
+            "payload",
+        }
+        updates = {key: value for key, value in fields.items() if key in allowed}
+        if not updates:
+            found = self._fetch_one(_agent_run_select() + " WHERE id = %s AND status = 1", (run_id,))
+            if found is None:
+                raise KeyError("agent run not found")
+            return _decode_agent_run_row(found)
+        column_map = {"payload": "payload_json"}
+        assignments = [f"{column_map.get(key, key)} = %s" for key in updates]
+        args: list[Any] = []
+        for key, value in updates.items():
+            if key == "payload":
+                args.append(_json_or_none(value))
+            else:
+                args.append(_none_if_empty(value))
+        args.extend([datetime.now(), run_id])
+        self._execute(
+            f"UPDATE tb_troubleshoot_agent_run SET {', '.join(assignments)}, update_time = %s WHERE id = %s AND status = 1",
+            tuple(args),
+        )
+        found = self._fetch_one(_agent_run_select() + " WHERE id = %s AND status = 1", (run_id,))
+        if found is None:
+            raise KeyError("agent run not found")
+        return _decode_agent_run_row(found)
+
+    def add_agent_run_event(self, item: dict[str, Any]) -> dict[str, Any]:
+        now = item.get("created_at") or datetime.now()
+        run_id = int(item["run_id"])
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(MAX(event_seq), 0) + 1 AS next_seq FROM tb_troubleshoot_agent_run_event WHERE run_id = %s AND status = 1",
+                (run_id,),
+            )
+            event_seq = int(cur.fetchone()["next_seq"])
+            cur.execute(
+                """
+                INSERT INTO tb_troubleshoot_agent_run_event
+                (run_id, event_seq, event_type, event_status, title, summary, payload_json, create_time, update_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_id,
+                    event_seq,
+                    item["event_type"],
+                    item.get("event_status") or "info",
+                    item["title"],
+                    _none_if_empty(item.get("summary")),
+                    _json_or_none(item.get("payload")),
+                    now,
+                    now,
+                ),
+            )
+            event_id = int(cur.lastrowid)
+        found = self._fetch_one(_agent_run_event_select() + " WHERE id = %s AND status = 1", (event_id,))
+        if found is None:
+            raise RuntimeError("created agent run event not found")
+        return _decode_agent_run_event_row(found)
+
+    def list_agent_runs(self, case_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        limit = _bounded(limit, 1, 500, 100)
+        rows = self._fetch_all(
+            _agent_run_select() + " WHERE case_id = %s AND status = 1 ORDER BY id DESC LIMIT %s",
+            (case_id, limit),
+        )
+        return [_decode_agent_run_row(row) for row in reversed(rows)]
+
+    def list_agent_run_events(self, run_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        limit = _bounded(limit, 1, 1000, 200)
+        rows = self._fetch_all(
+            _agent_run_event_select() + " WHERE run_id = %s AND status = 1 ORDER BY event_seq DESC LIMIT %s",
+            (run_id, limit),
+        )
+        return [_decode_agent_run_event_row(row) for row in reversed(rows)]
+
     def list_knowledge(self, limit: int = 30, issue_domain: str = "", issue_type: str = "", status: str = "") -> list[dict[str, Any]]:
         limit = _bounded(limit, 1, 100, 30)
         query = _knowledge_select() + " WHERE status = 1"
@@ -605,9 +804,52 @@ def _context_ledger_select() -> str:
     """
 
 
+def _agent_runtime_select() -> str:
+    return """
+    SELECT id, runtime_id, runtime_name, runtime_type, host_name, provider_list_json, workspace_root,
+           runtime_status AS status, last_heartbeat_at, registered_at, create_time AS created_at, update_time AS updated_at
+    FROM tb_troubleshoot_agent_runtime
+    """
+
+
+def _agent_run_select() -> str:
+    return """
+    SELECT id, run_no, case_id, investigation_id, parent_run_id, runtime_id, agent_name, agent_role,
+           trigger_type, run_status AS status, input_summary, output_summary, model_provider, model_name,
+           started_at, finished_at, latency_ms, error_message, payload_json, create_time AS created_at, update_time AS updated_at
+    FROM tb_troubleshoot_agent_run
+    """
+
+
+def _agent_run_event_select() -> str:
+    return """
+    SELECT id, run_id, event_seq, event_type, event_status AS status, title, summary, payload_json,
+           create_time AS created_at, update_time AS updated_at
+    FROM tb_troubleshoot_agent_run_event
+    """
+
+
 def _decode_context_ledger_row(row: dict[str, Any]) -> dict[str, Any]:
     out = dict(row)
     out["evidence_refs"] = _loads_json(out.pop("evidence_refs_json", None), [])
+    out["payload"] = _loads_json(out.pop("payload_json", None), {})
+    return out
+
+
+def _decode_agent_runtime_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["provider_list"] = _loads_json(out.pop("provider_list_json", None), [])
+    return out
+
+
+def _decode_agent_run_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["payload"] = _loads_json(out.pop("payload_json", None), {})
+    return out
+
+
+def _decode_agent_run_event_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
     out["payload"] = _loads_json(out.pop("payload_json", None), {})
     return out
 

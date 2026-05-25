@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-045-local-mysql-schema-discipline/HANDOFF.md`
+- `programs/P-2026-046-multica-inspired-agent-runtime-integration/HANDOFF.md`
 
 当前状态：
 
-- P-2026-045 进行中：排查并收敛本地 MySQL 重复 schema 问题，目标是本地平台库固定为 `ai_troubleshooter`，非 canonical schema fail-fast，已有 schema 只审计不自动删除。
+- P-2026-046 已完成实现和验证，等待提交推送：已增加 Agent Run 生命周期、Local Runtime 注册心跳、Web/API 轨迹展示和文档。
 
 接手规则：
 

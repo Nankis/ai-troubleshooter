@@ -201,3 +201,48 @@ Phase 2：完整 RAG
 - 公司已有稳定向量平台，可以低成本接入。
 
 结论：先把 RAG 设计成接口，不把向量库做成首发依赖。这样系统一开始更简单，后续又不会堵住智能化演进路线。
+
+## ADR-003：借鉴 Multica 的 Agent Run 生命周期，不引入外部 Multica 依赖
+
+日期：2026-05-25
+
+### 背景
+
+Multica 的 managed agents 设计里，核心价值不是某个特定模型，而是把长任务拆成可观测的 runtime、task lifecycle、run messages 和技能上下文。ai-troubleshooter 的主实体仍然是排障 case，但排障过程不能只剩最终回答。用户需要看到 Supervisor、specialist agent、Knowledge Agent、Verifier 和后续本地 runtime 到底做了什么、为什么停止、是否失败、还能否接手。
+
+### 决策
+
+本项目只借鉴 Multica 的生命周期模型，不把 Multica 作为运行依赖：
+
+| Multica 概念 | ai-troubleshooter 映射 | 说明 |
+| --- | --- | --- |
+| Issue / task | `tb_troubleshoot_case` | case 仍是排障主实体，不把系统改成通用 issue tracker。 |
+| Agent runtime / daemon | `tb_troubleshoot_agent_runtime` | 记录本地或云端 runtime 的注册、provider 列表、workspace 和心跳。 |
+| Agent run | `tb_troubleshoot_agent_run` | 记录一次 supervisor/specialist/verifier/local-code 子任务的开始、完成、失败和摘要。 |
+| Run message / event | `tb_troubleshoot_agent_run_event` | 记录分类、经验检索、工具计划、工具执行、验证和停止原因。 |
+| Skills / memory | Platform Knowledge / Context Ledger | 技能、SOP、历史经验和压缩观察仍属于平台数据。 |
+
+Agent Platform 在每个 case 的 `process_case()` 中创建 root supervisor run，并把 Decision Engine 的计划、specialist report、Verifier 结果和工具执行结果写成 run event。Web Chat 和 Case API 通过 `agent_runs` 返回这条轨迹，右侧进度面板可以展示当前运行状态和最近事件。
+
+### API 和数据边界
+
+- Runtime 注册和心跳由 Python Agent Platform 提供：`POST /api/v1/agent-runtimes/register`、`POST /api/v1/agent-runtimes/{runtime_id}/heartbeat`、`GET /api/v1/agent-runtimes`。
+- Case 详情返回 `agent_runs`，每个 run 内包含有界的 `events`；不返回未脱敏原始工具数据。
+- Agent Run、Run Event、Runtime 都写平台 MySQL，业务方不需要提供这些表，也不通过 Investigation Gateway 查询。
+- Go Investigation Gateway 不感知 runtime 生命周期，只继续执行只读工具的鉴权、scope、限流、timeout、审计和脱敏。
+- Local Runtime 是 debug-only 扩展点。后续可以接 Codex、Claude Code、Cursor Agent 或公司自研 coding agent 读取本地 allowlist 仓库，但默认只读分析，不能自动改业务代码。
+
+### 不做什么
+
+- 不引入 Multica 服务、数据库或 SDK 作为生产依赖。
+- 不让本地 runtime 绕过 Gateway 读取生产证据。
+- 不把 Agent Run 当最终根因。最终根因仍需要证据、Verifier、人工确认或知识沉淀流程。
+- 不自动提交业务代码。任何代码修改、PR 创建或自动修复都必须另起 Program，并增加显式授权、隔离工作区和验证规则。
+
+### 后续演进
+
+Agent Run 生命周期稳定后，可以继续做三类增强：
+
+1. 本地 runtime daemon：在开发机启动只读 runtime，注册 provider、workspace allowlist 和能力边界，按 case 接收 local-code 任务。
+2. 多 agent 并行：把 Kline、Asset、HealthFood、Knowledge、Verifier 的运行状态独立记录，降低单个主 Agent 上下文膨胀风险。
+3. 离线评测：用 run event 还原每次排查路径，比较工具选择、停止原因、误判点和经验复用效果。

@@ -4,10 +4,10 @@
 
 当前仓库采用 monorepo：
 
-- Python 3.13：`apps/agent-platform` 是平台入口，承接 Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator 和经验沉淀。
+- Python 3.13：`apps/agent-platform` 是平台入口，承接 Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision 配置、Agent Run 观测和经验沉淀。
 - Python 3.13：`apps/decision-engine` 是决策层，承接 Supervisor、多 specialist agent、工具计划、Verifier、后续 RAG 和本地代码辅助排查。
 - Go 1.24+：只保留 `cmd/investigation-gateway`，负责业务 readonly tools、安全鉴权、scope、限流、timeout、审计和脱敏。
-- MySQL：平台 case、消息、AI 决策日志、context ledger、tool audit、root cause、knowledge item 和自进化记录。
+- MySQL：平台 case、消息、AI 决策日志、Agent Run、runtime 心跳、context ledger、tool audit、root cause、knowledge item 和自进化记录。
 
 ## 核心边界
 
@@ -28,7 +28,7 @@ flowchart LR
   Platform --> Engine["Python Decision Engine<br/>Supervisor / Agent Team / Verifier"]
   Engine --> Knowledge["Platform Knowledge<br/>历史 case / root cause / SOP"]
   Engine --> Model["Platform LLM / Vision"]
-  Platform --> Store[("Platform MySQL<br/>case / decision log / context ledger / knowledge")]
+  Platform --> Store[("Platform MySQL<br/>case / agent run / decision log / context ledger / knowledge")]
   Engine -- "answer / ask / tool_plan" --> Platform
   Knowledge --> Store
   Engine -- "决定是否查 Gateway<br/>生成已验证 tool plan" --> Executor["Platform Tool Executor<br/>只执行决策层计划"]
@@ -43,10 +43,10 @@ flowchart LR
 
 | 模块 | 状态 |
 | --- | --- |
-| Agent Platform | Python FastAPI 主服务，提供 Web Chat、Case API、平台 MySQL、图片入口、Qwen/GPT LLM + Vision 配置、异步排查、进度 API、知识和能力管理。 |
-| Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、工具分组、知识预览/编辑。 |
+| Agent Platform | Python FastAPI 主服务，提供 Web Chat、Case API、平台 MySQL、图片入口、Qwen/GPT LLM + Vision 配置、异步排查、进度 API、Agent Run API、runtime 注册心跳、知识和能力管理。 |
+| Web Chat 工作台 | 由 Python Agent Platform 服务，支持文字、图片粘贴上传、图片预览、case 列表重命名/删除、草稿本地保存、进度面板、Agent Run 轨迹、工具分组、知识预览/编辑。 |
 | Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。 |
-| Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。新增 Context Ledger 只保存压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
+| Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。Agent Run 和 Context Ledger 记录排查轨迹、压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
 | Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Web Chat/Lark/飞书主路径都会在 Agent Platform 进程内调用 `DecisionEngine.plan()`，是否复用经验、是否查询 Gateway、查询哪些工具都由决策层决定。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
