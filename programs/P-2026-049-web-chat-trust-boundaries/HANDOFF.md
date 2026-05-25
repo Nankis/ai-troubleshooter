@@ -10,10 +10,11 @@
 - 已修复 mock/local_rules 透明度：最终回复会标注 mock adapter 和未启用本地决策 Agent。
 - 已支持 Web textarea Enter 发送、Shift+Enter 换行。
 - 已通过单测、真实 Web 和 MySQL 验证，证据见 `EVIDENCE.md`。
+- 主修复已提交为 `cab210b P-2026-049 harden web chat trust boundaries`。
 
 下一步：
 
-- commit + push main。
+- 提交收口记录并 push main。
 
 风险：
 

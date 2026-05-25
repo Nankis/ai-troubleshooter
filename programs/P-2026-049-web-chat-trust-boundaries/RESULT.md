@@ -44,7 +44,7 @@
 
 ## Commit
 
-- 待提交。
+- `cab210b P-2026-049 harden web chat trust boundaries`
 
 ## 残留风险
 

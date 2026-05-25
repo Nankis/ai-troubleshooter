@@ -6,5 +6,5 @@
 - [x] 支持 Web Enter 发送、Shift+Enter 换行。
 - [x] 补单测覆盖。
 - [x] 启动本地服务并用 Web 实际验证。
-- [ ] 更新 Evidence / Result / Handoff。
+- [x] 更新 Evidence / Result / Handoff。
 - [ ] commit + push main。
