@@ -57,6 +57,17 @@ class LLMClient:
         )
         return self._complete_json(prompt, {"request": request, "default_proposal": default_proposal})
 
+    def answer_chat(self, payload: dict[str, Any]) -> LLMResult:
+        if not self.is_real:
+            return LLMResult({}, "local_rules", "rules-v1")
+        prompt = (
+            "你是排障平台的决策层 Agent。当前用户消息不是生产故障排查。"
+            "请直接回答用户问题，字段只输出 JSON：reply, confidence。"
+            "禁止编造 Gateway、平台经验、下游服务、生产 DB 或日志证据；"
+            "如果用户问模型/Agent 状态，只能基于输入 JSON 中的 runtime_status 回答。"
+        )
+        return self._complete_json(prompt, payload)
+
     def _complete_json(self, prompt: str, payload: dict[str, Any]) -> LLMResult:
         provider = self.config.provider.lower().strip()
         if provider in {"openai", "openai_compatible", "gpt", "qwen", "dashscope", "deepseek", "moonshot", "llm_gateway"}:

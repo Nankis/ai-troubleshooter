@@ -116,6 +116,8 @@ export DECISION_LLM_ENABLED=true
 
 本地决策 Agent 只负责给决策层建议工具计划；生产证据查询仍只能走 Gateway，不能绕过 scope、限流、审计和脱敏。
 
+Web Chat 中如果用户最新一条消息是在问模型/Agent 状态、平台配置，或纠正“刚才为什么查 mock/Gateway”，平台会走决策层 Agent 直接回答，不会继承旧 case 的排障上下文继续查 Gateway。
+
 更完整的本地运行、Web Chat、模型、health-food、MCP、DMS 和容器命令已经移到 [docs/local-runbook.md](docs/local-runbook.md)。
 
 提交前建议安装 hook 并扫描敏感信息：

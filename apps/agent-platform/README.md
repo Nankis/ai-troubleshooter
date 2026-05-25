@@ -81,3 +81,5 @@ export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
 Web 启用本地 Codex/Claude Code 时，只影响决策 advisor：`llm_decision_agent` 的 agent run 会记录 `model_provider=local_agent`、`model_name=codex` 或对应 provider；Supervisor、specialist、Verifier 仍按平台主模型/规则配置运行。
 
 没有真实 key 时可用 `LLM_PROVIDER=local_rules VISION_PROVIDER=local_rules` 做页面 smoke，但不能进入生产排障，也不能把结果记录成真实大模型或真实 Vision 验收。未启用真实决策 Agent 时，平台会在查询 Gateway 或平台经验前阻断。
+
+同一个 case 内的最新消息如果是模型/Agent/平台配置咨询或用户纠错，Agent Platform 会交给 `llm_decision_agent` 直接回答，并禁止 Gateway、平台经验和工具计划。

@@ -361,6 +361,9 @@ class CapturingLLM:
             "test-advisor",
         )
 
+    def answer_chat(self, payload: dict[str, Any]) -> LLMResult:
+        return LLMResult({"reply": "direct chat answered by capture LLM", "confidence": 0.9}, "capture", "test-advisor")
+
     def summarize(self, case: dict[str, Any], observations: list[dict[str, Any]]) -> LLMResult:
         self.summary_observations = observations
         return LLMResult({"summary": "LLM saw compact evidence only", "confidence": 0.81}, "capture", "test")
@@ -496,12 +499,101 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["case"]["status"], "WAITING_USER_REPLY")
-        self.assertIn("当前主模型配置", body["reply"])
-        self.assertIn("未启用真实决策 Agent", body["reply"])
+        self.assertIn("当前未启用真实决策 Agent", body["reply"])
+        self.assertIn("不能用 local_rules 回答平台咨询或普通对话", body["reply"])
         self.assertEqual(self.gateway.invocations, [])
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
-        self.assertIn("platform_runtime_status", decision_types)
+        self.assertIn("decision_agent_direct_answer", decision_types)
         self.assertNotIn("gateway_tool_discovery", decision_types)
+
+    def test_runtime_status_followup_uses_latest_message_not_old_case_text(self) -> None:
+        case = self.repo.create_case(
+            {
+                "title": "health-food old issue",
+                "uid": "hf-old",
+                "source": "web",
+                "chat_id": "web-local",
+                "thread_id": "thread-old",
+                "message_id": "msg-old",
+                "reporter_user_id": "web_user",
+                "original_text": "health-food uid hf-old 今日 token 消耗数量不对",
+                "ocr_text": "",
+                "timezone": "Asia/Shanghai",
+            }
+        )
+        self.repo.add_message(int(case["id"]), "user", "health-food uid hf-old 今日 token 消耗数量不对")
+        self.repo.update_case_fields(int(case["id"]), {"case_status": "NEED_HUMAN_CONFIRMATION", "issue_domain": "health_food", "issue_type": "AI配额异常"})
+        with tempfile.TemporaryDirectory() as tmp:
+            script = _write_fake_local_agent_script(
+                tmp,
+                {
+                    "reply": "当前由 Codex 决策层回答：主模型配置在 runtime_status 中，未查询 Gateway。",
+                    "confidence": 0.93,
+                },
+            )
+            _enable_codex_runtime(self.repo)
+            with mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False):
+                response = self.client.post(
+                    "/web/api/chat",
+                    data={"case_no": case["case_no"], "message": "现在是用什么模型", "async": "0"},
+                )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("当前由 Codex 决策层回答", body["reply"])
+        self.assertEqual(self.gateway.invocations, [])
+        decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
+        self.assertIn("decision_agent_direct_answer", decision_types)
+        self.assertNotIn("gateway_tool_discovery", decision_types)
+        self.assertNotIn("tool_invocation", decision_types)
+        advisor_run = next(item for item in body["agent_runs"] if item["agent_name"] == "llm_decision_agent")
+        self.assertEqual(advisor_run["model_provider"], "local_agent")
+        self.assertEqual(advisor_run["model_name"], "codex")
+
+    def test_platform_complaint_followup_is_answered_by_decision_agent_without_gateway(self) -> None:
+        case = self.repo.create_case(
+            {
+                "title": "health-food old issue",
+                "uid": "hf-old",
+                "source": "web",
+                "chat_id": "web-local",
+                "thread_id": "thread-old",
+                "message_id": "msg-old",
+                "reporter_user_id": "web_user",
+                "original_text": "health-food uid hf-old 今日 token 消耗数量不对",
+                "ocr_text": "",
+                "timezone": "Asia/Shanghai",
+            }
+        )
+        self.repo.add_message(int(case["id"]), "user", "health-food uid hf-old 今日 token 消耗数量不对")
+        self.repo.update_case_fields(int(case["id"]), {"case_status": "NEED_HUMAN_CONFIRMATION", "issue_domain": "health_food", "issue_type": "AI配额异常"})
+        with tempfile.TemporaryDirectory() as tmp:
+            script = _write_fake_local_agent_script(
+                tmp,
+                {
+                    "reply": "我是 Codex 决策层直接回答：这类问题不会查 Gateway；请先检查本地 Claude Code 是否安装、登录和可执行。",
+                    "confidence": 0.91,
+                },
+            )
+            _enable_codex_runtime(self.repo)
+            with mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False):
+                response = self.client.post(
+                    "/web/api/chat",
+                    data={"case_no": case["case_no"], "message": "瞎说，我的claude code都用不了", "async": "0"},
+                )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("Codex 决策层直接回答", body["reply"])
+        self.assertEqual(self.gateway.invocations, [])
+        decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
+        self.assertIn("decision_agent_direct_answer", decision_types)
+        self.assertNotIn("gateway_tool_discovery", decision_types)
+        self.assertNotIn("knowledge_retrieval", decision_types)
+        self.assertNotIn("tool_invocation", decision_types)
+        advisor_run = next(item for item in body["agent_runs"] if item["agent_name"] == "llm_decision_agent")
+        self.assertEqual(advisor_run["model_provider"], "local_agent")
+        self.assertEqual(advisor_run["model_name"], "codex")
 
     def test_mock_gateway_is_not_called_without_decision_agent(self) -> None:
         platform = AgentPlatform(self.config, MemoryRepository(), gateway=MockEvidenceGateway())

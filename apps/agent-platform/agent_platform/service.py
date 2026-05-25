@@ -17,7 +17,7 @@ from decision_engine.models import KnowledgeCandidate, ToolPlan, ToolSpec
 
 from .capabilities import import_capabilities
 from .classifier import classify_and_extract_rules, merge_llm_result
-from .config import Config
+from .config import Config, LLMConfig
 from .context_ledger import (
     compact_decision_payload,
     compact_failed_observation,
@@ -170,10 +170,10 @@ class AgentPlatform:
             self._record_agent_run_event(process_run, "case_received", "running", "Supervisor 接收排障 case", f"case_status={case['status']}")
             self._transition(case, "READY_TO_INVESTIGATE")
             case = self._require_case_by_id(case_id)
-            if _is_platform_runtime_status_question(case):
-                result = self._answer_platform_runtime_status(case)
-                self._record_agent_run_event(process_run, "platform_runtime_status", "success", "回答平台运行时模型状态", result.get("reply", ""))
-                self._finish_agent_run(process_run, "completed", result.get("reply", ""))
+            latest_user_text = self._latest_user_text(case)
+            if _should_direct_answer_latest_message(latest_user_text, case):
+                result = self._answer_direct_chat_with_decision_agent(case, process_run, latest_user_text)
+                self._finish_agent_run(process_run, "completed", result.get("reply", ""), {"direct_answer": True})
                 return result
 
             classification = self._classify_and_extract(case)
@@ -519,7 +519,7 @@ class AgentPlatform:
                 {
                     "original_text": _append_block(case.get("original_text") or "", "用户补充", user_text),
                     "ocr_text": _append_block(case.get("ocr_text") or "", "图片识别补充", ocr_text),
-                    "case_status": "WAITING_USER_REPLY" if case.get("status") == "NEED_MORE_INFO" else case.get("status"),
+                    "case_status": _status_after_user_message(str(case.get("status") or "")),
                 },
             )
             return updated
@@ -614,6 +614,23 @@ class AgentPlatform:
                 "decision_llm_enabled": True,
             }
         return {}
+
+    def _decision_agent_llm(self, decision_agent: dict[str, Any]) -> LLMClient | None:
+        if decision_agent.get("source") == "local_agent":
+            provider = str(decision_agent.get("provider") or "").strip()
+            if not provider:
+                return None
+            return LLMClient(LLMConfig("local_agent", "", "", provider, self.config.llm.timeout_seconds, False))
+        if decision_agent.get("source") == "platform_llm" and self.llm.is_real:
+            return self.llm
+        return None
+
+    def _latest_user_text(self, case: dict[str, Any]) -> str:
+        messages = self.repository.list_messages(int(case["id"]))
+        for message in reversed(messages):
+            if str(message.get("role") or "").lower() == "user":
+                return str(message.get("content") or "").strip()
+        return str(case.get("original_text") or "").strip()
 
     def _classify_and_extract(self, case: dict[str, Any]) -> dict[str, object]:
         text = f"{case.get('original_text') or ''}\n{case.get('ocr_text') or ''}"
@@ -835,6 +852,109 @@ class AgentPlatform:
         latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
         return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply, "missing_fields": missing_fields}
 
+    def _answer_direct_chat_with_decision_agent(self, case: dict[str, Any], process_run: dict[str, Any] | None, latest_text: str) -> dict[str, Any]:
+        decision_agent = self._decision_agent_source()
+        if not decision_agent:
+            reply = (
+                f"[{case['case_no']}] 当前未启用真实决策 Agent，不能用 local_rules 回答平台咨询或普通对话。"
+                "请先在右侧启用 Codex/Claude Code 等本地决策 Agent，"
+                "或配置真实 LLM 并设置 DECISION_LLM_ENABLED=true。"
+            )
+            self._record_decision(
+                case,
+                None,
+                "decision_agent_direct_answer",
+                "blocked direct chat because no real decision agent is enabled",
+                {"latest_user_text": latest_text, "case": _safe_case(case)},
+                {"blocked": "decision_agent_required"},
+                "blocked",
+            )
+            self.repository.add_message(int(case["id"]), "agent", reply)
+            latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
+            return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply, "blocked": "decision_agent_required"}
+
+        llm = self._decision_agent_llm(decision_agent)
+        if llm is None:
+            reply = f"[{case['case_no']}] 决策层 Agent 配置不可用，已停止回答；未查询 Gateway 或平台经验。"
+            self.repository.add_message(int(case["id"]), "agent", reply)
+            latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
+            return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply, "blocked": "decision_agent_unavailable"}
+
+        agent_run = self._start_agent_run(
+            case,
+            agent_name="llm_decision_agent",
+            agent_role="decision_advisor",
+            trigger_type="direct_chat",
+            input_summary=latest_text,
+            payload={"latest_user_text": latest_text, "decision_agent": decision_agent},
+            parent_run_id=int(process_run["id"]) if process_run and process_run.get("id") else 0,
+            model_provider=str(decision_agent.get("source") or ""),
+            model_name=str(decision_agent.get("provider") or decision_agent.get("model") or ""),
+        )
+        self._record_agent_run_event(agent_run, "direct_chat_started", "running", "决策层 Agent 直接回答非排障输入", latest_text)
+        step_start = time.monotonic()
+        try:
+            payload = {
+                "latest_user_message": latest_text,
+                "case": _safe_case(case),
+                "runtime_status": {
+                    "main_llm_provider": self.config.llm.provider,
+                    "main_llm_model": self.config.llm.model,
+                    "decision_agent": decision_agent,
+                    "gateway_is_not_allowed": True,
+                },
+                "rules": [
+                    "This is not a production troubleshooting request.",
+                    "Do not call or imply Gateway, platform knowledge, downstream DB, logs, or mock evidence.",
+                    "Answer concisely and say when the user needs to enable or repair a local Agent.",
+                ],
+            }
+            llm_result = llm.answer_chat(payload)
+            reply_body = str(llm_result.payload.get("reply") or "").strip()
+            if not reply_body:
+                raise RuntimeError("decision agent returned empty reply")
+            reply = f"[{case['case_no']}] {reply_body}"
+            self._record_decision(
+                case,
+                None,
+                "decision_agent_direct_answer",
+                "decision agent answered latest non-troubleshooting message without Gateway",
+                {"latest_user_text": latest_text, "decision_agent": decision_agent},
+                {"provider": llm_result.provider, "model": llm_result.model, "reply": reply_body, "confidence": llm_result.payload.get("confidence")},
+                "success",
+                latency_ms=_elapsed_ms(step_start),
+            )
+            self.repository.add_message(int(case["id"]), "agent", reply)
+            self._record_context_ledger(
+                case,
+                "agent_report",
+                "direct_chat_answer",
+                reply,
+                [],
+                {"reply": reply, "decision_agent": decision_agent, "gateway_called": False},
+                "llm_decision_agent",
+            )
+            latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
+            self._finish_agent_run(agent_run, "completed", reply, {"provider": llm_result.provider, "model": llm_result.model})
+            return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply}
+        except Exception as exc:
+            reply = f"[{case['case_no']}] 决策层 Agent 直接回答失败：{exc}。我没有查询 Gateway、平台经验或下游服务。"
+            self._record_decision(
+                case,
+                None,
+                "decision_agent_direct_answer",
+                "decision agent failed while answering non-troubleshooting message",
+                {"latest_user_text": latest_text, "decision_agent": decision_agent},
+                {"error": str(exc)},
+                "failed",
+                latency_ms=_elapsed_ms(step_start),
+                error_message=str(exc),
+            )
+            self.repository.add_message(int(case["id"]), "agent", reply)
+            latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
+            self._finish_agent_run(agent_run, "failed", reply, {"error": str(exc)}, error_message=str(exc))
+            return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply}
+
     def _require_decision_agent(self, case: dict[str, Any]) -> dict[str, Any]:
         reply = (
             f"[{case['case_no']}] 当前未启用真实决策 Agent，已停止排障。"
@@ -860,30 +980,6 @@ class AgentPlatform:
         self.repository.add_message(int(case["id"]), "agent", reply)
         latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
         return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply, "blocked": "decision_agent_required"}
-
-    def _answer_platform_runtime_status(self, case: dict[str, Any]) -> dict[str, Any]:
-        decision_agent = self._decision_agent_source()
-        if decision_agent:
-            decision_state = f"已启用 {decision_agent.get('source')} / {decision_agent.get('provider')}"
-        else:
-            decision_state = "未启用真实决策 Agent"
-        reply = (
-            f"[{case['case_no']}] 当前主模型配置：{self.config.llm.provider}/{self.config.llm.model}；"
-            f"Decision Engine：{decision_state}。"
-            "生产排障必须先启用真实决策 Agent；未启用时平台只会做信息补充询问，不会查询 Gateway 或平台经验。"
-        )
-        self._record_decision(
-            case,
-            None,
-            "platform_runtime_status",
-            "answer runtime model and decision agent status without starting investigation",
-            {"case": _safe_case(case)},
-            {"decision_agent": decision_agent, "llm_provider": self.config.llm.provider, "llm_model": self.config.llm.model},
-            "success",
-        )
-        self.repository.add_message(int(case["id"]), "agent", reply)
-        latest = self.repository.update_case_fields(int(case["id"]), {"case_status": "WAITING_USER_REPLY"})
-        return {"case_id": case["id"], "case_no": case["case_no"], "status": latest["status"], "reply": reply}
 
     def _answer_from_knowledge(self, case: dict[str, Any], source: str, reason: str, confidence: float) -> dict[str, Any]:
         self._transition(case, "INVESTIGATING")
@@ -1038,6 +1134,8 @@ class AgentPlatform:
         input_summary: str,
         payload: Any | None = None,
         parent_run_id: int = 0,
+        model_provider: str = "",
+        model_name: str = "",
     ) -> dict[str, Any]:
         return self.repository.create_agent_run(
             {
@@ -1048,8 +1146,8 @@ class AgentPlatform:
                 "trigger_type": trigger_type,
                 "run_status": "running",
                 "input_summary": str(_mask(input_summary)),
-                "model_provider": self.config.llm.provider,
-                "model_name": self.config.llm.model,
+                "model_provider": model_provider or self.config.llm.provider,
+                "model_name": model_name or self.config.llm.model,
                 "started_at": datetime.now(),
                 "payload": _mask(payload or {}),
             }
@@ -1254,6 +1352,10 @@ def _trim_title(value: str) -> str:
     return value[:80] or "新问题"
 
 
+def _status_after_user_message(current: str) -> str:
+    return current if current in ACTIVE_STATUSES else "WAITING_USER_REPLY"
+
+
 def _missing_reply(case_no: str, missing_fields: list[str]) -> str:
     if "problem_description" in missing_fields:
         return f"[{case_no}] 请描述具体生产问题，例如受影响的服务、用户 uid、异常现象和大概时间。只发问候或泛泛提问时，我不会查询平台经验或下游服务。"
@@ -1261,13 +1363,132 @@ def _missing_reply(case_no: str, missing_fields: list[str]) -> str:
     return f"[{case_no}] 我还需要补充：{friendly}。如果不确定时间，可以直接说“今天/刚刚/大约几点”；默认按 UTC+8 处理。"
 
 
-def _is_platform_runtime_status_question(case: dict[str, Any]) -> bool:
-    text = _case_text(case).lower()
+def _should_direct_answer_latest_message(latest_text: str, case: dict[str, Any]) -> bool:
+    text = latest_text.strip()
     if not text:
         return False
-    runtime_words = ("模型", "model", "llm", "决策层", "决策 agent", "本地决策", "decision")
-    status_words = ("现在", "当前", "用什么", "是什么", "启用", "开了", "状态")
-    return any(word in text for word in runtime_words) and any(word in text for word in status_words)
+    if _looks_like_missing_field_answer(text, case):
+        return False
+    if _has_business_troubleshooting_signal(text):
+        return _has_platform_override_signal(text)
+    if _has_platform_meta_signal(text):
+        return True
+    if _looks_like_general_question(text):
+        return True
+    return False
+
+
+def _looks_like_missing_field_answer(text: str, case: dict[str, Any]) -> bool:
+    if not str(case.get("issue_domain") or case.get("issue_type") or "").strip():
+        return False
+    cleaned = text.strip()
+    if re.fullmatch(r"(?:uid|user[_ -]?id)?[:：]?\s*[A-Za-z0-9_.@:-]{2,80}", cleaned, flags=re.IGNORECASE):
+        return True
+    if len(cleaned) <= 40 and any(word in cleaned for word in ("今天", "昨天", "刚刚", "上午", "下午", "晚上", "UTC", "utc", "+8", "Asia/Shanghai")):
+        return True
+    return False
+
+
+def _has_platform_meta_signal(text: str) -> bool:
+    lowered = text.lower()
+    words = (
+        "模型",
+        "llm",
+        "agent",
+        "claude",
+        "codex",
+        "cursor",
+        "decision",
+        "决策层",
+        "本地决策",
+        "gateway",
+        "网关",
+        "mock",
+        "local_rules",
+        "规则",
+        "瞎说",
+        "胡言",
+        "乱说",
+        "骗",
+        "忽悠",
+        "你刚才",
+        "你现在",
+        "怎么用",
+        "怎么配置",
+        "启用",
+        "停用",
+    )
+    return any(word in lowered for word in words)
+
+
+def _has_platform_override_signal(text: str) -> bool:
+    lowered = text.lower()
+    words = (
+        "模型",
+        "llm",
+        "决策层",
+        "本地决策",
+        "decision",
+        "claude code",
+        "codex cli",
+        "cursor agent",
+        "gateway",
+        "网关",
+        "mock",
+        "local_rules",
+        "规则",
+        "瞎说",
+        "胡言",
+        "乱说",
+        "骗",
+        "忽悠",
+        "你刚才",
+        "怎么配置",
+        "启用",
+        "停用",
+    )
+    return any(word in lowered for word in words)
+
+
+def _has_business_troubleshooting_signal(text: str) -> bool:
+    lowered = text.lower()
+    words = (
+        "health-food",
+        "health_food",
+        "asset-service",
+        "market-service",
+        "uid",
+        "user_id",
+        "用户",
+        "账户",
+        "订单",
+        "资产",
+        "行情",
+        "k线",
+        "推荐",
+        "餐食",
+        "配额",
+        "日志",
+        "报错",
+        "异常",
+        "失败",
+        "不准",
+        "不对",
+        "没有",
+        "缺失",
+        "超时",
+        "生产",
+        "接口",
+    )
+    return any(word in lowered for word in words)
+
+
+def _looks_like_general_question(text: str) -> bool:
+    cleaned = text.strip()
+    if len(cleaned) > 120:
+        return False
+    question_words = ("?", "？", "什么", "怎么", "为什么", "能不能", "可以", "是谁", "如何")
+    return any(word in cleaned for word in question_words)
 
 
 def _preflight_missing_fields(case: dict[str, Any], entities: dict[str, str]) -> list[str]:

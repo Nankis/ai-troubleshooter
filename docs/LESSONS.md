@@ -17,6 +17,7 @@
 | `adapter-contract-mismatch` | 3 | adapter 字段名、nullable 时间、历史 DDL 不符合契约 | 接入前做 schema/envelope/nullable/字段归一化测试 |
 | `low-signal-code-evidence` | 1 | 本地代码辅助只返回路径/命中词/行号，开发者无法继续排查 | 代码排查结果必须包含文件、符号/方法、行范围、疑点、下一步核对建议和必要的有界脱敏摘录 |
 | `local-schema-sprawl` | 1 | 本地 MySQL 为每个 Program 或 adapter 创建新的排障 schema | 统一使用 `ai_troubleshooter`；非 canonical schema 必须显式开关和清理计划 |
+| `stale-case-context-routing` | 1 | 同一 case 里最新消息是模型/Agent/平台咨询，却继承旧业务上下文继续查 Gateway | 路由先看最新用户消息；非排障咨询只允许 direct answer 或阻断 |
 
 ## 2026-05-23：不要为了新架构回写旧 Program
 
@@ -39,6 +40,13 @@
 - 根因：只做了“披露 local_rules/mock”，没有把“无真实决策 Agent 禁止排障”做成代码守门。
 - 修复：P-2026-050 在 Python Agent Platform 主路径加入 `decision_agent_ready` 守门；未启用本地 Agent 或真实 LLM Decision advisor 时，只允许 intake 补充询问，禁止查询 Gateway、平台经验和工具调用。
 - 规则：以后凡是生产排障主路径，必须先证明真实决策 Agent 已启用；披露不是边界，阻断才是边界。
+
+## 2026-05-25：追加消息不能盲目继承旧 case 排障上下文
+
+- 现象：用户在已有 health-food case 内问“现在用什么模型”或反馈“我的 Claude Code 都用不了”，平台仍沿用旧业务问题继续查 Gateway/mock 数据。
+- 根因：路由使用聚合后的 `original_text` 判断意图，旧业务上下文污染了最新消息。
+- 修复：P-2026-051 改为先看最新用户消息；模型/Agent/平台配置/用户纠错等非排障输入由决策层 Agent 直接回答，并记录 `decision_agent_direct_answer`。
+- 规则：进入 Gateway/Knowledge/Tool 前必须先判断最新消息意图；非排障咨询不能继承旧 case 的工具计划。
 
 ## 2026-05-23：浏览器输入能力限制要透明记录
 
