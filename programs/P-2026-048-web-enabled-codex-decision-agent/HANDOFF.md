@@ -34,11 +34,11 @@
 
 当前工作树：
 
-- 主变更已提交为 `fc89617 P-2026-048 enable codex local decision agent`；当前只剩记录提交号和完成状态的收口提交待推送。
+- 主变更已提交并推送为 `fc89617 P-2026-048 enable codex local decision agent`；收口提交已推送为 `d83a53d docs: close P-2026-048 handoff`。
 
 下一步：
 
-- 提交收口记录并 push `main`。
+- 无。后续可基于真实 health-food adapter、Vision 或 Lark/飞书真实回调另起 Program。
 
 风险：
 

@@ -56,6 +56,7 @@
 ## Commit
 
 - `fc89617 P-2026-048 enable codex local decision agent`
+- `d83a53d docs: close P-2026-048 handoff`
 
 ## 残留风险
 
