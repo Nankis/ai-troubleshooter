@@ -626,6 +626,26 @@ class AgentPlatform:
             return []
 
     def _knowledge_candidates(self, case: dict[str, Any]) -> list[KnowledgeCandidate]:
+        if not str(case.get("issue_domain") or "").strip():
+            self._record_decision(
+                case,
+                None,
+                "knowledge_retrieval",
+                "skip platform knowledge retrieval because issue_domain is unknown",
+                {"issue_domain": case.get("issue_domain"), "issue_type": case.get("issue_type")},
+                {"matched_count": 0, "skipped": "unknown_issue_domain"},
+                "skipped",
+            )
+            self._record_context_ledger(
+                case,
+                "knowledge_retrieval",
+                "platform_knowledge_candidates",
+                "skipped platform knowledge retrieval because issue_domain is unknown",
+                [],
+                [],
+                "knowledge_agent",
+            )
+            return []
         rows = self.repository.list_knowledge(3, str(case.get("issue_domain") or ""), str(case.get("issue_type") or ""), "active")
         self._record_decision(case, None, "knowledge_retrieval", "retrieve platform knowledge before querying downstream business tools", {"issue_domain": case.get("issue_domain"), "issue_type": case.get("issue_type")}, {"matched_count": len(rows)}, "success")
         self._record_context_ledger(
@@ -717,6 +737,7 @@ class AgentPlatform:
                 raise
         verification = final_answer_verification(observations, confidence)
         confidence = float(verification["adjusted_confidence"])
+        summary = _join_boundary_notes(_boundary_notes(self, observations), summary)
         self._record_decision(case, None, "summarize_findings", "summarize bounded tool observations and ask human owner for confirmation", {"observations": observations}, {"summary": summary, "confidence": confidence, "llm_result": llm_payload}, "success", latency_ms=_elapsed_ms(step_start))
         self._record_decision(
             case,
@@ -755,6 +776,7 @@ class AgentPlatform:
         self._transition(case, "INVESTIGATING")
         inv = self.repository.create_investigation({"case_id": case["id"], "agent_id": self.config.gateway_agent_id, "agent_version": "python-agent-platform-v1", "model_provider": self.config.llm.provider, "model_name": self.config.llm.model, "initial_hypothesis": "high-confidence platform knowledge matched"})
         reply = f"[{case['case_no']}] 平台经验命中：{source}。{reason} 请业务 Owner 确认根因后沉淀为正式经验。"
+        reply = _join_boundary_notes(_boundary_notes(self, []), reply)
         self.repository.finish_investigation(int(inv["id"]), "finished", reply, confidence or 0.8)
         self.repository.add_message(int(case["id"]), "agent", reply)
         self._record_context_ledger(
@@ -1119,6 +1141,8 @@ def _trim_title(value: str) -> str:
 
 
 def _missing_reply(case_no: str, missing_fields: list[str]) -> str:
+    if "problem_description" in missing_fields:
+        return f"[{case_no}] 请描述具体生产问题，例如受影响的服务、用户 uid、异常现象和大概时间。只发问候或泛泛提问时，我不会查询平台经验或下游服务。"
     friendly = "、".join(_friendly_field(item) for item in missing_fields)
     return f"[{case_no}] 我还需要补充：{friendly}。如果不确定时间，可以直接说“今天/刚刚/大约几点”；默认按 UTC+8 处理。"
 
@@ -1314,6 +1338,7 @@ def _friendly_field(field: str) -> str:
     mapping = {
         "user_id_or_uid": "业务 uid",
         "user_id_or_account_id": "用户 ID 或账户 ID",
+        "problem_description": "具体生产问题",
         "issue_type": "具体异常现象",
         "abnormal_time": "异常发生的大概时间",
     }
@@ -1335,6 +1360,42 @@ def _deterministic_summary(case: dict[str, Any], observations: list[dict[str, An
             lines.append(f"{item.get('tool_name')}：{item.get('summary')}")
     lines.append("请业务 Owner 基于上述证据确认最终根因；确认后平台会沉淀经验。")
     return " ".join(lines)
+
+
+def _boundary_notes(platform: AgentPlatform, observations: list[dict[str, Any]]) -> list[str]:
+    notes: list[str] = []
+    if _observations_contain_mock(observations):
+        notes.append("注意：当前 Gateway 返回的是 mock adapter 证据，只能验证排障链路，不能作为真实业务结论。")
+    if _uses_rules_without_enabled_decision_agent(platform):
+        notes.append("注意：当前未启用本地决策 Agent，且主模型为 local_rules；本次仅使用规则编排、平台经验和 Gateway 只读证据。")
+    return notes
+
+
+def _join_boundary_notes(notes: list[str], summary: str) -> str:
+    if not notes:
+        return summary
+    return " ".join([*notes, summary])
+
+
+def _observations_contain_mock(observations: list[dict[str, Any]]) -> bool:
+    for item in observations:
+        try:
+            text = json.dumps(item, ensure_ascii=False).lower()
+        except TypeError:
+            text = str(item).lower()
+        if "mock" in text:
+            return True
+    return False
+
+
+def _uses_rules_without_enabled_decision_agent(platform: AgentPlatform) -> bool:
+    provider = str(platform.config.llm.provider or "").strip().lower()
+    if provider not in {"", "local", "local_rules", "rules"}:
+        return False
+    try:
+        return not bool(platform._enabled_decision_local_agent_provider_id())
+    except Exception:
+        return True
 
 
 def _elapsed_ms(start: float) -> int:

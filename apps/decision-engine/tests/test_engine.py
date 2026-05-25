@@ -201,6 +201,30 @@ class DecisionEngineTest(unittest.TestCase):
         self.assertTrue(response.verification.accepted)
         self.assertEqual(response.verification.tool_count, 0)
 
+    def test_low_signal_greeting_does_not_hit_knowledge_or_gateway(self) -> None:
+        engine = DecisionEngine()
+        response = engine.plan(
+            DecisionRequest(
+                case=CaseSnapshot(case_no="case_greeting", original_text="你好"),
+                knowledge_candidates=[
+                    KnowledgeCandidate(
+                        title="不应命中的历史经验",
+                        confidence=0.99,
+                        observed_case_count=9,
+                        requires_realtime_check=False,
+                        source="knowledge:999",
+                    )
+                ],
+                available_tools=[ToolSpec(name="search_logs_by_service")],
+            )
+        )
+
+        self.assertEqual(response.action, "ask_user")
+        self.assertEqual(response.missing_fields, ["problem_description"])
+        self.assertEqual([item.agent_name for item in response.agent_reports], ["supervisor", "intake_agent"])
+        self.assertTrue(response.verification.accepted)
+        self.assertEqual(response.verification.tool_count, 0)
+
     def test_realtime_knowledge_still_invokes_tools(self) -> None:
         engine = DecisionEngine()
         response = engine.plan(

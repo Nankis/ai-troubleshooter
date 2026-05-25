@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-048-web-enabled-codex-decision-agent/HANDOFF.md`
+- `programs/P-2026-049-web-chat-trust-boundaries/HANDOFF.md`
 
 当前状态：
 
-- P-2026-048 已完成并推送 main：Web 启用 Codex 已真实进入 Python 决策层，Web/MySQL/Gateway mock 链路和全量测试已通过。主提交为 `fc89617`，收口提交为 `d83a53d`。
+- P-2026-049 进行中：修复 Web Chat 可信边界问题，包括闲聊误命中经验、mock/local_rules 来源不透明、Enter 不发送。
 
 接手规则：
 

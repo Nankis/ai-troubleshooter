@@ -1590,6 +1590,11 @@
 
     el.images.addEventListener("change", updateImages);
     el.message.addEventListener("input", updateActiveDraftFromComposer);
+    el.message.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      if (!state.processing) el.form.requestSubmit();
+    });
     el.form.addEventListener("paste", handleComposerPaste);
     el.imageLightboxBackdrop.addEventListener("click", closeImagePreview);
     el.imageLightboxClose.addEventListener("click", closeImagePreview);

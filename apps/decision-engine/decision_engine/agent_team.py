@@ -422,6 +422,19 @@ class SupervisorAgentTeam:
             )
         ]
 
+        if _needs_problem_description(request):
+            intake_report = AgentReport(
+                agent_name="intake_agent",
+                action="ask_user",
+                reason="当前输入缺少可排障的问题现象或业务线索，不能命中平台经验或调用下游服务。",
+                missing_fields=["problem_description"],
+                confidence=0.72,
+                observations=["low_signal_input=true", "skip_knowledge_and_tool_invocation=true"],
+                risks=["avoid_fake_answer_for_greeting_or_chitchat"],
+            )
+            reports.append(intake_report)
+            return self.verifier.verify(request, self._response_from_report(intake_report), reports)
+
         knowledge_report = self.knowledge_agent.evaluate(request)
         reports.append(knowledge_report)
         if knowledge_report.action == "answer_from_knowledge":
@@ -550,5 +563,95 @@ def _request_requires_realtime(request: DecisionRequest) -> bool:
             "代码检查",
             "debug_local_code",
             "gateway_evidence_status",
+        ]
+    )
+
+
+def _needs_problem_description(request: DecisionRequest) -> bool:
+    if request.case.issue_domain or request.case.issue_type:
+        return False
+    if _has_diagnostic_entities(request.entities):
+        return False
+    text = "\n".join(
+        part
+        for part in [request.case.original_text, request.case.ocr_text]
+        if part and part.strip()
+    ).strip().lower()
+    if not text:
+        return True
+    if _is_greeting_or_chitchat(text):
+        return True
+    return not _has_diagnostic_keywords(text)
+
+
+def _has_diagnostic_entities(entities: dict[str, str]) -> bool:
+    diagnostic_keys = {
+        "uid",
+        "user_id",
+        "account_id",
+        "asset_symbol",
+        "symbol",
+        "interval",
+        "service_name",
+        "issue_type",
+        "order_id",
+        "case_no",
+        "debug_local_code",
+        "gateway_evidence_status",
+    }
+    return any(key in diagnostic_keys and str(value).strip() for key, value in entities.items())
+
+
+def _is_greeting_or_chitchat(text: str) -> bool:
+    normalized = re.sub(r"[\s,，。.!！?？~～]+", "", text)
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "你好",
+        "您好",
+        "你好呀",
+        "您好呀",
+        "在吗",
+        "在么",
+        "早上好",
+        "下午好",
+        "晚上好",
+    }
+    return normalized in greetings or bool(re.fullmatch(r"(你?好|您好)[呀啊吗么]*", normalized))
+
+
+def _has_diagnostic_keywords(text: str) -> bool:
+    return any(
+        word in text
+        for word in [
+            "health-food",
+            "health_food",
+            "kline",
+            "k线",
+            "资产",
+            "余额",
+            "推荐",
+            "餐食",
+            "token",
+            "配额",
+            "报错",
+            "异常",
+            "错误",
+            "失败",
+            "不对",
+            "不准",
+            "没有",
+            "缺少",
+            "超时",
+            "生产",
+            "接口",
+            "日志",
+            "uid",
+            "用户",
+            "订单",
+            "服务",
+            "gateway",
+            "网关",
         ]
     )

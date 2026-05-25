@@ -327,6 +327,18 @@ class FakeGateway(GatewayHTTPClient):
         }
 
 
+class MockEvidenceGateway(FakeGateway):
+    def invoke_tool(self, tool_name: str, **kwargs: Any) -> dict[str, Any]:
+        self.invocations.append((tool_name, kwargs["arguments"]))
+        return {
+            "tool_call_id": "tc_" + tool_name,
+            "query_id": "query_" + tool_name,
+            "status": "success",
+            "summary": f"{tool_name} mock evidence success",
+            "data": {"source": "mock_adapter", "uid": kwargs["arguments"].get("uid")},
+        }
+
+
 class CapturingLLM:
     is_real = False
 
@@ -399,6 +411,45 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
         self.assertIn("orchestrator_plan", decision_types)
         self.assertIn("tool_invocation", decision_types)
+
+    def test_greeting_asks_for_problem_without_knowledge_or_gateway(self) -> None:
+        self.repo.upsert_knowledge(
+            {
+                "title": "不应命中的平台经验",
+                "issue_domain": "health_food",
+                "issue_type": "每日推荐缺失",
+                "typical_description": "如果问候语命中这个经验就是错误。",
+                "recommended_steps": [],
+                "common_causes": [],
+                "useful_tools": [],
+                "confidence": 0.99,
+                "observed_case_count": 9,
+            }
+        )
+
+        response = self.client.post("/web/api/chat", data={"message": "你好", "async": "0"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["case"]["status"], "WAITING_USER_REPLY")
+        self.assertIn("请描述具体生产问题", body["reply"])
+        self.assertEqual(self.gateway.invocations, [])
+        self.assertIn("intake_agent", [item["agent_name"] for item in body["agent_runs"]])
+        self.assertNotIn("平台经验命中", body["reply"])
+
+    def test_mock_gateway_and_local_rules_are_disclosed_in_reply(self) -> None:
+        platform = AgentPlatform(self.config, MemoryRepository(), gateway=MockEvidenceGateway())
+        with TestClient(create_app(platform=platform)) as client:
+            response = client.post(
+                "/web/api/chat",
+                data={"message": "health-food uid hf-mock-boundary 今日 token 消耗数量不对", "async": "0"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("mock adapter", body["reply"])
+        self.assertIn("未启用本地决策 Agent", body["reply"])
+        self.assertIn("规则编排", body["reply"])
 
     def test_case_payload_contains_agent_runs_and_events(self) -> None:
         response = self.client.post(
