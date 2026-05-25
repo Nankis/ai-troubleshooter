@@ -505,6 +505,36 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertEqual(rejected.status_code, 400, rejected.text)
         self.assertIn("not non-interactive LLM capable", rejected.json()["error"])
 
+    def test_local_agent_enable_keeps_one_decision_provider_active(self) -> None:
+        discovered = [
+            {
+                "provider_id": "claude_code",
+                "display_name": "Claude Code",
+                "kind": "coding_agent",
+                "installed": True,
+                "llm_capable": True,
+                "enabled": False,
+            },
+            {
+                "provider_id": "codex",
+                "display_name": "Codex CLI",
+                "kind": "coding_agent",
+                "installed": True,
+                "llm_capable": True,
+                "enabled": False,
+            },
+        ]
+
+        with mock.patch("agent_platform.service.discover_local_agents", return_value=discovered):
+            first = self.client.post("/web/api/local-agents/enable", json={"provider_id": "claude_code"})
+            second = self.client.post("/web/api/local-agents/enable", json={"provider_id": "codex"})
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        providers = next(iter(self.repo.runtimes.values()))["provider_list"]
+        states = {item["provider_id"]: item["enabled"] for item in providers}
+        self.assertEqual(states, {"claude_code": False, "codex": True})
+
     def test_local_agent_llm_provider_uses_noninteractive_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "fake-local-agent"
@@ -524,6 +554,50 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertEqual(result.model, "custom")
         self.assertEqual(result.payload["issue_domain"], "health_food")
         self.assertEqual(result.payload["entities"]["uid"], "hf-local")
+
+    def test_web_enabled_codex_agent_drives_decision_advisor_without_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "fake-codex-advisor"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "cat >/dev/null\n"
+                "printf '%s' '{\"action\":\"invoke_tools\",\"reason\":\"Codex local advisor selected quota evidence first\",\"confidence\":0.82,\"selected_tools\":[\"get_health_food_ai_quota\"]}'\n",
+                encoding="utf-8",
+            )
+            script.chmod(0o700)
+            discovered = [
+                {
+                    "provider_id": "codex",
+                    "display_name": "Codex CLI",
+                    "kind": "coding_agent",
+                    "installed": True,
+                    "llm_capable": True,
+                    "version": "codex-cli-test",
+                    "enabled": False,
+                }
+            ]
+
+            with (
+                mock.patch("agent_platform.service.discover_local_agents", return_value=discovered),
+                mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False),
+            ):
+                enabled = self.client.post("/web/api/local-agents/enable", json={"provider_id": "codex"})
+                response = self.client.post(
+                    "/web/api/chat",
+                    data={"message": "health-food uid hf-web-codex 今日 token 消耗数量不对", "async": "0"},
+                )
+
+        self.assertEqual(enabled.status_code, 200, enabled.text)
+        self.assertTrue(enabled.json()["provider"]["enabled"])
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("llm_decision_agent", [item["agent_name"] for item in body["agent_runs"]])
+        self.assertEqual([name for name, _ in self.gateway.invocations], ["get_health_food_ai_quota"])
+        advisor_run = next(item for item in body["agent_runs"] if item["agent_name"] == "llm_decision_agent")
+        self.assertEqual(advisor_run["model_provider"], "local_agent")
+        self.assertEqual(advisor_run["model_name"], "codex")
+        self.assertIn("enabled_local_agent", json.dumps(advisor_run, ensure_ascii=False))
+        self.assertIn("codex", json.dumps(advisor_run, ensure_ascii=False))
 
     def test_web_chat_must_call_decision_engine_plan(self) -> None:
         decision_engine = RecordingDecisionEngine()

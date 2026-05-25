@@ -1418,7 +1418,7 @@
 
         <div class="side-block">
           <div class="side-head">
-            <div class="card-title">本地 Agent</div>
+            <div class="card-title">本地决策 Agent</div>
             <button class="secondary-small" type="button" id="discoverLocalAgents">发现</button>
           </div>
           <div class="local-agent-list" id="localAgentList"></div>
@@ -1771,7 +1771,7 @@
         state.localAgents = payload.providers || [];
         state.localAgentRuntime = payload.runtime || null;
         renderLocalAgents();
-        if (options.showFeedback) showToast("已发现 " + String(state.localAgents.length) + " 个本地 Agent/编辑器");
+        if (options.showFeedback) showToast("可做决策层的本地 Agent：" + String(localDecisionAgents().length) + " 个");
       } catch (error) {
         showToast("本地 Agent 发现失败：" + error.message);
       } finally {
@@ -1797,7 +1797,7 @@
           item.provider_id === provider.provider_id ? { ...item, ...provider } : item
         ));
         renderLocalAgents();
-        showToast(enabled ? "本地 Agent 已启用" : "本地 Agent 已停用");
+        showToast(enabled ? "已启用为决策层 Agent" : "已停用决策层 Agent");
       } catch (error) {
         showToast("启用失败：" + error.message);
       }
@@ -2674,14 +2674,17 @@
 
     function renderLocalAgents() {
       if (state.localAgentDiscovering && !state.localAgents.length) {
-        el.localAgentList.innerHTML = `<div class="row-meta">正在发现本地 Claude Code、Codex、Cursor...</div>`;
+        el.localAgentList.innerHTML = `<div class="row-meta">正在发现本地 Claude Code、Codex、Cursor Agent...</div>`;
         return;
       }
-      if (!state.localAgents.length) {
-        el.localAgentList.innerHTML = `<div class="row-meta">尚未发现，点击“发现”扫描 PATH 和本地配置引用。</div>`;
+      const decisionAgents = localDecisionAgents();
+      if (!decisionAgents.length) {
+        const suffix = state.localAgents.length ? `；已隐藏 ${state.localAgents.length} 个不可用于决策层的项目` : "";
+        el.localAgentList.innerHTML = `<div class="row-meta">尚未发现可启用的本地决策 Agent${escapeHTML(suffix)}</div>`;
         return;
       }
-      el.localAgentList.innerHTML = state.localAgents.map((agent) => {
+      const hiddenCount = state.localAgents.length - decisionAgents.length;
+      el.localAgentList.innerHTML = decisionAgents.map((agent) => {
         const installed = Boolean(agent.installed);
         const llmCapable = Boolean(agent.llm_capable);
         const enabled = Boolean(agent.enabled);
@@ -2697,18 +2700,18 @@
                 data-local-agent-toggle="${escapeAttr(agent.provider_id || "")}"
                 data-local-agent-enabled="${enabled ? "1" : "0"}"
                 ${canEnable ? "" : "disabled"}>
-                ${enabled ? "停用" : "启用"}
+                ${enabled ? "停用" : "启用为决策层"}
               </button>
             </div>
             <div class="local-agent-tags">
               <span class="tag ${installed ? "green" : "red"}">${installed ? "已安装" : "未安装"}</span>
-              <span class="tag ${llmCapable ? "green" : "yellow"}">${llmCapable ? "可做决策 LLM" : "仅发现"}</span>
-              ${enabled ? `<span class="tag green">已启用</span>` : ""}
+              <span class="tag ${llmCapable ? "green" : "yellow"}">${llmCapable ? "可做决策层" : "仅发现"}</span>
+              ${enabled ? `<span class="tag green">决策层已启用</span>` : ""}
             </div>
             <div class="row-meta">${escapeHTML((agent.warnings || []).join("；") || agent.invocation || "")}</div>
           </div>
         `;
-      }).join("");
+      }).join("") + (hiddenCount > 0 ? `<div class="row-meta">已隐藏 ${hiddenCount} 个不可用于决策层的本地项目</div>` : "");
       el.localAgentList.querySelectorAll("[data-local-agent-toggle]").forEach((button) => {
         button.addEventListener("click", () => {
           const providerID = button.dataset.localAgentToggle || "";
@@ -2716,6 +2719,10 @@
           enableLocalAgent(providerID, enabled);
         });
       });
+    }
+
+    function localDecisionAgents() {
+      return state.localAgents.filter((agent) => Boolean(agent.installed) && Boolean(agent.llm_capable));
     }
 
     function setBusy(value) {

@@ -180,7 +180,9 @@ export CLAUDE_CODE_MODEL=replace-with-proxy-model
 
 ### 5.5 本地 Claude Code / Codex 作为决策 advisor
 
-业务方通常不需要配置本地 agent；这是平台方本地调试和增强决策层的能力。平台方机器已经安装 Claude Code 或 Codex CLI 时，可以这样启用：
+业务方通常不需要配置本地 agent；这是平台方本地调试和增强决策层的能力。平台方机器已经安装 Claude Code 或 Codex CLI 时，推荐在 Web 右侧“本地决策 Agent”点击“发现”，再启用 Codex/Claude Code。启用后不需要重启 Agent Platform，下一个 case 会动态把它作为 `llm_decision_agent` advisor。
+
+无 Web 的 headless 场景才需要用环境变量强制指定：
 
 ```bash
 export AI_MODEL_PROFILE=local_agent
@@ -190,7 +192,7 @@ export DECISION_LLM_ENABLED=true
 export LLM_TIMEOUT_SECONDS=30
 ```
 
-启动 Agent Platform 后，可用 API 或 Web 右侧“本地 Agent”发现和启用：
+启动 Agent Platform 后，也可用 API 发现和启用：
 
 ```bash
 curl -s http://localhost:19091/api/v1/local-agents/discover
@@ -199,7 +201,7 @@ curl -s -X POST http://localhost:19091/api/v1/local-agents/enable \
   -d '{"provider_id":"codex","enabled":true}'
 ```
 
-本地 agent 只作为 Python Decision Engine 的 `llm_decision_agent` advisor；Verifier 仍会校验可用工具、调用预算和 Gateway-only 边界。平台不会读取本地 agent 配置里的 token/key，也不允许本地 agent 直接查询生产 DB 或自动修改业务代码。
+本地 agent 只作为 Python Decision Engine 的 `llm_decision_agent` advisor；Agent Run 会记录 `model_provider=local_agent`、`model_name=codex` 或对应 provider。Verifier 仍会校验可用工具、调用预算和 Gateway-only 边界。平台不会读取本地 agent 配置里的 token/key，也不允许本地 agent 直接查询生产 DB 或自动修改业务代码。
 
 ### 5.6 公司统一模型网关
 

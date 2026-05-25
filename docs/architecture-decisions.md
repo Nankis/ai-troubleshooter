@@ -228,7 +228,7 @@ Agent Platform 在每个 case 的 `process_case()` 中创建 root supervisor run
 
 - Multica daemon 会扫描本机 Claude Code、Codex、Cursor Agent 等 CLI，并把 runtime/provider 上报给平台；本项目由 Python Agent Platform 提供 `local-agents/discover`，直接发现当前机器的 provider。
 - Multica 把 provider 抽象成统一 backend/execute options；本项目把 provider 抽象成 `LocalAgentProvider`，记录 executable、version、capabilities、config refs、enabled 和 LLM 可用性。
-- Multica UI 先选 runtime 再选 provider；本项目 Web 右侧“本地 Agent”先发现 runtime，再显式启用 provider。
+- Multica UI 先选 runtime 再选 provider；本项目 Web 右侧“本地决策 Agent”先发现 runtime，再显式启用 provider，启用后下一个 case 动态进入 `llm_decision_agent`，不要求重启或切换主模型 profile。
 - Multica agent 执行面向代码任务；本项目本地 agent 只允许作为 `llm_decision_agent` advisor 或 debug-only 本地代码辅助，不能绕过 Gateway 查生产证据，不能自动修改业务代码。
 - Multica 支持 provider 自定义参数；本项目首发不开放任意 custom args，避免用户把危险参数注入本地 agent 命令。后续如支持，只能走白名单和 blocked args。
 

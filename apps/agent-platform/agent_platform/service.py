@@ -27,7 +27,7 @@ from .context_ledger import (
     evidence_refs_from_observations,
     final_answer_verification,
 )
-from .decision_advisor import LLMDecisionAdvisor
+from .decision_advisor import RuntimeLLMDecisionAdvisor
 from .gateway import GatewayHTTPClient
 from .llm import LLMClient
 from .local_agents import discover_local_agents, probe_local_agent, runtime_id, runtime_name
@@ -376,7 +376,10 @@ class AgentPlatform:
         if enabled and not target.get("llm_capable") and not allow_non_llm:
             raise ValueError(f"local agent provider {provider_id} is not non-interactive LLM capable")
         for provider in providers:
-            if _normalize_provider_id(provider.get("provider_id")) == provider_id:
+            current_id = _normalize_provider_id(provider.get("provider_id"))
+            if enabled and provider.get("llm_capable"):
+                provider["enabled"] = current_id == provider_id
+            elif current_id == provider_id:
                 provider["enabled"] = enabled
         runtime = self.repository.register_agent_runtime(
             {
@@ -493,7 +496,14 @@ class AgentPlatform:
         return case
 
     def _build_decision_engine(self) -> DecisionEngine:
-        advisor = LLMDecisionAdvisor(self.llm) if _decision_llm_enabled(self.config) else None
+        advisor = None
+        if not _decision_llm_disabled():
+            advisor = RuntimeLLMDecisionAdvisor(
+                self.llm,
+                self._enabled_decision_local_agent_provider_id,
+                timeout_seconds=self.config.llm.timeout_seconds,
+                fallback_enabled=_decision_llm_enabled(self.config),
+            )
         return DecisionEngine(SupervisorAgentTeam(decision_advisor=advisor))
 
     def _local_agent_workspace_root(self, payload: dict[str, Any]) -> str:
@@ -521,6 +531,26 @@ class AgentPlatform:
                     if provider_id:
                         enabled.add(provider_id)
         return enabled
+
+    def _enabled_decision_local_agent_provider_id(self) -> str:
+        providers: list[dict[str, Any]] = []
+        for runtime in self.repository.list_agent_runtimes(50):
+            if str(runtime.get("runtime_id") or "") != runtime_id():
+                continue
+            for provider in runtime.get("provider_list") or []:
+                if not isinstance(provider, dict):
+                    continue
+                if not provider.get("enabled") or not provider.get("llm_capable") or not provider.get("installed"):
+                    continue
+                provider_id = _normalize_provider_id(provider.get("provider_id"))
+                if provider_id:
+                    providers.append({"provider_id": provider_id, "enabled_at": runtime.get("updated_at")})
+        preferred = _normalize_provider_id(os.getenv("LOCAL_AGENT_PROVIDER", ""))
+        if preferred:
+            for provider in providers:
+                if provider["provider_id"] == preferred:
+                    return preferred
+        return str(providers[0]["provider_id"]) if providers else ""
 
     def _classify_and_extract(self, case: dict[str, Any]) -> dict[str, object]:
         text = f"{case.get('original_text') or ''}\n{case.get('ocr_text') or ''}"
@@ -946,6 +976,7 @@ class AgentPlatform:
             if report.agent_name == "supervisor":
                 self._record_agent_run_event(parent_run, "agent_report", "success", "Supervisor report", report.reason, _agent_report_payload(report))
                 continue
+            model_provider, model_name = _agent_report_model_fields(report, self.config.llm.provider, self.config.llm.model)
             run = self.repository.create_agent_run(
                 {
                     "case_id": int(case["id"]),
@@ -956,8 +987,8 @@ class AgentPlatform:
                     "run_status": "completed",
                     "input_summary": f"case={case['case_no']} action={report.action}",
                     "output_summary": report.reason,
-                    "model_provider": self.config.llm.provider,
-                    "model_name": self.config.llm.model,
+                    "model_provider": model_provider,
+                    "model_name": model_name,
                     "started_at": datetime.now(),
                     "finished_at": datetime.now(),
                     "latency_ms": 0,
@@ -1129,6 +1160,20 @@ def _agent_role(agent_name: str) -> str:
     return "agent"
 
 
+def _agent_report_model_fields(report: Any, default_provider: str, default_model: str) -> tuple[str, str]:
+    if str(getattr(report, "agent_name", "")) != "llm_decision_agent":
+        return default_provider, default_model
+    observations = [str(value) for value in (getattr(report, "observations", None) or [])]
+    provider = next((item.split("=", 1)[1] for item in observations if item.startswith("provider=")), "")
+    model = next((item.split("=", 1)[1] for item in observations if item.startswith("model=")), "")
+    local_provider = next((item.split("=", 1)[1] for item in observations if item.startswith("local_provider=")), "")
+    if local_provider:
+        return "local_agent", local_provider
+    if provider or model:
+        return provider or default_provider, model or default_model
+    return default_provider, default_model
+
+
 def _decision_llm_enabled(config: Config) -> bool:
     configured = os.getenv("DECISION_LLM_ENABLED", "").strip().lower()
     if configured in {"1", "true", "yes", "y", "on", "enabled"}:
@@ -1136,6 +1181,10 @@ def _decision_llm_enabled(config: Config) -> bool:
     if configured in {"0", "false", "no", "n", "off", "disabled"}:
         return False
     return config.llm.provider.lower().strip() in {"local_agent", "local_cli", "local-agent", "local-cli"}
+
+
+def _decision_llm_disabled() -> bool:
+    return os.getenv("DECISION_LLM_ENABLED", "").strip().lower() in {"0", "false", "no", "n", "off", "disabled"}
 
 
 def _real_llm_provider(provider: str) -> bool:

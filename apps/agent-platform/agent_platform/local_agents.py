@@ -185,7 +185,7 @@ def _codex_provider(home: Path, workspace: Path, path_env: str | None) -> LocalA
         version=version,
         llm_capable=llm_capable,
         default_model=os.getenv("LOCAL_AGENT_CODEX_MODEL", ""),
-        invocation="codex exec --sandbox read-only --ask-for-approval never --ephemeral",
+        invocation="codex exec --sandbox read-only --ephemeral",
         status="available" if installed else "missing",
         capabilities=capabilities,
         config_refs=_config_refs(home, workspace, [home / ".codex" / "config.toml", workspace / ".codex" / "config.toml"]),
@@ -265,12 +265,7 @@ def _complete_with_codex(prompt: str, payload: dict[str, Any], model: str, timeo
     if not executable:
         raise RuntimeError("codex command not found")
     with tempfile.TemporaryDirectory(prefix="ai-troubleshooter-codex-") as tmp:
-        schema_path = Path(tmp) / "schema.json"
         output_path = Path(tmp) / "last_message.json"
-        schema_path.write_text(
-            json.dumps({"type": "object", "additionalProperties": True}, ensure_ascii=False),
-            encoding="utf-8",
-        )
         args = [
             executable,
             "exec",
@@ -278,13 +273,12 @@ def _complete_with_codex(prompt: str, payload: dict[str, Any], model: str, timeo
             "--ephemeral",
             "--sandbox",
             "read-only",
-            "--ask-for-approval",
-            "never",
-            "--output-schema",
-            str(schema_path),
             "--output-last-message",
             str(output_path),
         ]
+        help_text = _command_output([executable, "exec", "--help"], 3)
+        if "--ask-for-approval" in help_text:
+            args.extend(["--ask-for-approval", "never"])
         selected_model = _model_or_empty(model, {"auto", "codex", "codex_cli"})
         if selected_model:
             args.extend(["--model", selected_model])

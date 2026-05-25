@@ -48,7 +48,7 @@ flowchart LR
 | Lark / 飞书入口 | 归属 Python Agent Platform；已支持 challenge、encrypted callback 解包、verification token、群 allowlist、消息幂等和图片下载入口。真实 bot 仍需要公司凭据和公网/内网回调地址联调验收。 |
 | Case / Knowledge / Audit | Python Agent Platform 写平台 MySQL；Go Gateway 只写工具审计。Agent Run 和 Context Ledger 记录排查轨迹、压缩上下文和证据引用，不把原始工具数据塞进 LLM。`DB_DRIVER=mysql` 时没有 DB 配置会失败。 |
 | Decision Engine | Python 已提供 Supervisor、Kline、Asset、HealthFood、Knowledge、Local Code、Verifier；Web Chat/Lark/飞书主路径都会在 Agent Platform 进程内调用 `DecisionEngine.plan()`，是否复用经验、是否查询 Gateway、查询哪些工具都由决策层决定。 |
-| Local Agent Runtime | 参考 Multica 的 runtime/provider 思路，Python Agent Platform 可发现本机 Claude Code、Codex、Cursor/Cursor Agent，显式启用后可把支持非交互 JSON 的本地 agent 作为 `llm_decision_agent` advisor；Verifier 仍执行工具预算和 Gateway-only 校验。 |
+| Local Agent Runtime | 参考 Multica 的 runtime/provider 思路，Python Agent Platform 可发现本机 Claude Code、Codex、Cursor/Cursor Agent；Web 右侧启用支持非交互 JSON 的本地 agent 后，下一个 case 会动态把它作为 `llm_decision_agent` advisor，Verifier 仍执行工具预算和 Gateway-only 校验。 |
 | Investigation Gateway | 已实现 Bearer、agent/scope/tool/chat allowlist、限流、timeout、审计、脱敏、动态只读工具发布和配置化 agent。 |
 | 业务接入 | 支持 mock、标准 HTTP readonly adapter、MCP readonly adapter、Web 录入能力、health-food 本地真实 adapter 和生产日志桥接方案。 |
 | 本地代码辅助 | debug-only，按服务名和仓库 allowlist 检索符号、调用边、receiver type、接口实现关系，并返回有界脱敏代码摘录、具体方法、行范围、疑点和下一步核对建议。 |
@@ -103,7 +103,9 @@ curl -s -X POST http://localhost:19091/api/v1/chat \
 
 没有模型 key 时可以临时用 `LLM_PROVIDER=local_rules` 做页面 smoke，但这不是大模型验收，不能把结果当成真实排障结论。
 
-本地已经安装 Claude Code 或 Codex 时，也可以让 Python 决策层通过本地 agent CLI 做 advisor：
+本地已经安装 Claude Code 或 Codex 时，可以在 Web 右侧“本地决策 Agent”点击“发现”，再启用 Codex/Claude Code。启用后不需要重启，也不要求把主模型切成 `local_agent`；下一个 case 会优先使用已启用的本地 agent 做 `llm_decision_agent` advisor。
+
+无 Web 的 headless 场景仍可用环境变量强制指定：
 
 ```bash
 export AI_MODEL_PROFILE=local_agent
@@ -112,7 +114,7 @@ export LOCAL_AGENT_WORKSPACE_ROOT="$PWD"
 export DECISION_LLM_ENABLED=true
 ```
 
-Web 右侧“本地 Agent”会发现并注册本机 runtime；启用只代表平台允许它作为候选，生产证据查询仍只能走 Gateway。
+本地决策 Agent 只负责给决策层建议工具计划；生产证据查询仍只能走 Gateway，不能绕过 scope、限流、审计和脱敏。
 
 更完整的本地运行、Web Chat、模型、health-food、MCP、DMS 和容器命令已经移到 [docs/local-runbook.md](docs/local-runbook.md)。
 

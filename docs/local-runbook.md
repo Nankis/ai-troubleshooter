@@ -163,7 +163,7 @@ Web 工作台支持：
 - 左侧按服务分组查看 Gateway tools，并可折叠。
 - 在“能力接入”粘贴 Claude/Cursor MCP JSON、MCP routes JSON 或 readonly manifest YAML/JSON，审核后发布只读工具。
 - 平台经验预览、编辑、录入和软删除。
-- 右侧查看当前排查状态、Agent Run 轨迹、AI 决策步骤、工具调用进度、运行环境和本地 Agent runtime。
+- 右侧查看当前排查状态、Agent Run 轨迹、AI 决策步骤、工具调用进度、运行环境和本地决策 Agent runtime。
 
 ## Local Agent Runtime Discovery
 
@@ -173,7 +173,7 @@ Web 工作台支持：
 curl -s http://localhost:19091/api/v1/local-agents/discover
 ```
 
-Web 工作台右侧“本地 Agent”也会触发同一接口。当前发现项：
+Web 工作台右侧“本地决策 Agent”也会触发同一接口，并默认只展示已安装且可非交互输出 JSON 的候选；Cursor editor-only、未安装 Cursor Agent 等不可做决策层的项目会被隐藏到提示行。当前发现项：
 
 | Provider | 发现方式 | 是否可做决策 LLM |
 | --- | --- | --- |
@@ -190,7 +190,9 @@ curl -s -X POST http://localhost:19091/api/v1/local-agents/enable \
   -d '{"provider_id":"codex","enabled":true}'
 ```
 
-启用只代表平台允许该本地 agent 作为候选；真正让它参与决策还要配置模型入口：
+Web 或 API 启用后，该 provider 会在下一个 case 动态进入 Python 决策层，作为 `llm_decision_agent` advisor；不需要重启 Agent Platform，也不需要把主模型配置成 `local_agent`。同一个本地 runtime 只保持一个可做决策层的 provider 为 enabled，启用 Codex 会自动关闭 Claude Code，反之亦然。
+
+无 Web 的 headless 场景可用环境变量强制指定本地 agent 主模型：
 
 ```bash
 export AI_MODEL_PROFILE=local_agent
@@ -203,7 +205,7 @@ export DECISION_LLM_ENABLED=true
 
 - 只调用非交互 CLI，输出必须是 JSON object。
 - 调用有 `LLM_TIMEOUT_SECONDS` 超时。
-- `llm_decision_agent` 只做 advisor；Verifier 仍会拦截超预算、不可用工具和非 Gateway 工具。
+- `llm_decision_agent` 只做 advisor；Agent Run 会记录 `model_provider=local_agent`、`model_name=codex` 或对应 provider，Verifier 仍会拦截超预算、不可用工具和非 Gateway 工具。
 - 不读取或保存 Claude/Codex/Cursor 配置里的 token/key，只记录配置文件是否存在。
 - 本地 agent 不能绕过 Gateway 查询生产证据，也不能自动修改业务代码。
 

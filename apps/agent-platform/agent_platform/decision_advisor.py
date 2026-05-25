@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
 from decision_engine.models import AgentReport, DecisionRequest, DecisionResponse, ToolPlan
 
+from .config import LLMConfig
 from .llm import LLMClient
 
 
@@ -52,6 +54,44 @@ class LLMDecisionAdvisor:
             ],
             risks=["LLM advisor output is advisory only; verifier enforces tool availability and budget"],
         )
+
+
+class RuntimeLLMDecisionAdvisor:
+    name = "llm_decision_agent"
+
+    def __init__(
+        self,
+        fallback_llm: LLMClient,
+        local_provider_selector: Callable[[], str],
+        *,
+        timeout_seconds: int,
+        fallback_enabled: bool = False,
+    ) -> None:
+        self.fallback_llm = fallback_llm
+        self.local_provider_selector = local_provider_selector
+        self.timeout_seconds = timeout_seconds
+        self.fallback_enabled = fallback_enabled
+
+    def evaluate(
+        self,
+        request: DecisionRequest,
+        agent_reports: list[AgentReport] | tuple[AgentReport, ...],
+        default_proposal: DecisionResponse,
+    ) -> AgentReport | None:
+        local_provider = self.local_provider_selector()
+        if local_provider:
+            llm = LLMClient(LLMConfig("local_agent", "", "", local_provider, self.timeout_seconds, False))
+            report = LLMDecisionAdvisor(llm).evaluate(request, agent_reports, default_proposal)
+            if report is not None:
+                report.observations.append("decision_llm_source=enabled_local_agent")
+                report.observations.append(f"local_provider={local_provider}")
+            return report
+        if self.fallback_enabled and self.fallback_llm.is_real:
+            report = LLMDecisionAdvisor(self.fallback_llm).evaluate(request, agent_reports, default_proposal)
+            if report is not None:
+                report.observations.append("decision_llm_source=configured_platform_llm")
+            return report
+        return None
 
 
 def _request_payload(request: DecisionRequest) -> dict[str, Any]:

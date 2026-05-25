@@ -2,11 +2,11 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-047-local-agent-runtime-discovery-decision-llm/HANDOFF.md`
+- `programs/P-2026-048-web-enabled-codex-decision-agent/HANDOFF.md`
 
 当前状态：
 
-- P-2026-047 已完成：支持 Local Agent Runtime Discovery，并让本地非交互 agent 可作为决策层 LLM advisor。
+- P-2026-048 收口中：Web 启用 Codex 已真实进入 Python 决策层，Web/MySQL/Gateway mock 链路和全量测试已通过，待提交并推送 main。
 
 接手规则：
 

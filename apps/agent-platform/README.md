@@ -61,6 +61,8 @@ export AI_MODEL_PROFILE=claude_code
 export CLAUDE_CODE_BASE_URL=http://127.0.0.1:19093
 export CLAUDE_CODE_API_KEY="$LOCAL_PROXY_TOKEN"
 
+# Headless 强制本地 agent 作为主模型时使用；普通 Web 场景优先在右侧
+# “本地决策 Agent”点击发现和启用，启用后无需重启即可作为 llm_decision_agent advisor。
 export AI_MODEL_PROFILE=local_agent
 export LOCAL_AGENT_PROVIDER=codex
 export LOCAL_AGENT_WORKSPACE_ROOT="$PWD"
@@ -75,5 +77,7 @@ export AI_MODEL_CONFIG_FILE="$HEALTH_FOOD_LOCAL_CONFIG"
 ```
 
 `AI_MODEL_PROFILE=qwen` 默认把文本模型接到 DashScope OpenAI-compatible，把图片理解接到 `qwen-vl-plus`；`AI_MODEL_PROFILE=gpt` 默认文本和图片都走 OpenAI。`LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 可以覆盖主模型；`VISION_PROVIDER`、`VISION_BASE_URL`、`VISION_API_KEY`、`VISION_MODEL` 可以单独覆盖图片模型，用于“主模型 GPT、图片 Qwen-VL”这类组合。
+
+Web 启用本地 Codex/Claude Code 时，只影响决策 advisor：`llm_decision_agent` 的 agent run 会记录 `model_provider=local_agent`、`model_name=codex` 或对应 provider；Supervisor、specialist、Verifier 仍按平台主模型/规则配置运行。
 
 没有真实 key 时可用 `LLM_PROVIDER=local_rules VISION_PROVIDER=local_rules` 做页面 smoke，但不能把结果记录成真实大模型或真实 Vision 验收。
