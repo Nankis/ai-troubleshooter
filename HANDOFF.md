@@ -2,11 +2,13 @@
 
 当前活跃 Program：
 
-- `programs/P-2026-049-web-chat-trust-boundaries/HANDOFF.md`
+- `programs/P-2026-050-require-real-decision-agent/HANDOFF.md`
 
 当前状态：
 
-- P-2026-049 已完成并推送 main：Web Chat 可信边界问题已修复并通过测试。主修复提交为 `cab210b`，收口提交为 `1dc42f4`。
+- P-2026-050 已完成代码修复并通过本地验证，待 commit/push。
+- 核心结果：无真实决策 Agent 时阻断排障；启用 Codex 本地 Agent 后才允许进入 Gateway 只读工具排查。
+- 证据：`case_20260525_000062` 无 Agent 阻断且 Gateway/Knowledge/Tool 日志为 0；`case_20260525_000061` 启用 Codex 后 `llm_decision_agent=local_agent/codex` 且工具调用成功。
 
 接手规则：
 

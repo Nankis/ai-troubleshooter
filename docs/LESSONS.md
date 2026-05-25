@@ -10,7 +10,7 @@
 | --- | ---: | --- | --- |
 | `program-first-discipline` | 1 | 平台级/后端能力扩展先改代码，后补 Program | 先建或读取 Program，再改代码；如果已犯错，补 Program 并在 `ERRORS.md` 写清 |
 | `program-history-rewrite` | 1 | 为了新架构、新命名或一致性，改写旧 Program 的历史上下文 | 不回写旧 Program；新建 Program 记录新决策；若必须修旧事实错误，要在当前 Program 写明例外原因 |
-| `mock-as-real-evidence` | 1 | 用 mock/fake 结果描述业务真实接入或生产验收 | 降级结论为 L2；真实验收必须调用真实服务/DB/日志/生产只读接口 |
+| `mock-as-real-evidence` | 2 | 用 mock/fake/local_rules 结果描述业务真实接入、生产验收或 Agent 排障 | 降级结论为 L2；真实验收必须调用真实服务/DB/日志/生产只读接口；`local_rules` 不能冒充决策 Agent |
 | `memory-as-persistence-evidence` | 1 | 用 `DB_DRIVER=memory` 验证平台数据、经验、审计或决策日志落库 | 改用 MySQL，查表并重启后读取；memory 只能写一次性 smoke |
 | `browser-input-capability-gap` | 2 | 浏览器自动化输入受虚拟剪贴板或坐标限制影响 | 区分“页面交互验证”和“坐标/键盘输入验证”；必要时用 Chrome 调试端口并记录 |
 | `model-output-overtrust` | 1 | 让模型输出单点决定分类、字段或排障路径 | 模型只作候选信号；关键字段必须有规则/校验 fallback |
@@ -32,6 +32,13 @@
 - 根因：没有强制“结论不能高于证据等级”，也没有把 mock/memory/local_rules 的限制写进入口规则。
 - 修复：`AGENTS.md` 新增 L0-L4 证据等级和持久化验收硬规则；P-2026-028 对现有功能重新做证据矩阵。
 - 规则：mock/fake/memory/local_rules 只能证明对应层级；涉及业务真实、生产、持久化、用户可见 UI 时，必须跑到对应真实依赖并记录查询/截图/API/表数据。
+
+## 2026-05-25：`local_rules` 不能冒充决策 Agent
+
+- 现象：关闭本地 Agent 后，Web Chat 仍可能继续用规则、平台经验或 Gateway 证据回复，用户会误以为是真实 Agent 排查。
+- 根因：只做了“披露 local_rules/mock”，没有把“无真实决策 Agent 禁止排障”做成代码守门。
+- 修复：P-2026-050 在 Python Agent Platform 主路径加入 `decision_agent_ready` 守门；未启用本地 Agent 或真实 LLM Decision advisor 时，只允许 intake 补充询问，禁止查询 Gateway、平台经验和工具调用。
+- 规则：以后凡是生产排障主路径，必须先证明真实决策 Agent 已启用；披露不是边界，阻断才是边界。
 
 ## 2026-05-23：浏览器输入能力限制要透明记录
 

@@ -219,7 +219,7 @@ curl -s -X POST http://localhost:19091/api/v1/local-agents/probe \
 
 ## 模型配置
 
-本地 smoke 可以用规则模型，但只能证明页面和链路能跑，不能作为真实大模型排障验收：
+本地 smoke 可以用规则模型，但只能证明页面入口能跑，不能作为真实大模型排障验收；未启用真实决策 Agent 时，平台会在查询 Gateway、平台经验和工具调用前阻断：
 
 ```bash
 export LLM_PROVIDER=local_rules

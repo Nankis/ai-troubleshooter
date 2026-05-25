@@ -57,6 +57,7 @@
 - 平台数据、知识库、AI 决策日志、工具审计、LLM/Vision provider 属于 Agent 平台；业务方只提供 readonly business APIs/adapters。
 - Python `apps/agent-platform` 是平台入口：Web Chat、Lark/飞书、图片、Case API、平台 MySQL、LLM/Vision、orchestrator、经验沉淀都在 Python 主路径。
 - Python `apps/decision-engine` 是 Agent Orchestrator：Supervisor、specialist agents、Knowledge Agent、Verifier、本地代码辅助排查都在这里。
+- 生产排障必须使用真实决策 Agent：启用本地 Codex/Claude Code 等非交互式 Agent，或配置真实 LLM 并开启 `DECISION_LLM_ENABLED=true`。`local_rules` 只能做 intake 补充询问，不能查 Gateway、不能查平台经验后给结论、不能冒充 Agent。
 - Go 正式职责只保留 `cmd/investigation-gateway`：业务 readonly tools、安全鉴权、scope、限流、脱敏、审计和超时。
 - Investigation Gateway 只管业务生产证据查询边界，不查平台经验库，也不连接 LLM。
 - Go 侧不保留 LLM、Vision、Web Chat、Lark bot、worker 或决策编排实现；新增入口、模型和决策能力必须写到 Python。

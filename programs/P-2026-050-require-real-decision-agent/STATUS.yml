@@ -1,0 +1,7 @@
+id: P-2026-050-require-real-decision-agent
+status: verification_passed
+created_at: "2026-05-25"
+updated_at: "2026-05-25"
+evidence_level: "L3 platform/local-agent, L2 mock-gateway"
+commit: ""
+push: ""

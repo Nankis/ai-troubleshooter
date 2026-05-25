@@ -22,6 +22,7 @@ from decision_engine import DecisionRequest, DecisionResponse, VerificationRepor
 from agent_platform.config import ChatPlatformConfig, Config, LLMConfig, VisionConfig, load_config
 from agent_platform.gateway import GatewayHTTPClient
 from agent_platform.llm import LLMClient, LLMResult
+from agent_platform.local_agents import runtime_id, runtime_name
 from agent_platform.repository import _json_or_none
 from agent_platform.server import create_app
 from agent_platform.service import AgentPlatform
@@ -340,13 +341,25 @@ class MockEvidenceGateway(FakeGateway):
 
 
 class CapturingLLM:
-    is_real = False
+    is_real = True
 
     def __init__(self) -> None:
         self.summary_observations: list[dict[str, Any]] = []
 
     def classify_and_extract(self, text: str) -> LLMResult:
         return LLMResult({}, "local_rules", "rules-v1")
+
+    def advise_decision(self, request: dict[str, Any], default_proposal: dict[str, Any]) -> LLMResult:
+        return LLMResult(
+            {
+                "action": "invoke_tools",
+                "reason": "capturing test advisor selected compact evidence path",
+                "confidence": 0.82,
+                "selected_tools": ["get_health_food_ai_quota"],
+            },
+            "capture",
+            "test-advisor",
+        )
 
     def summarize(self, case: dict[str, Any], observations: list[dict[str, Any]]) -> LLMResult:
         self.summary_observations = observations
@@ -365,6 +378,40 @@ class RecordingDecisionEngine:
             missing_fields=["user_id_or_uid"],
             verification=VerificationReport(accepted=True, reason="unit test"),
         )
+
+
+def _enable_codex_runtime(repo: MemoryRepository) -> None:
+    repo.register_agent_runtime(
+        {
+            "runtime_id": runtime_id(),
+            "runtime_name": runtime_name(),
+            "runtime_type": "local",
+            "host_name": "unit-test",
+            "provider_list": [
+                {
+                    "provider_id": "codex",
+                    "display_name": "Codex CLI",
+                    "installed": True,
+                    "llm_capable": True,
+                    "enabled": True,
+                }
+            ],
+            "workspace_root": "/tmp/ai-troubleshooter-test",
+            "runtime_status": "online",
+        }
+    )
+
+
+def _write_fake_local_agent_script(directory: str, payload: dict[str, Any]) -> Path:
+    script = Path(directory) / "fake-local-agent"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        "cat >/dev/null\n"
+        f"printf '%s' '{json.dumps(payload, ensure_ascii=False)}'\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o700)
+    return script
 
 
 class AgentPlatformFastAPITest(unittest.TestCase):
@@ -397,7 +444,7 @@ class AgentPlatformFastAPITest(unittest.TestCase):
     def tearDown(self) -> None:
         self.client_ctx.__exit__(None, None, None)
 
-    def test_health_food_web_chat_runs_python_orchestrator_and_gateway_tools(self) -> None:
+    def test_health_food_web_chat_requires_decision_agent_before_gateway_tools(self) -> None:
         response = self.client.post(
             "/web/api/chat",
             data={"message": "health-food uid hf-user-001 今日没有每日推荐", "async": "0"},
@@ -406,11 +453,16 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["case"]["issue_domain"], "health_food")
-        self.assertEqual(body["case"]["status"], "NEED_HUMAN_CONFIRMATION")
-        self.assertIn("get_health_food_recommendation_status", [name for name, _ in self.gateway.invocations])
+        self.assertEqual(body["case"]["status"], "WAITING_USER_REPLY")
+        self.assertIn("未启用真实决策 Agent", body["reply"])
+        self.assertIn("不会查询 Gateway", body["reply"])
+        self.assertEqual(self.gateway.invocations, [])
         decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
-        self.assertIn("orchestrator_plan", decision_types)
-        self.assertIn("tool_invocation", decision_types)
+        self.assertIn("decision_agent_ready", decision_types)
+        self.assertNotIn("gateway_tool_discovery", decision_types)
+        self.assertNotIn("knowledge_retrieval", decision_types)
+        self.assertNotIn("orchestrator_plan", decision_types)
+        self.assertNotIn("tool_invocation", decision_types)
 
     def test_greeting_asks_for_problem_without_knowledge_or_gateway(self) -> None:
         self.repo.upsert_knowledge(
@@ -434,10 +486,24 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertEqual(body["case"]["status"], "WAITING_USER_REPLY")
         self.assertIn("请描述具体生产问题", body["reply"])
         self.assertEqual(self.gateway.invocations, [])
-        self.assertIn("intake_agent", [item["agent_name"] for item in body["agent_runs"]])
+        supervisor = next(item for item in body["agent_runs"] if item["agent_name"] == "supervisor")
+        self.assertIn("intake_preflight", [item["event_type"] for item in supervisor["events"]])
         self.assertNotIn("平台经验命中", body["reply"])
 
-    def test_mock_gateway_and_local_rules_are_disclosed_in_reply(self) -> None:
+    def test_runtime_status_question_does_not_start_investigation(self) -> None:
+        response = self.client.post("/web/api/chat", data={"message": "你现在模型是用什么", "async": "0"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["case"]["status"], "WAITING_USER_REPLY")
+        self.assertIn("当前主模型配置", body["reply"])
+        self.assertIn("未启用真实决策 Agent", body["reply"])
+        self.assertEqual(self.gateway.invocations, [])
+        decision_types = [item["decision_type"] for item in body["ai_decision_logs"]]
+        self.assertIn("platform_runtime_status", decision_types)
+        self.assertNotIn("gateway_tool_discovery", decision_types)
+
+    def test_mock_gateway_is_not_called_without_decision_agent(self) -> None:
         platform = AgentPlatform(self.config, MemoryRepository(), gateway=MockEvidenceGateway())
         with TestClient(create_app(platform=platform)) as client:
             response = client.post(
@@ -447,15 +513,27 @@ class AgentPlatformFastAPITest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertIn("mock adapter", body["reply"])
-        self.assertIn("未启用本地决策 Agent", body["reply"])
-        self.assertIn("规则编排", body["reply"])
+        self.assertIn("未启用真实决策 Agent", body["reply"])
+        self.assertNotIn("mock adapter", body["reply"])
+        self.assertEqual(platform.gateway.invocations, [])
 
     def test_case_payload_contains_agent_runs_and_events(self) -> None:
-        response = self.client.post(
-            "/web/api/chat",
-            data={"message": "health-food uid hf-user-runtime 今日没有每日推荐", "async": "0"},
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            script = _write_fake_local_agent_script(
+                tmp,
+                {
+                    "action": "invoke_tools",
+                    "reason": "Codex local advisor selected recommendation evidence",
+                    "confidence": 0.82,
+                    "selected_tools": ["get_health_food_recommendation_status"],
+                },
+            )
+            _enable_codex_runtime(self.repo)
+            with mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False):
+                response = self.client.post(
+                    "/web/api/chat",
+                    data={"message": "health-food uid hf-user-runtime 今日没有每日推荐", "async": "0"},
+                )
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
@@ -652,7 +730,9 @@ class AgentPlatformFastAPITest(unittest.TestCase):
 
     def test_web_chat_must_call_decision_engine_plan(self) -> None:
         decision_engine = RecordingDecisionEngine()
-        platform = AgentPlatform(self.config, MemoryRepository(), gateway=FakeGateway(), decision_engine=decision_engine)
+        repo = MemoryRepository()
+        _enable_codex_runtime(repo)
+        platform = AgentPlatform(self.config, repo, gateway=FakeGateway(), decision_engine=decision_engine)
 
         result = platform.submit_chat(message="health-food 今日没有每日推荐", async_process=False)
 
@@ -663,10 +743,22 @@ class AgentPlatformFastAPITest(unittest.TestCase):
         self.assertIn("业务 uid", result["reply"])
 
     def test_context_ledger_records_agent_reports_tool_evidence_and_summary(self) -> None:
-        response = self.client.post(
-            "/web/api/chat",
-            data={"message": "health-food uid hf-user-ledger 今日没有每日推荐", "async": "0"},
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            script = _write_fake_local_agent_script(
+                tmp,
+                {
+                    "action": "invoke_tools",
+                    "reason": "Codex local advisor selected recommendation evidence",
+                    "confidence": 0.82,
+                    "selected_tools": ["get_health_food_recommendation_status"],
+                },
+            )
+            _enable_codex_runtime(self.repo)
+            with mock.patch.dict(os.environ, {"LOCAL_AGENT_COMMAND": str(script)}, clear=False):
+                response = self.client.post(
+                    "/web/api/chat",
+                    data={"message": "health-food uid hf-user-ledger 今日没有每日推荐", "async": "0"},
+                )
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
@@ -685,9 +777,14 @@ class AgentPlatformFastAPITest(unittest.TestCase):
 
     def test_llm_summary_receives_compact_evidence_not_raw_tool_data(self) -> None:
         llm = CapturingLLM()
-        platform = AgentPlatform(self.config, MemoryRepository(), gateway=FakeGateway(), llm_client=llm)
+        real_decision_config = replace(
+            self.config,
+            llm=LLMConfig("openai", "https://llm.example/v1", "unit-test-key", "gpt-test", 30, False),
+        )
+        with mock.patch.dict(os.environ, {"DECISION_LLM_ENABLED": "true"}, clear=False):
+            platform = AgentPlatform(real_decision_config, MemoryRepository(), gateway=FakeGateway(), llm_client=llm)
 
-        result = platform.submit_chat(message="health-food uid hf-user-compact 今日 token 消耗数量不对", async_process=False)
+            result = platform.submit_chat(message="health-food uid hf-user-compact 今日 token 消耗数量不对", async_process=False)
 
         self.assertIn("LLM saw compact evidence only", result["reply"])
         self.assertTrue(llm.summary_observations)

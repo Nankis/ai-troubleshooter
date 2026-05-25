@@ -918,7 +918,7 @@ export LARK_PLATFORM=feishu
 
 ### 能不能用 local_rules 验收
 
-只能做页面和链路 smoke。真实排障验收必须接真实 Qwen/GPT/Claude/公司模型网关，并关闭规则兜底：
+只能做页面入口 smoke。`local_rules` 不能进入生产排障；未启用真实决策 Agent 时，平台会在查询 Gateway、平台经验和工具调用前阻断。真实排障验收必须接真实 Qwen/GPT/Claude/公司模型网关，并关闭规则兜底：
 
 ```bash
 export LLM_ALLOW_RULE_FALLBACK=false

@@ -101,7 +101,7 @@ curl -s -X POST http://localhost:19091/api/v1/chat \
   -F 'async=0'
 ```
 
-没有模型 key 时可以临时用 `LLM_PROVIDER=local_rules` 做页面 smoke，但这不是大模型验收，不能把结果当成真实排障结论。
+没有模型 key 时可以临时用 `LLM_PROVIDER=local_rules` 做页面 smoke，但这不是大模型验收，也不能进入生产排障。系统只允许它做 intake 补充询问；没有启用真实决策 Agent 时会阻断 Gateway、平台经验和工具调用。
 
 本地已经安装 Claude Code 或 Codex 时，可以在 Web 右侧“本地决策 Agent”点击“发现”，再启用 Codex/Claude Code。启用后不需要重启，也不要求把主模型切成 `local_agent`；下一个 case 会优先使用已启用的本地 agent 做 `llm_decision_agent` advisor。
 
