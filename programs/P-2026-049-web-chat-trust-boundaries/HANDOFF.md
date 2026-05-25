@@ -11,10 +11,11 @@
 - 已支持 Web textarea Enter 发送、Shift+Enter 换行。
 - 已通过单测、真实 Web 和 MySQL 验证，证据见 `EVIDENCE.md`。
 - 主修复已提交为 `cab210b P-2026-049 harden web chat trust boundaries`。
+- 收口记录已提交并推送为 `1dc42f4 docs: close P-2026-049 handoff`。
 
 下一步：
 
-- 提交收口记录并 push main。
+- 无。后续真实 health-food adapter 或真实模型切换需另起 Program。
 
 风险：
 

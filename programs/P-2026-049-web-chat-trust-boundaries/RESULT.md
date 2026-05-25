@@ -45,6 +45,7 @@
 ## Commit
 
 - `cab210b P-2026-049 harden web chat trust boundaries`
+- `1dc42f4 docs: close P-2026-049 handoff`
 
 ## 残留风险
 
